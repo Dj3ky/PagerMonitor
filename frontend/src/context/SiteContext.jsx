@@ -1,0 +1,46 @@
+import { createContext, useContext, useState, useEffect } from 'react';
+
+const DEFAULT = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false };
+const BASE    = import.meta.env.VITE_BACKEND_URL || '';
+
+const SiteContext = createContext({ ...DEFAULT, update: () => {} });
+
+export function SiteProvider({ children }) {
+  const [settings, setSettings] = useState(DEFAULT);
+
+  useEffect(() => {
+    fetch(`${BASE}/api/site-settings`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        const s = {
+          siteName:        (d.siteName        || DEFAULT.siteName).trim(),
+          siteDescription:  d.siteDescription || DEFAULT.siteDescription,
+          newBadgeSeconds: Math.max(3, parseInt(d.newBadgeSeconds, 10) || DEFAULT.newBadgeSeconds),
+          mapDotColor:     d.mapDotColor     || DEFAULT.mapDotColor,
+          showMapButton:   d.showMapButton   !== false,
+          mapMaxAgeDays:   Math.max(1, parseInt(d.mapMaxAgeDays, 10) || DEFAULT.mapMaxAgeDays),
+          publicMode:      !!d.publicMode,
+        };
+        setSettings(s);
+        document.title = s.siteName;
+      })
+      .catch(() => {});
+  }, []);
+
+  const update = (patch) => {
+    setSettings(s => {
+      const n = { ...s, ...patch, siteName: (patch.siteName || s.siteName).trim() };
+      document.title = n.siteName;
+      return n;
+    });
+  };
+
+  return (
+    <SiteContext.Provider value={{ ...settings, update }}>
+      {children}
+    </SiteContext.Provider>
+  );
+}
+
+export const useSite = () => useContext(SiteContext);

@@ -1,0 +1,158 @@
+name: Release
+
+# Triggered when you push a tag like v2.1.0
+# Usage:
+#   git tag v2.1.0
+#   git push origin v2.1.0
+#
+# This workflow will:
+#   1. Build the React frontend
+#   2. Create a release archive (tar.gz + zip)
+#   3. Publish a GitHub Release with:
+#      - Auto-extracted changelog for this version
+#      - Both archive formats attached
+#      - Marked as latest
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'   # matches v2.1.0, v3.0.0, etc.
+
+permissions:
+  contents: write   # needed to create GitHub releases
+
+jobs:
+  release:
+    name: Build & publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history needed for changelog extraction
+
+      # ── 2. Setup Node ────────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      # ── 3. Extract version from tag ─────────────────────────────────────────
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"          # e.g. v2.1.0
+          VERSION="${TAG#v}"                # e.g. 2.1.0
+          echo "tag=$TAG"         >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building release for $TAG"
+
+      # ── 4. Verify package.json version matches tag ──────────────────────────
+      - name: Verify version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./backend/package.json').version")
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ backend/package.json version ($PKG_VERSION) doesn't match tag ($TAG_VERSION)"
+            echo "   Update backend/package.json before tagging."
+            exit 1
+          fi
+          echo "✅ Version $PKG_VERSION matches tag"
+
+      # ── 5. Install & build frontend ─────────────────────────────────────────
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # ── 6. Install backend dependencies (production only) ───────────────────
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --omit=dev
+
+      # ── 7. Create release archive ────────────────────────────────────────────
+      - name: Create release archives
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE_NAME="pagermonitor-v${VERSION}"
+
+          # Create staging directory with clean structure
+          mkdir -p "dist/${ARCHIVE_NAME}"
+
+          # Copy backend (without dev dependencies and data)
+          rsync -a --exclude='node_modules/.cache' \
+                   --exclude='data/' \
+                   --exclude='.env' \
+            backend/ "dist/${ARCHIVE_NAME}/backend/"
+
+          # Copy client
+          rsync -a --exclude='node_modules/.cache' \
+                   --exclude='.env' \
+            client/ "dist/${ARCHIVE_NAME}/client/"
+
+          # Copy built frontend (dist only — no node_modules needed at runtime)
+          mkdir -p "dist/${ARCHIVE_NAME}/frontend"
+          cp -r frontend/dist "dist/${ARCHIVE_NAME}/frontend/dist"
+
+          # Copy docker and config files
+          cp -r docker/                     "dist/${ARCHIVE_NAME}/docker/"
+          cp docker-compose.yml             "dist/${ARCHIVE_NAME}/"
+          cp docker-compose.client.yml      "dist/${ARCHIVE_NAME}/"
+          cp .dockerignore                  "dist/${ARCHIVE_NAME}/"
+          cp Makefile                       "dist/${ARCHIVE_NAME}/"
+          cp .env.example                   "dist/${ARCHIVE_NAME}/"
+          cp install.sh                     "dist/${ARCHIVE_NAME}/"
+          cp README.md                      "dist/${ARCHIVE_NAME}/"
+          cp INSTALL.md                     "dist/${ARCHIVE_NAME}/"
+          cp DOCKER.md                      "dist/${ARCHIVE_NAME}/"
+          cp CHANGELOG.md                   "dist/${ARCHIVE_NAME}/"
+          [ -d systemd ] && cp -r systemd/  "dist/${ARCHIVE_NAME}/systemd/"
+
+          # Create tar.gz
+          cd dist
+          tar -czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}/"
+          zip -r   "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}/"
+
+          echo "📦 Created:"
+          ls -lh "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}.zip"
+
+      # ── 8. Extract changelog for this version ───────────────────────────────
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Extract the section for this version from CHANGELOG.md
+          # Looks for ## [2.1.0] and grabs everything until the next ## [
+          NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
+
+          if [ -z "$NOTES" ]; then
+            NOTES="See [CHANGELOG.md](CHANGELOG.md) for details."
+          fi
+
+          # Write to file to avoid escaping issues
+          echo "$NOTES" > release_notes.md
+          echo "Release notes extracted ($(wc -l < release_notes.md) lines)"
+
+      # ── 9. Publish GitHub Release ───────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "PagerMonitor ${{ steps.version.outputs.tag }}"
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          files: |
+            dist/pagermonitor-v${{ steps.version.outputs.version }}.tar.gz
+            dist/pagermonitor-v${{ steps.version.outputs.version }}.zip
+          fail_on_unmatched_files: true

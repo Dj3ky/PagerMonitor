@@ -1,0 +1,28 @@
+# PagerMonitor — RPi SDR Client Dockerfile
+# Runs on a Raspberry Pi with RTL-SDR dongle.
+# Decodes pager messages and forwards them to the server.
+
+FROM node:20-alpine
+
+LABEL org.opencontainers.image.title="PagerMonitor Client"
+LABEL org.opencontainers.image.description="PagerMonitor RPi SDR client"
+
+RUN apk add --no-cache \
+    rtl-sdr \
+    multimon-ng \
+    && rm -rf /var/cache/apk/*
+
+WORKDIR /app
+
+COPY client/package*.json ./
+RUN npm ci --omit=dev --prefer-offline
+
+COPY client/ ./
+
+RUN mkdir -p /app/data && chown -R node:node /app
+
+USER node
+
+ENV NODE_ENV=production
+
+CMD ["node", "src/index.js"]

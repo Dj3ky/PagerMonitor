@@ -1,0 +1,35 @@
+# Dependencies
+backend/node_modules/
+frontend/node_modules/
+client/node_modules/
+
+# Build output
+frontend/dist/
+
+# Database and runtime data
+backend/data/
+
+# Environment files (contain secrets — never commit these)
+backend/.env
+client/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (contain secrets)
+.env
+client/.env
+backend/.env
+
+# Docker build artifacts
+frontend/dist
+backend/data/
+
+# Backups
+*.pmbackup
+*.pre-restore-*

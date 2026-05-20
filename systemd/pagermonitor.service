@@ -1,0 +1,36 @@
+[Unit]
+Description=PageMon — Real-time Pager Monitor
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Run as the user who owns the files — change 'pi' to your username if different
+User=pi
+Group=pi
+
+WorkingDirectory=/home/pi/pagermonitor/backend
+
+# Load environment from .env file
+EnvironmentFile=/home/pi/pagermonitor/backend/.env
+
+# Full path to node (find yours with: which node)
+ExecStart=/usr/bin/node src/index.js
+
+# Restart automatically if it crashes
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Give the SDR time to be ready after boot
+TimeoutStartSec=30
+
+# Logging to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pagermonitor
+
+[Install]
+WantedBy=multi-user.target

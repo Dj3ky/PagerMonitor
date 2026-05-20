@@ -1,0 +1,47 @@
+# PagerMonitor — Server-only Dockerfile
+# No SDR tools — receives decoded messages from remote RPi clients.
+# Use this on a Proxmox VM, NAS, or any Linux server.
+
+# ── Stage 1: Build frontend ───────────────────────────────────────────────────
+FROM node:20-alpine AS frontend-build
+
+WORKDIR /build
+COPY frontend/package*.json ./
+RUN npm ci --prefer-offline
+
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2: Production image ─────────────────────────────────────────────────
+FROM node:20-alpine
+
+LABEL org.opencontainers.image.title="PagerMonitor Server"
+LABEL org.opencontainers.image.description="PagerMonitor server (no SDR)"
+
+# wget for healthcheck
+RUN apk add --no-cache wget && rm -rf /var/cache/apk/*
+
+WORKDIR /app
+
+COPY backend/package*.json ./backend/
+RUN cd backend && npm ci --omit=dev --prefer-offline
+
+COPY backend/ ./backend/
+COPY --from=frontend-build /build/dist ./frontend/dist
+
+RUN mkdir -p /app/backend/data && \
+    chown -R node:node /app
+
+USER node
+
+EXPOSE 3000
+WORKDIR /app/backend
+
+ENV NODE_ENV=production
+ENV MODE=server
+ENV DISABLE_SDR=true
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD wget -qO- http://localhost:3000/health | grep -q '"ok":true' || exit 1
+
+CMD ["node", "src/index.js"]

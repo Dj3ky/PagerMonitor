@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PagerMonitor — RPi SDR Client
+#
+# Deploy on a Raspberry Pi with RTL-SDR dongle.
+# The client decodes pager messages and forwards them to the server.
+#
+# Setup:
+#   1. Copy and edit the client env:
+#      cp client/.env.example client/.env
+#      nano client/.env
+#
+#   2. Set these required values in client/.env:
+#      SERVER_URL=http://192.168.1.100:3000   ← your server IP
+#      CLIENT_KEY=your-shared-secret-key      ← from Admin → SDR Client Key
+#      CLIENT_ID=rpi-livingroom               ← unique name for this Pi
+#      RTL_FM_FREQ=173.250M                   ← your pager frequency
+#
+#   3. Start:
+#      docker compose -f docker-compose.client.yml up -d
+#
+#   4. Check logs:
+#      docker compose -f docker-compose.client.yml logs -f
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  pagermonitor-client:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.client
+    image: pagermonitor-client:latest
+    container_name: pagermonitor-client
+    restart: unless-stopped
+    env_file:
+      - client/.env
+    devices:
+      # RTL-SDR dongle
+      - /dev/bus/usb:/dev/bus/usb
+    network_mode: host    # simplest for reaching server on LAN
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"

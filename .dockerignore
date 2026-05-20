@@ -1,0 +1,24 @@
+# Development
+node_modules
+*/node_modules
+**/.git
+**/.env
+*.log
+.DS_Store
+
+# Frontend build artifacts (built inside Docker)
+frontend/dist
+frontend/.vite
+
+# Backend data (mounted as volume)
+backend/data
+
+# Docs and non-essential files
+*.md
+Makefile
+.env.example
+docker-compose*.yml
+
+# Test files
+**/*.test.js
+**/*.spec.js

@@ -1,0 +1,129 @@
+import { useState, useEffect, useRef } from 'react';
+import MessageRow from './MessageRow.jsx';
+import { useSite } from '../context/SiteContext.jsx';
+import { fetchLastSeen, saveLastSeen } from '../utils/api.js';
+
+const BADGE_COL_WIDTH = '130px';
+
+function FeedHeader() {
+  const cell = (label, style) => (
+    <span style={{ fontFamily:'monospace', fontSize:'0.6rem', fontWeight:700,
+      textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-3)', ...style }}>
+      {label}
+    </span>
+  );
+  return (
+    <div className="feed-header" style={{ display:'flex', alignItems:'center', gap:'0.5rem',
+      padding:'0.28rem 0.75rem', background:'var(--bg-2)', borderBottom:'1px solid var(--border)',
+      position:'sticky', top:0, zIndex:2 }}>
+      <span style={{ width:'12px', flexShrink:0 }} />
+      {cell('Date / Time',   { flexShrink:0, minWidth:'62px', textAlign:'right' })}
+      {cell('Capcode',       { flexShrink:0, minWidth:'70px' })}
+      {cell('Alias / Group', { flexShrink:0, width: BADGE_COL_WIDTH })}
+      {cell('Message',       { flex:1 })}
+    </div>
+  );
+}
+
+export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded }) {
+  const { newBadgeSeconds = 10 } = useSite();
+
+  // lastSeenId from the server — tracks per-user across all devices
+  const [lastSeenId, setLastSeenId] = useState(null); // null = not yet loaded
+  const markSeenTimer = useRef(null);
+  const pendingMarkId = useRef(null);
+
+  // Load user's last-seen from server on mount
+  useEffect(() => {
+    fetchLastSeen()
+      .then(d => setLastSeenId(d.lastSeenId ?? 0))
+      .catch(() => setLastSeenId(0)); // if fetch fails, show nothing as new
+  }, []);
+
+  // When messages change or lastSeenId loads, schedule marking as seen
+  useEffect(() => {
+    if (lastSeenId === null || messages.length === 0) return;
+    const topId = messages[0]?.id;
+    if (!topId || topId <= lastSeenId) return; // nothing new
+
+    // Save the id we intend to mark — the actual save happens after the delay
+    pendingMarkId.current = topId;
+
+    clearTimeout(markSeenTimer.current);
+    markSeenTimer.current = setTimeout(() => {
+      const id = pendingMarkId.current;
+      if (!id) return;
+      setLastSeenId(id);
+      saveLastSeen(id).catch(() => {}); // fire-and-forget, non-critical
+    }, newBadgeSeconds * 1000);
+
+    return () => clearTimeout(markSeenTimer.current);
+  }, [messages, lastSeenId, newBadgeSeconds]);
+
+  // When tab regains focus, also mark as seen after a short delay
+  useEffect(() => {
+    const onFocus = () => {
+      if (lastSeenId === null || messages.length === 0) return;
+      const topId = messages[0]?.id;
+      if (!topId || topId <= lastSeenId) return;
+      pendingMarkId.current = topId;
+      clearTimeout(markSeenTimer.current);
+      markSeenTimer.current = setTimeout(() => {
+        const id = pendingMarkId.current;
+        if (!id) return;
+        setLastSeenId(id);
+        saveLastSeen(id).catch(() => {});
+      }, 2000);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [messages, lastSeenId]);
+
+  useEffect(() => () => clearTimeout(markSeenTimer.current), []);
+
+  if (messages.length === 0) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center',
+        justifyContent:'center', height:'100%', color:'var(--text-3)', gap:'0.5rem' }}>
+        <div style={{ fontSize:'3rem', opacity:0.2 }}>📟</div>
+        <p style={{ fontFamily:'monospace', fontSize:'0.85rem', margin:0 }}>Waiting for transmissions…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ height:'100%', overflowY:'auto', display:'flex', flexDirection:'column' }}>
+      <FeedHeader />
+      {messages.map((msg, i) => {
+        const msgId = msg.id ?? 0;
+        const isNew = lastSeenId !== null && msgId > lastSeenId;
+        return (
+          <MessageRow key={msgId || i}
+            msg={msg}
+            isNew={isNew}
+            highlightRules={highlightRules}
+            groups={groups}
+            onFilter={onFilter}
+            onMapClick={onMapClick} />
+        );
+      })}
+
+      {/* Load more — only shown on last page when there are more messages in DB */}
+      {onLoadMore && !noMoreMessages && totalLoaded < totalInDb && (
+        <div style={{ padding:'0.75rem', textAlign:'center', flexShrink:0 }}>
+          <button onClick={onLoadMore} disabled={loadingMore}
+            style={{ padding:'0.4rem 1.25rem', borderRadius:'0.5rem', cursor: loadingMore ? 'wait' : 'pointer',
+              fontSize:'0.8rem', fontFamily:'monospace', fontWeight:600,
+              background:'color-mix(in srgb,var(--accent-green) 10%,transparent)',
+              border:'1px solid color-mix(in srgb,var(--accent-green) 25%,transparent)',
+              color: loadingMore ? 'var(--text-3)' : 'var(--accent-green)',
+              transition:'all 0.15s' }}>
+            {loadingMore ? 'Loading…' : `Load more  (${totalLoaded} of ${totalInDb} loaded)`}
+          </button>
+        </div>
+      )}
+
+      <style>{`@media(max-width:600px){.feed-header{display:none!important}}`}</style>
+    </div>
+  );
+}

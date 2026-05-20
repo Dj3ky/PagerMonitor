@@ -1,0 +1,95 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PagerMonitor — Docker Compose
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │  QUICK START                                                            │
+# │                                                                         │
+# │  Option A — Single device (RPi with SDR dongle):                       │
+# │    cp .env.example .env && nano .env                                    │
+# │    docker compose up -d                                                 │
+# │                                                                         │
+# │  Option B — Separate server (no SDR, clients forward via HTTP):         │
+# │    cp .env.example .env                                                 │
+# │    Set DISABLE_SDR=true in .env                                         │
+# │    docker compose --profile server up -d                                │
+# │                                                                         │
+# │  View logs:    docker compose logs -f                                   │
+# │  Stop:         docker compose down                                      │
+# │  Update:       docker compose pull && docker compose up -d --build      │
+# └─────────────────────────────────────────────────────────────────────────┘
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Option A: Single device (SDR + server on same machine) ───────────────
+  # Default profile — runs when you do: docker compose up -d
+  pagermonitor:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.single
+      args:
+        NODE_VERSION: "20"
+    image: pagermonitor:latest
+    container_name: pagermonitor
+    restart: unless-stopped
+    profiles: ["single", ""]    # default profile (no --profile flag needed)
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - pagermonitor-data:/app/backend/data
+    env_file:
+      - .env
+    environment:
+      - MODE=single
+      - DISABLE_SDR=${DISABLE_SDR:-false}
+    devices:
+      # RTL-SDR dongle — comment out if not connected
+      - /dev/bus/usb:/dev/bus/usb
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Option B: Server only (no SDR, receives from remote RPi clients) ─────
+  # Run with: docker compose --profile server up -d
+  pagermonitor-server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    image: pagermonitor-server:latest
+    container_name: pagermonitor-server
+    restart: unless-stopped
+    profiles: ["server"]
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - pagermonitor-data:/app/backend/data
+    env_file:
+      - .env
+    environment:
+      - MODE=server
+      - DISABLE_SDR=true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pagermonitor-data:
+    name: pagermonitor-data
+    labels:
+      com.pagermonitor.description: "PagerMonitor database storage"

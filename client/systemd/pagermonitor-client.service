@@ -1,0 +1,23 @@
+[Unit]
+Description=PagerMonitor Client — SDR forwarder
+After=network.target dev-bus-usb.device
+Wants=network.target
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/pagermonitor-client
+EnvironmentFile=/home/pi/pagermonitor-client/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pagermonitor-client
+
+[Install]
+WantedBy=multi-user.target

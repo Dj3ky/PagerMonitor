@@ -1,0 +1,59 @@
+# PagerMonitor — Single device Dockerfile
+# Runs both the web server and SDR pipeline on the same machine.
+# Requires RTL-SDR dongle and rtl-sdr + multimon-ng packages.
+
+# ── Stage 1: Build frontend ───────────────────────────────────────────────────
+FROM node:20-alpine AS frontend-build
+
+WORKDIR /build
+# Copy package files first for better layer caching
+COPY frontend/package*.json ./
+RUN npm ci --prefer-offline
+
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2: Production image ─────────────────────────────────────────────────
+FROM node:20-alpine
+
+LABEL org.opencontainers.image.title="PagerMonitor"
+LABEL org.opencontainers.image.description="Real-time POCSAG/FLEX pager monitoring"
+LABEL org.opencontainers.image.source="https://github.com/yourusername/pagermonitor"
+
+# Install SDR tools + wget (used by healthcheck)
+RUN apk add --no-cache \
+    rtl-sdr \
+    multimon-ng \
+    wget \
+    && rm -rf /var/cache/apk/*
+
+WORKDIR /app
+
+# Install backend dependencies first (better caching)
+COPY backend/package*.json ./backend/
+RUN cd backend && npm ci --omit=dev --prefer-offline
+
+# Copy backend source
+COPY backend/ ./backend/
+
+# Copy built frontend
+COPY --from=frontend-build /build/dist ./frontend/dist
+
+# Create data directory
+RUN mkdir -p /app/backend/data && \
+    chown -R node:node /app
+
+# Run as non-root user
+USER node
+
+EXPOSE 3000
+WORKDIR /app/backend
+
+ENV NODE_ENV=production
+ENV MODE=single
+
+# Health check using the /health endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD wget -qO- http://localhost:3000/health | grep -q '"ok":true' || exit 1
+
+CMD ["node", "src/index.js"]
