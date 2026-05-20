@@ -79,8 +79,8 @@ jobs:
       - name: Create release archives
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ARCHIVE_NAME="pagermonitor-v${VERSION}"
-
+          ARCHIVE_NAME="pagermonitor"
+          
           # Create staging directory with clean structure
           mkdir -p "dist/${ARCHIVE_NAME}"
 
