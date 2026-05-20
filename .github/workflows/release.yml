@@ -119,7 +119,7 @@ jobs:
           zip -r   "${ARCHIVE_NAME}-v${VERSION}.zip"    "${ARCHIVE_NAME}/"
 
           echo "📦 Created:"
-          ls -lh "${ARCHIVE_NAME}-v${VERSION}.tar.gz" "${ARCHIVE_NAME}.zip"
+          ls -lh "${ARCHIVE_NAME}-v${VERSION}.tar.gz" "${ARCHIVE_NAME}-v${VERSION}.zip"
 
       # ── 8. Extract changelog for this version ───────────────────────────────
       - name: Extract changelog entry
