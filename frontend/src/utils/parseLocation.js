@@ -1,60 +1,39 @@
 /**
- * Extract location from a pager message.
- * Handles Slovenian pager address formats.
+ * Extract location from a Slovenian pager message.
  *
- * Coordinate formats:
- *   46.0569,14.5058
- *   LAT:46.0569 LON:14.5058
- *   N46.0569 E14.5058
- *   46°03'24"N 14°30'21"E
- *
- * Slovenian address formats:
- *   Dunajska cesta 5              → "Dunajska cesta 5"
- *   ŽUPANJE NJIVE 24A             → "ŽUPANJE NJIVE 24A"   (all-caps)
- *   DOL PRI LJUBLJANI, VIDEM 54   → "VIDEM 54, DOL PRI LJUBLJANI"  (settlement + street)
- *   Dol pri Ljubljani, Videm 54   → same, mixed case
  */
 
 // ── Coordinate patterns ───────────────────────────────────────────────────────
-const DECIMAL_RE    = /(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/;
-const LAT_LON_RE    = /LAT[=:]\s*(-?\d+\.?\d*)\s+LON[=:]\s*(-?\d+\.?\d*)/i;
-const NSEW_RE       = /([NS])\s*(\d+\.\d+)\s+([EW])\s*(\d+\.\d+)/i;
-const DMS_RE        = /(\d+)°(\d+)'(\d+(?:\.\d+)?)"([NS])\s+(\d+)°(\d+)'(\d+(?:\.\d+)?)"([EW])/i;
+const DECIMAL_RE = /(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/;
+const LAT_LON_RE = /LAT[=:]\s*(-?\d+\.?\d*)\s+LON[=:]\s*(-?\d+\.?\d*)/i;
+const NSEW_RE    = /([NS])\s*(\d+\.\d+)\s+([EW])\s*(\d+\.\d+)/i;
+const DMS_RE     = /(\d+)°(\d+)'(\d+(?:\.\d+)?)"([NS])\s+(\d+)°(\d+)'(\d+(?:\.\d+)?)"([EW])/i;
 
 function dms(deg, min, sec, dir) {
   const d = +deg + +min / 60 + +sec / 3600;
   return (dir === 'S' || dir === 'W') ? -d : d;
 }
 function validCoord(lat, lng) {
-  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 &&
+         Math.abs(lat) > 0.001 && Math.abs(lng) > 0.001;
 }
 
-// ── Slovenian address patterns ────────────────────────────────────────────────
-// Matches a word sequence ending with a house number:
-//   - Mixed/title case: "Dunajska cesta 5" or "Županje Njive 24A"
-//   - ALL CAPS: "ŽUPANJE NJIVE 24A"
-// Word chars include Slovenian Š Č Ž etc.
-const SLO_WORD     = '[A-ZČŠŽĆĐ][A-ZČŠŽĆĐa-zčšžćđ]*';
-const STREET_RE    = new RegExp(
-  // Settlement prefix: "DOL PRI LJUBLJANI, " or "Dol pri Ljubljani, "
-  `(?:(${SLO_WORD}(?:\\s+(?:pri|v|na|pod|nad|ob|za|${SLO_WORD}))*)\\s*,\\s*)?` +
-  // Street name: one or more words (mixed or all-caps)
-  `((?:${SLO_WORD}|[A-ZČŠŽ]{2,})(?:\\s+(?:${SLO_WORD}|[A-ZČŠŽ]{2,}|pri|v|na|pod|nad|ob|za))*)` +
-  // House number: digits + optional letter
-  `\\s+(\\d+[a-zA-Z]?)\\b`
-);
-
+// ── Suffix candidates for Nominatim ──────────────────────────────────────────
 /**
- * Build the best possible geocoding query from parsed address parts.
- * For ambiguous street names (Videm, Bistrica, etc.) include settlement as context.
+ * Generate word-boundary suffixes of decreasing length.
  */
-function buildGeoQuery(settlement, street, number) {
-  const addr = `${street} ${number}`.trim();
-  if (settlement) {
-    // Format: "VIDEM 54, DOL PRI LJUBLJANI, Slovenia"
-    return `${addr}, ${settlement}`;
+function suffixCandidates(text) {
+  const words = text.trim().split(/\s+/);
+  const candidates = [];
+  const hasNumber = s => /\d/.test(s);
+
+  for (let i = 0; i < words.length - 1; i++) {
+    const suffix = words.slice(i).join(' ');
+    if (hasNumber(suffix)) {
+      candidates.push(`${suffix}, Slovenia`);
+    }
   }
-  return addr;
+  return candidates;
 }
 
 // ── Main parser ───────────────────────────────────────────────────────────────
@@ -91,49 +70,49 @@ export function parseLocation(text) {
     if (validCoord(lat, lng)) return { lat, lng, raw: m[0], type: 'coords' };
   }
 
-  // 5. Slovenian address
-  m = STREET_RE.exec(text);
-  if (m) {
-    const [, settlement, street, number] = m;
-    const query = buildGeoQuery(settlement, street, number);
-    return {
-      lat: null, lng: null,
-      raw:        m[0].trim(),   // original matched text
-      geoQuery:   query,         // what to send to Nominatim
-      type:       'address',
-      settlement: settlement || null,
-      street:     street,
-      number:     number,
-    };
+  // 5. Address — only if message contains a house number
+  if (/\d/.test(text)) {
+    const candidates = suffixCandidates(text);
+    if (candidates.length > 0) {
+      return {
+        lat: null, lng: null,
+        type:       'address',
+        raw:        text,
+        candidates,
+        geoQuery:   candidates[0],
+      };
+    }
   }
 
   return null;
 }
 
-// ── Geocoder ──────────────────────────────────────────────────────────────────
-export async function geocodeAddress(rawOrQuery, countryCode = 'si') {
-  // Accept either a plain string (old API) or a location object with geoQuery
-  const query = typeof rawOrQuery === 'object'
-    ? (rawOrQuery.geoQuery || rawOrQuery.raw)
-    : rawOrQuery;
+// ── Geocoder (Nominatim) ──────────────────────────────────────────────────────
+export async function geocodeAddress(loc, countryCode = 'si') {
+  const queries = typeof loc === 'object' && loc?.candidates
+    ? loc.candidates
+    : [typeof loc === 'string' ? loc : loc?.geoQuery || loc?.raw].filter(Boolean);
 
-  if (!query) return null;
-
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?` +
-      `q=${encodeURIComponent(query)}&countrycode=${countryCode}&format=json&limit=1`;
-    const r    = await fetch(url, {
-      headers: { 'Accept-Language': 'sl,en', 'User-Agent': 'PagerMonitor/1.0' },
-    });
-    const data = await r.json();
-    if (data?.length > 0) {
-      return {
-        lat:     parseFloat(data[0].lat),
-        lng:     parseFloat(data[0].lon),
-        display: data[0].display_name,
-        query,
-      };
-    }
-  } catch (_) {}
+  for (const query of queries) {
+    if (!query?.trim()) continue;
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?` +
+        `q=${encodeURIComponent(query)}&countrycode=${countryCode}&format=json&limit=1`;
+      const r    = await fetch(url, {
+        headers: { 'Accept-Language': 'sl,en', 'User-Agent': 'PagerMonitor/2.1' },
+      });
+      const data = await r.json();
+      if (data?.length > 0) {
+        return {
+          lat:     parseFloat(data[0].lat),
+          lng:     parseFloat(data[0].lon),
+          display: data[0].display_name,
+          query,
+        };
+      }
+    } catch (_) {}
+    // Polite delay between Nominatim requests
+    await new Promise(r => setTimeout(r, 300));
+  }
   return null;
 }

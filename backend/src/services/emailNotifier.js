@@ -39,7 +39,9 @@ function buildEmailBody(msg) {
   const alias     = msg.alias_name || msg.alias || null;
   const group     = msg.group_name || msg.parent_group_name || null;
   const hasCoords = msg.lat && msg.lng && !isNaN(msg.lat) && !isNaN(msg.lng);
-  const mapsUrl   = hasCoords ? `https://www.google.com/maps?q=${msg.lat},${msg.lng}` : null;
+  const mapsUrl   = hasCoords
+    ? `https://www.google.com/maps?q=${msg.lat},${msg.lng}`
+    : null;
   const d         = new Date(msg.timestamp);
   const ts        = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
 
