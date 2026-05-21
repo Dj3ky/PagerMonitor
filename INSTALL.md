@@ -164,7 +164,7 @@ Or configure per-dongle in **Admin → SDR Control → Multiple SDR dongles**.
 | | Dedup | Deduplicate identical messages within a time window |
 | | Highlights | Regex/text rules to colour-highlight messages in feed |
 | | Keyword Alerts | Flash/notify on messages matching keywords or patterns |
-| **Notifications** | Services | Discord, Telegram, Gotify, Pushover — test each |
+| **Notifications** | Services | Discord, Telegram, Gotify, Pushover, MQTT — test each |
 | | Filter | Send to all messages or only selected capcodes/groups |
 | | Webhooks | HTTP POST webhooks with HMAC-SHA256 signing |
 | | Email (SMTP) | Send email notifications via any SMTP provider |
@@ -208,6 +208,7 @@ Or configure per-dongle in **Admin → SDR Control → Multiple SDR dongles**.
 - Telegram — MarkdownV2 formatted
 - Gotify — self-hosted push
 - Pushover — native URL button opens Google Maps
+- MQTT — publish to any broker (Home Assistant, Mosquitto, etc.)
 - Email — HTML formatted with Google Maps button
 - Webhooks — HTTP POST to any endpoint with HMAC-SHA256
 
@@ -262,6 +263,15 @@ docker run -p 8080:80 gotify/server
 # Create app in Gotify UI → copy token
 # Admin → Notifications → Gotify
 ```
+
+### MQTT (Home Assistant / Mosquitto)
+Admin → Notifications → MQTT:
+- **Broker URL** — `mqtt://192.168.1.100:1883` (or `mqtt://homeassistant.local`)
+- **Topic** — default `pagermonitor/messages`
+
+Each decoded pager message is published as a JSON payload. In Home Assistant, set up an MQTT sensor or automation that subscribes to the same topic.
+
+> **Testing without a local broker:** use the free public HiveMQ broker — set Broker URL to `mqtt://broker.hivemq.com` and subscribe in the [HiveMQ web client](http://www.hivemq.com/demos/websocket-client/).
 
 ---
 

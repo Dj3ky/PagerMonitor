@@ -24,12 +24,12 @@ async function sendMqtt(msg, cfg) {
     await new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('MQTT connection timeout')), 5000);
       c.once('connect', () => { clearTimeout(t); resolve(); });
-      c.once('error',   (e) => { clearTimeout(t); reject(e); });
+      c.once('error',   (e) => { clearTimeout(t); reject(new Error(e?.message || String(e) || 'MQTT connection failed')); });
     });
   }
   const topic = cfg.topic || 'pagermonitor/messages';
   await new Promise((resolve, reject) =>
-    c.publish(topic, JSON.stringify(msg), { qos: 0, retain: false }, err => err ? reject(err) : resolve())
+    c.publish(topic, JSON.stringify(msg), { qos: 0, retain: false }, err => err ? reject(new Error(err?.message || String(err))) : resolve())
   );
 }
 
