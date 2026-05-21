@@ -41,8 +41,9 @@ export function AuthProvider({ children }) {
       try {
         const r = await fetch(`${BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
         if (r.ok) { const d = await r.json(); setUser(d); }
-        else { setToken(null); localStorage.removeItem('pm_token'); }
-      } catch (_) { setToken(null); localStorage.removeItem('pm_token'); }
+        else if (r.status === 401) { setToken(null); localStorage.removeItem('pm_token'); }
+        // other HTTP errors or network errors — leave token intact, server may be restarting
+      } catch (_) {}
       setLoading(false);
     }
     verify();
