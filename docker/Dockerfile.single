@@ -19,7 +19,7 @@ FROM node:20-slim
 
 LABEL org.opencontainers.image.title="PagerMonitor"
 LABEL org.opencontainers.image.description="Real-time POCSAG/FLEX pager monitoring"
-LABEL org.opencontainers.image.source="https://github.com/yourusername/pagermonitor"
+LABEL org.opencontainers.image.source="https://github.com/dj3ky/pagermonitor"
 
 # Install SDR tools + wget (used by healthcheck)
 RUN apt-get update && apt-get install -y --no-install-recommends \

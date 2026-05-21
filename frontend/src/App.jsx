@@ -19,6 +19,7 @@ import { playAlertSound } from './components/admin/KeywordAlerts.jsx';
 // Register sound function globally for WebSocket hook
 window.__playAlertSound = playAlertSound;
 import { useBrowserNotifications } from './hooks/useBrowserNotifications.js';
+import { usePushSubscription }     from './hooks/usePushSubscription.js';
 
 const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || '';
 const PAGE_OPTIONS = [20, 50, 100, 200];
@@ -44,6 +45,7 @@ export default function App() {
   };
   const [soundEnabled, setSoundEnabled]     = useState(true);
   const browserNotif = useBrowserNotifications();
+  const pushSub      = usePushSubscription();
   const [paused, setPaused]                 = useState(false);
   const [newCount, setNewCount]             = useState(0);
   const [loadingMore, setLoadingMore]       = useState(false);
@@ -66,6 +68,16 @@ export default function App() {
   const [page, setPage]                     = useState(0);
 
   useEffect(() => { window.__pagemon_sound = soundEnabled; }, [soundEnabled]);
+
+  // Sync push subscription with the browser notification bell
+  useEffect(() => {
+    if (!user || user.isGuest) return;
+    if (browserNotif.enabled && browserNotif.permission === 'granted') {
+      pushSub.subscribe();
+    } else if (!browserNotif.enabled) {
+      pushSub.unsubscribe();
+    }
+  }, [browserNotif.enabled, browserNotif.permission, user]);
 
   useEffect(() => {
     if (!user) return;

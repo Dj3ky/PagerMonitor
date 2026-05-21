@@ -11,6 +11,7 @@ const { startDeadAirCheck }     = require('./services/deadair');
 const { startArchiveScheduler } = require('./services/archive');
 const { loadSdrConfigIntoEnv } = require('./services/config');
 const { ensureDefaultAdmin, initSessions } = require('./services/auth');
+const { initWebPush } = require('./services/webpush');
 const logger                = require('./utils/logger');
 
 const apiRouter   = require('./routes/api');
@@ -33,6 +34,9 @@ async function main() {
 
   // Load persisted SDR config from DB into process.env (overrides .env defaults)
   loadSdrConfigIntoEnv();
+
+  // Initialise VAPID keys for browser push notifications
+  initWebPush();
 
   // Load static alias file
 

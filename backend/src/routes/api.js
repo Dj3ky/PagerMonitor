@@ -7,6 +7,7 @@ const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, de
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth }    = require('../services/auth');
+const { getPublicKey, saveSubscription, removeSubscription } = require('../services/webpush');
 
 router.get('/history', (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit || '200', 10), 1000);
@@ -177,6 +178,33 @@ router.get('/archive/export', (req, res) => {
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="pagermonitor-archive-${ts}.csv"`);
     res.send(lines.join('\r\n'));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Web Push ──────────────────────────────────────────────────────────────────
+
+router.get('/push/vapid-public-key', (_req, res) => {
+  const key = getPublicKey();
+  if (!key) return res.status(503).json({ error: 'Push notifications not available' });
+  res.json({ publicKey: key });
+});
+
+router.post('/push/subscribe', requireAuth, (req, res) => {
+  try {
+    const { endpoint, keys } = req.body;
+    if (!endpoint || !keys?.p256dh || !keys?.auth)
+      return res.status(400).json({ error: 'Invalid subscription' });
+    saveSubscription(req.session.userId, { endpoint, keys });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/push/subscribe', requireAuth, (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
+    removeSubscription(endpoint);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "pagermonitor-client",
-  "version": "1.0.0",
+  "version": "2.2.0",
   "description": "PagerMonitor SDR client — runs on RPi, forwards decoded messages to server",
   "main": "src/index.js",
   "scripts": {

@@ -3,6 +3,7 @@
 const logger = require('../utils/logger');
 const { getNotifConfig, saveNotifConfig, getNotifFilter } = require('./config');
 const { sendMqtt, disconnectMqtt } = require('./mqtt');
+const { sendPushToAll } = require('./webpush');
 
 let config = null;
 function ensureConfig() { if (!config) config = getNotifConfig(); return config; }
@@ -192,7 +193,16 @@ async function sendNotifications(msg) {
   if (c.gotify?.enabled   && c.gotify?.url     && c.gotify?.token)      tasks.push(sendGotify(msg,    c.gotify));
   if (c.pushover?.enabled && c.pushover?.token && c.pushover?.userKey)  tasks.push(sendPushover(msg,  c.pushover));
   if (c.mqtt?.enabled     && c.mqtt?.broker)                            tasks.push(sendMqtt(msg,      c.mqtt));
-  if (tasks.length) await Promise.allSettled(tasks);
+  // Browser/PWA push notifications
+  const alias = msg.alias_name || msg.alias || msg.capcode;
+  tasks.push(sendPushToAll({
+    title: `📟 ${alias}`,
+    body:  msg.message || '(tone / numeric only)',
+    tag:   `pm-${msg.capcode}`,
+    data:  { capcode: msg.capcode, timestamp: msg.timestamp },
+  }));
+
+  await Promise.allSettled(tasks);
 }
 
 async function testNotification(service) {

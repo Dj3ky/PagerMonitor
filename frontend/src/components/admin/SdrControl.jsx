@@ -17,7 +17,7 @@ const DONGLE_FIELDS = [
   { key:'ppm',       label:'PPM',          hint:'Frequency correction (run rtl_test -p)', group:'rtl' },
   { key:'squelch',   label:'Squelch',      hint:'0 = disabled', group:'rtl' },
   { key:'protocols', label:'Protocols',    hint:'POCSAG512 POCSAG1200 POCSAG2400 FLEX', group:'mmon' },
-  { key:'charset',   label:'Charset',      hint:'ISO-8859-2 for Slovenian (Š Č Ž), leave empty for default', group:'mmon' },
+  { key:'charset',   label:'Charset',      hint:'Possible values: US,FR,DE,DK,SE,SI', group:'mmon' },
 ];
 
 const FIELD_GROUPS = [
