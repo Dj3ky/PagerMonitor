@@ -258,7 +258,7 @@ function searchMessages(query, limit = 100) {
 function getMessageStats() {
   const d = getDb();
   const hourly = d.prepare(`
-    SELECT strftime('%Y-%m-%dT%H:00:00', timestamp) as hour, COUNT(*) as n
+    SELECT strftime('%Y-%m-%dT%H:00:00Z', timestamp) as hour, COUNT(*) as n
     FROM messages WHERE timestamp >= datetime('now', '-24 hours')
     GROUP BY hour ORDER BY hour ASC
   `).all();
