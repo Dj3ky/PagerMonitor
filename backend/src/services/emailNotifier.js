@@ -92,7 +92,7 @@ async function sendUserEmailNotifications(msg) {
   if (!eligible.length) return;
 
   const alias   = msg.alias_name || msg.alias || msg.capcode;
-  const subject = `📟 PagerMonitor — ${alias}: ${(msg.message || '').substring(0, 60)}`;
+  const subject = `📟 Pager — ${alias}`;
   const { text, html } = buildEmailBody(msg);
 
   await Promise.allSettled(eligible.map(u =>
