@@ -7,9 +7,21 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const sessions = new Map(); // token → { userId, username, role, expires }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
+function initSessions() {
+  try {
+    const rows = db.loadActiveSessions();
+    for (const r of rows) sessions.set(r.token, { userId: r.user_id, username: r.username, role: r.role, expires: r.expires });
+    logger.info(`Loaded ${rows.length} active session(s) from DB`);
+  } catch (e) {
+    logger.warn(`Could not load sessions from DB: ${e.message}`);
+  }
+}
+
 function createSession(user) {
   const token   = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, { userId: user.id, username: user.username, role: user.role, expires: Date.now() + SESSION_TTL_MS });
+  const expires = Date.now() + SESSION_TTL_MS;
+  sessions.set(token, { userId: user.id, username: user.username, role: user.role, expires });
+  try { db.saveDbSession(token, user.id, user.username, user.role, expires); } catch (_) {}
   return token;
 }
 
@@ -17,15 +29,19 @@ function validateSession(token) {
   if (!token) return null;
   const s = sessions.get(token);
   if (!s) return null;
-  if (Date.now() > s.expires) { sessions.delete(token); return null; }
+  if (Date.now() > s.expires) { sessions.delete(token); try { db.deleteDbSession(token); } catch (_) {} return null; }
   return s;
 }
 
-function destroySession(token) { sessions.delete(token); }
+function destroySession(token) {
+  sessions.delete(token);
+  try { db.deleteDbSession(token); } catch (_) {}
+}
 
 setInterval(() => {
   const now = Date.now();
   for (const [tok, s] of sessions) if (now > s.expires) sessions.delete(tok);
+  try { db.pruneExpiredSessions(); } catch (_) {}
 }, 60 * 60 * 1000);
 
 // ── User ops ──────────────────────────────────────────────────────────────────
@@ -113,6 +129,6 @@ async function ensureDefaultAdmin() {
 
 module.exports = {
   register, login, changePassword, adminSetPassword,
-  createSession, validateSession, destroySession,
+  createSession, validateSession, destroySession, initSessions,
   requireAuth, requireAdmin, requireEditor, ensureDefaultAdmin,
 };

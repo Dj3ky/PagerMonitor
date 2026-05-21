@@ -72,8 +72,10 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount }) {
         title={`WebSocket ${wsStatus}`}>
         {wsStatus === 'open'
           ? <Wifi size={10} style={{ color:'var(--accent-green)' }} />
+          : wsStatus === 'restarting'
+          ? <RefreshCw size={10} style={{ color:'var(--accent-amber)' }} />
           : <WifiOff size={10} style={{ color:'var(--accent-red)' }} />}
-        <span style={{ color: wsStatus === 'open' ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+        <span style={{ color: wsStatus === 'open' ? 'var(--accent-green)' : wsStatus === 'restarting' ? 'var(--accent-amber)' : 'var(--accent-red)' }}>
           WS: {wsStatus.toUpperCase()}
         </span>
       </span>

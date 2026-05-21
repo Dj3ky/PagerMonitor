@@ -15,8 +15,9 @@ export function useWebSocket(backendUrl) {
   const [messages, setMessages]   = useState([]);
   const [wsStatus, setWsStatus]   = useState('connecting');
   const [sdrStatus, setSdrStatus] = useState(null);
-  const wsRef    = useRef(null);
-  const timerRef = useRef(null);
+  const wsRef          = useRef(null);
+  const timerRef       = useRef(null);
+  const shuttingDownRef = useRef(false);
 
   // Derive WebSocket URL — MUST use wss:// when page is loaded over https://
   // otherwise browsers block it as mixed content
@@ -40,6 +41,7 @@ export function useWebSocket(backendUrl) {
 
     ws.onopen = () => {
       setWsStatus('open');
+      shuttingDownRef.current = false;
       // On reconnect (not first connect) fetch history to catch missed messages
       if (attemptsRef.current > 0) {
         fetch((backendUrl || '') + '/api/history?limit=50')
@@ -119,12 +121,16 @@ export function useWebSocket(backendUrl) {
           if (data.state === 'alert' && window.__playAlertSound) window.__playAlertSound('urgent');
         } else if (data.type === 'sdr_status') {
           setSdrStatus(data.status);
+        } else if (data.type === 'server_shutdown') {
+          shuttingDownRef.current = true;
+          attemptsRef.current = 0;
+          setWsStatus('restarting');
         }
       } catch (_) {}
     };
 
     ws.onclose = () => {
-      setWsStatus('closed');
+      if (!shuttingDownRef.current) setWsStatus('closed');
       attemptsRef.current += 1;
       const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attemptsRef.current - 1), RECONNECT_MAX_MS);
       timerRef.current = setTimeout(connect, delay);

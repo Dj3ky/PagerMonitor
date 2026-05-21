@@ -107,6 +107,15 @@ function initDb() {
       enabled INTEGER NOT NULL DEFAULT 1,
       secret  TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token    TEXT    PRIMARY KEY,
+      user_id  INTEGER NOT NULL,
+      username TEXT    NOT NULL,
+      role     TEXT    NOT NULL,
+      expires  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires);
   `);
 
   _migrate();
@@ -477,6 +486,20 @@ function getStats() {
   };
 }
 
+// ── Sessions ──────────────────────────────────────────────────────────────────
+function saveDbSession(token, userId, username, role, expires) {
+  getDb().prepare('INSERT OR REPLACE INTO sessions (token,user_id,username,role,expires) VALUES (?,?,?,?,?)').run(token, userId, username, role, expires);
+}
+function deleteDbSession(token) {
+  getDb().prepare('DELETE FROM sessions WHERE token=?').run(token);
+}
+function loadActiveSessions() {
+  return getDb().prepare('SELECT * FROM sessions WHERE expires > ?').all(Date.now());
+}
+function pruneExpiredSessions() {
+  getDb().prepare('DELETE FROM sessions WHERE expires <= ?').run(Date.now());
+}
+
 module.exports = {
   initDb, getDb,
   insertMessage, getHistory, searchMessages, getMessageStats,
@@ -492,4 +515,5 @@ module.exports = {
   addAuditLog, getAuditLog,
   getStats,
   getMessageNotes, addMessageNote, deleteMessageNote, getNoteCounts,
+  saveDbSession, deleteDbSession, loadActiveSessions, pruneExpiredSessions,
 };

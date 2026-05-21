@@ -62,7 +62,11 @@ function getClientCount() { return clientCount; }
 
 function closeWebSocket() {
   if (!wss) return;
-  wss.clients.forEach(ws => ws.terminate());
+  const msg = JSON.stringify({ type: 'server_shutdown' });
+  wss.clients.forEach(ws => {
+    try { if (ws.readyState === WebSocket.OPEN) ws.send(msg); } catch (_) {}
+    ws.terminate();
+  });
   wss.close();
 }
 

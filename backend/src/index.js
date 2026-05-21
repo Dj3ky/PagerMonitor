@@ -10,7 +10,7 @@ const { startSdrPipeline, stopSdrPipeline } = require('./services/sdr');
 const { startDeadAirCheck }     = require('./services/deadair');
 const { startArchiveScheduler } = require('./services/archive');
 const { loadSdrConfigIntoEnv } = require('./services/config');
-const { ensureDefaultAdmin } = require('./services/auth');
+const { ensureDefaultAdmin, initSessions } = require('./services/auth');
 const logger                = require('./utils/logger');
 
 const apiRouter   = require('./routes/api');
@@ -27,6 +27,9 @@ async function main() {
 
   // Init database (creates tables including users, settings, highlight_rules)
   initDb();
+
+  // Restore sessions persisted before last restart — users stay logged in
+  initSessions();
 
   // Load persisted SDR config from DB into process.env (overrides .env defaults)
   loadSdrConfigIntoEnv();
