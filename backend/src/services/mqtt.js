@@ -24,7 +24,7 @@ async function sendMqtt(msg, cfg) {
     await new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('MQTT connection timeout')), 5000);
       c.once('connect', () => { clearTimeout(t); resolve(); });
-      c.once('error',   (e) => { clearTimeout(t); reject(new Error(e?.message || String(e) || 'MQTT connection failed')); });
+      c.once('error',   (e) => { clearTimeout(t); reject(new Error(e?.errors?.[0]?.message || e?.message || String(e) || 'MQTT connection failed')); });
     });
   }
   const topic = cfg.topic || 'pagermonitor/messages';
