@@ -21,44 +21,134 @@ function validCoord(lat, lng) {
          Math.abs(lat) > 0.001 && Math.abs(lng) > 0.001;
 }
 
-// ── Suffix candidates for Nominatim ──────────────────────────────────────────
-const PUNCT_ONLY = /^[-–—,;:.()\[\]/\\]+$/;
+// ── Slovenian address helpers ─────────────────────────────────────────────────
+const SUFFIX_RE = /^(cesta|ulica|trg|pot|nabrežje|avenija|aleja|breg|steza)$/i;
+const HOUSE_RE  = /^\d{1,4}[a-zA-Z]?$/;
+const PUNCT_RE  = /^[-–—,;:.()\[\]/\\]+$/;
 
-function suffixCandidates(text, countryCode = 'si') {
-  const country = COUNTRY_NAMES[countryCode] || countryCode.toUpperCase();
+const SI_CITIES = [
+  'Ljubljana', 'Maribor', 'Celje', 'Kranj', 'Koper', 'Novo Mesto', 'Nova Gorica',
+  'Velenje', 'Krško', 'Slovenj Gradec', 'Murska Sobota', 'Ptuj', 'Domžale',
+  'Škofja Loka', 'Trbovlje', 'Kamnik', 'Izola', 'Piran', 'Postojna',
+  'Ajdovščina', 'Sežana', 'Logatec', 'Litija', 'Grosuplje', 'Vrhnika', 'Brežice',
+  'Jesenice', 'Radovljica', 'Gornja Radgona', 'Ormož', 'Zagorje ob Savi',
+  'Idrija', 'Tolmin', 'Tržič', 'Žalec', 'Laško', 'Šentjur', 'Rogaška Slatina',
+  'Šempeter pri Gorici', 'Ruše', 'Ravne na Koroškem', 'Hrastnik',
+];
+
+const _cityPat = SI_CITIES
+  .map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'))
+  .join('|');
+// Use Unicode-aware boundaries so diacritic-initial names (Škofja Loka, etc.) match
+const CITY_RE = new RegExp(`(?<!\\p{L})(${_cityPat})(?!\\p{L})`, 'iu');
+
+function detectCity(text) {
+  const m = CITY_RE.exec(text);
+  return m ? m[1] : null;
+}
+
+// ── Confidence scoring (no index on frontend — simpler formula) ───────────────
+// Threshold 0.40 (lower than backend since no index data available)
+const FE_CONF_MIN = 0.40;
+
+function feScore({ hasKeyword, hasCityHint, hasHouseNum }) {
+  let s = 0;
+  s += hasKeyword   ? 0.35 : 0;
+  s += hasCityHint  ? 0.30 : 0;
+  s += hasHouseNum  ? 0.25 : 0;
+  return s;
+}
+
+// Slovenian prepositions that precede address phrases but are not part of them
+const SI_STOPWORDS_FE = new Set(['v', 'na', 'pri', 'ob', 'za', 'do', 'od', 'k', 'iz', 'po', 's', 'z']);
+
+// ── SI-specific candidate extraction (frontend, no prefix index) ──────────────
+function siCandidatesFE(text, country) {
+  // Strip punctuation attached to word ends (e.g. "stanovanju," → "stanovanju", "15," → "15")
+  const clean    = text.replace(/([^\s])[,;:.!]+(?=\s|$)/g, '$1');
+  const words    = clean.trim().split(/\s+/);
+  const cityHint = detectCity(text);
+  const seen     = new Set();
+  const ranked   = [];
+
+  function add(streetPhrase, houseNum, hasKeyword) {
+    const sc = feScore({ hasKeyword, hasCityHint: !!cityHint, hasHouseNum: !!houseNum });
+    if (sc < FE_CONF_MIN) return;
+    const parts = houseNum ? `${streetPhrase} ${houseNum}` : streetPhrase;
+    const query = cityHint
+      ? `${parts}, ${cityHint}, ${country}`
+      : `${parts}, ${country}`;
+    if (!seen.has(query)) { seen.add(query); ranked.push({ query, sc }); }
+  }
+
+  // Strategy 1: keyword windows
+  for (let i = 0; i < words.length; i++) {
+    if (!SUFFIX_RE.test(words[i])) continue;
+    // Take only the one word immediately before the suffix
+    const before = [];
+    for (let j = i - 1; j >= 0; j--) {
+      if (PUNCT_RE.test(words[j])) continue;
+      if (SI_STOPWORDS_FE.has(words[j].toLowerCase())) break;
+      before.unshift(words[j]);
+      break;
+    }
+    if (before.length === 0) continue;
+
+    const streetPhrase = [...before, words[i]].join(' ');
+    let houseNum = null;
+    for (let j = i + 1; j <= i + 2 && j < words.length; j++) {
+      if (HOUSE_RE.test(words[j])) { houseNum = words[j]; break; }
+    }
+    add(streetPhrase, houseNum, true);
+  }
+
+  // Strategy 2: house-number window fallback
+  if (ranked.length === 0) {
+    let numIdx = -1;
+    for (let i = words.length - 1; i >= 0; i--) {
+      if (HOUSE_RE.test(words[i])) { numIdx = i; break; }
+    }
+    if (numIdx >= 1) {
+      for (let width = 1; width <= Math.min(4, numIdx); width++) {
+        const chunk = words.slice(numIdx - width, numIdx)
+          .filter(w => !PUNCT_RE.test(w) && !SI_STOPWORDS_FE.has(w.toLowerCase()));
+        if (chunk.length === 0) continue;
+        add(chunk.join(' '), words[numIdx], SUFFIX_RE.test(chunk[chunk.length - 1]));
+      }
+    }
+  }
+
+  ranked.sort((a, b) => b.sc - a.sc);
+  return ranked.slice(0, 10).map(r => r.query);
+}
+
+// ── Fallback candidates for non-SI country codes (original algorithm) ─────────
+function legacyCandidatesFE(text, country) {
   const words = text.trim().split(/\s+/);
 
-  // Find the rightmost standalone house number (digits + optional single trailing letter)
   let numIdx = -1;
   for (let i = words.length - 1; i >= 0; i--) {
     if (/^\d+[a-zA-Z]?$/.test(words[i])) { numIdx = i; break; }
   }
   if (numIdx < 1) return [];
 
-  // Collect up to 6 non-punctuation word indices before the number, closest-first
   const prev = [];
   for (let i = numIdx - 1; i >= 0 && prev.length < 6; i--) {
-    if (!PUNCT_ONLY.test(words[i])) prev.push(i);
+    if (!PUNCT_RE.test(words[i])) prev.push(i);
   }
   if (prev.length === 0) return [];
 
   const phrase = (start) =>
-    words.slice(start, numIdx + 1).filter(w => !PUNCT_ONLY.test(w)).join(' ');
+    words.slice(start, numIdx + 1).filter(w => !PUNCT_RE.test(w)).join(' ');
 
   const results = [];
-  const seen   = new Set();
-  const push   = (q) => { if (q && !seen.has(q)) { seen.add(q); results.push(q); } };
+  const seen    = new Set();
+  const push    = q => { if (q && !seen.has(q)) { seen.add(q); results.push(q); } };
 
   for (let n = 1; n <= prev.length; n++) {
     push(`${phrase(prev[n - 1])}, ${country}`);
-
-    if (n === 3) {
-      const town      = words[prev[n - 1]];
-      const streetNum = phrase(prev[n - 2]);
-      push(`${streetNum}, ${town}, ${country}`);
-    }
+    if (n === 3) push(`${phrase(prev[n - 2])}, ${words[prev[n - 1]]}, ${country}`);
   }
-
   return results;
 }
 
@@ -66,21 +156,18 @@ function suffixCandidates(text, countryCode = 'si') {
 export function parseLocation(text, countryCode = 'si') {
   if (!text) return null;
 
-  // 1. Decimal coords
   let m = DECIMAL_RE.exec(text);
   if (m) {
     const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
     if (validCoord(lat, lng)) return { lat, lng, raw: m[0], type: 'coords' };
   }
 
-  // 2. LAT/LON keywords
   m = LAT_LON_RE.exec(text);
   if (m) {
     const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
     if (validCoord(lat, lng)) return { lat, lng, raw: m[0], type: 'coords' };
   }
 
-  // 3. N/S E/W decimal
   m = NSEW_RE.exec(text);
   if (m) {
     const lat = m[1].toUpperCase() === 'S' ? -parseFloat(m[2]) : parseFloat(m[2]);
@@ -88,7 +175,6 @@ export function parseLocation(text, countryCode = 'si') {
     if (validCoord(lat, lng)) return { lat, lng, raw: m[0], type: 'coords' };
   }
 
-  // 4. DMS
   m = DMS_RE.exec(text);
   if (m) {
     const lat = dms(m[1], m[2], m[3], m[4].toUpperCase());
@@ -96,18 +182,13 @@ export function parseLocation(text, countryCode = 'si') {
     if (validCoord(lat, lng)) return { lat, lng, raw: m[0], type: 'coords' };
   }
 
-  // 5. Address — only if message contains a house number
-  if (/\d/.test(text)) {
-    const candidates = suffixCandidates(text, countryCode);
-    if (candidates.length > 0) {
-      return {
-        lat: null, lng: null,
-        type:       'address',
-        raw:        text,
-        candidates,
-        geoQuery:   candidates[0],
-      };
-    }
+  const country    = COUNTRY_NAMES[countryCode] || countryCode.toUpperCase();
+  const candidates = countryCode === 'si'
+    ? siCandidatesFE(text, country)
+    : legacyCandidatesFE(text, country);
+
+  if (candidates.length > 0) {
+    return { lat: null, lng: null, type: 'address', raw: text, candidates, geoQuery: candidates[0] };
   }
 
   return null;
@@ -130,8 +211,10 @@ export async function geocodeAddress(loc, countryCode = 'si') {
     ? loc.candidates
     : [typeof loc === 'string' ? loc : loc?.geoQuery || loc?.raw].filter(Boolean);
 
-  for (const query of queries) {
-    if (!query?.trim()) continue;
+  // Only try the first 3 pre-validated candidates
+  const toTry = queries.slice(0, 3).filter(q => q?.trim());
+
+  for (const query of toTry) {
     const key = `${query}|${countryCode}`;
     if (_geoCache.has(key)) return _geoCache.get(key);
 
@@ -143,7 +226,7 @@ export async function geocodeAddress(loc, countryCode = 'si') {
         const url = `https://nominatim.openstreetmap.org/search?` +
           `q=${encodeURIComponent(query)}&countrycode=${countryCode}&format=json&limit=1`;
         const r = await fetch(url, {
-          headers: { 'Accept-Language': 'sl,en', 'User-Agent': 'PagerMonitor/2.1' },
+          headers: { 'Accept-Language': 'sl,en', 'User-Agent': 'PagerMonitor/2.2' },
           signal: ctrl.signal,
         });
         if (!r.ok) return null;

@@ -8,6 +8,7 @@ const COUNTRY_NAMES = {
   us:'United States', ca:'Canada', au:'Australia', nz:'New Zealand',
 };
 
+// ── Coordinate patterns ───────────────────────────────────────────────────────
 const DECIMAL_RE = /(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/;
 const LAT_LON_RE = /LAT[=:]\s*(-?\d+\.?\d*)\s+LON[=:]\s*(-?\d+\.?\d*)/i;
 const NSEW_RE    = /([NS])\s*(\d+\.\d+)\s+([EW])\s*(\d+\.\d+)/i;
@@ -21,49 +22,172 @@ function valid(lat, lng) {
   return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 }
 
-const PUNCT_ONLY = /^[-–—,;:.()\[\]/\\]+$/;
+// ── Slovenian address helpers ─────────────────────────────────────────────────
+const SUFFIX_RE = /^(cesta|ulica|trg|pot|nabrežje|avenija|aleja|breg|steza)$/i;
+const HOUSE_RE  = /^\d{1,4}[a-zA-Z]?$/;
+const PUNCT_RE  = /^[-–—,;:.()\[\]/\\]+$/;
 
-function suffixCandidates(text, countryCode = 'si') {
-  const country = COUNTRY_NAMES[countryCode] || countryCode.toUpperCase();
+const SI_CITIES = [
+  'Ljubljana', 'Maribor', 'Celje', 'Kranj', 'Koper', 'Novo Mesto', 'Nova Gorica',
+  'Velenje', 'Krško', 'Slovenj Gradec', 'Murska Sobota', 'Ptuj', 'Domžale',
+  'Škofja Loka', 'Trbovlje', 'Kamnik', 'Izola', 'Piran', 'Postojna',
+  'Ajdovščina', 'Sežana', 'Logatec', 'Litija', 'Grosuplje', 'Vrhnika', 'Brežice',
+  'Jesenice', 'Radovljica', 'Gornja Radgona', 'Ormož', 'Zagorje ob Savi',
+  'Idrija', 'Tolmin', 'Tržič', 'Žalec', 'Laško', 'Šentjur', 'Rogaška Slatina',
+  'Šempeter pri Gorici', 'Ruše', 'Ravne na Koroškem', 'Hrastnik',
+];
+
+const _cityPattern = SI_CITIES
+  .map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'))
+  .join('|');
+// Use Unicode-aware boundaries so diacritic-initial names (Škofja Loka, etc.) match
+const CITY_RE = new RegExp(`(?<!\\p{L})(${_cityPattern})(?!\\p{L})`, 'iu');
+
+function detectCity(text) {
+  const m = CITY_RE.exec(text);
+  return m ? m[1] : null;
+}
+
+// Lazy-load street index (only for SI, file read once at first use)
+let _si = null;
+function si() {
+  if (!_si) _si = require('./streetIndex');
+  return _si;
+}
+
+// ── Confidence scoring ────────────────────────────────────────────────────────
+// Returns 0..1. Candidates below CONF_MIN are discarded.
+const CONF_MIN = 0.55;
+
+function confScore({ hasKeyword, streetSim, hasCityHint, hasHouseNum, indexLoaded }) {
+  let s = 0;
+  s += hasKeyword   ? 0.25 : 0;
+  s += indexLoaded  ? streetSim * 0.35 : 0.15;  // neutral 0.15 when no index data
+  s += hasCityHint  ? 0.25 : 0;
+  s += hasHouseNum  ? 0.25 : 0;
+  return s;
+}
+
+// Slovenian prepositions that precede address phrases but are not part of them
+const SI_STOPWORDS = new Set(['v', 'na', 'pri', 'ob', 'za', 'do', 'od', 'k', 'iz', 'po', 's', 'z']);
+
+// ── SI-specific candidate extraction ─────────────────────────────────────────
+function siCandidates(text, country) {
+  // Strip punctuation attached to word ends (e.g. "stanovanju," → "stanovanju", "15," → "15")
+  const clean  = text.replace(/([^\s])[,;:.!]+(?=\s|$)/g, '$1');
+  const words  = clean.trim().split(/\s+/);
+  const idx    = si();
+  const hasIdx = idx.hasData();
+  const cityHint = detectCity(text);
+  const seen   = new Set();
+  const ranked = [];
+
+  function addCandidate(streetPhrase, houseNum, hasKeyword) {
+    const matches   = idx.matchStreet(streetPhrase, 10);
+    const streetSim = matches.length ? matches[0].sim : 0;
+
+    const sc = confScore({
+      hasKeyword,
+      streetSim,
+      hasCityHint: !!cityHint,
+      hasHouseNum: !!houseNum,
+      indexLoaded: hasIdx,
+    });
+    if (sc < CONF_MIN) return;
+
+    // Use corrected index name for diacritics/typo fixing; keep original if no strong match
+    const streetUsed = (streetSim >= (hasKeyword ? 0.90 : 0.75) && matches[0]?.name)
+      ? matches[0].name
+      : streetPhrase;
+
+    const parts = houseNum ? `${streetUsed} ${houseNum}` : streetUsed;
+    const query = cityHint
+      ? `${parts}, ${cityHint}, ${country}`
+      : `${parts}, ${country}`;
+
+    if (!seen.has(query)) { seen.add(query); ranked.push({ query, sc }); }
+  }
+
+  // Strategy 1: keyword windows (cesta/ulica/trg/...)
+  for (let i = 0; i < words.length; i++) {
+    if (!SUFFIX_RE.test(words[i])) continue;
+
+    // Take the one word immediately before the suffix (Slovenian street names are
+    // almost always "OneAdjective suffix"); skip punct, stop at prepositions
+    const before = [];
+    for (let j = i - 1; j >= 0; j--) {
+      if (PUNCT_RE.test(words[j])) continue;
+      if (SI_STOPWORDS.has(words[j].toLowerCase())) break;
+      before.unshift(words[j]);
+      break; // only the nearest word
+    }
+    if (before.length === 0) continue;
+
+    const streetPhrase = [...before, words[i]].join(' ');
+
+    let houseNum = null;
+    for (let j = i + 1; j <= i + 2 && j < words.length; j++) {
+      if (HOUSE_RE.test(words[j])) { houseNum = words[j]; break; }
+    }
+
+    addCandidate(streetPhrase, houseNum, true);
+  }
+
+  // Strategy 2: house-number window (for messages without suffix keyword)
+  if (ranked.length === 0) {
+    let numIdx = -1;
+    for (let i = words.length - 1; i >= 0; i--) {
+      if (HOUSE_RE.test(words[i])) { numIdx = i; break; }
+    }
+
+    if (numIdx >= 1) {
+      for (let width = 1; width <= Math.min(4, numIdx); width++) {
+        const chunk = words.slice(numIdx - width, numIdx)
+          .filter(w => !PUNCT_RE.test(w) && !SI_STOPWORDS.has(w.toLowerCase()));
+        if (chunk.length === 0) continue;
+        const hasSuffix = SUFFIX_RE.test(chunk[chunk.length - 1]);
+        addCandidate(chunk.join(' '), words[numIdx], hasSuffix);
+      }
+    }
+  }
+
+  ranked.sort((a, b) => b.sc - a.sc);
+  return ranked.slice(0, 10).map(r => r.query);
+}
+
+// ── Fallback candidates for non-SI country codes (original algorithm) ─────────
+function legacyCandidates(text, country) {
   const words = text.trim().split(/\s+/);
 
-  // Find the rightmost standalone house number (digits + optional single trailing letter)
   let numIdx = -1;
   for (let i = words.length - 1; i >= 0; i--) {
     if (/^\d+[a-zA-Z]?$/.test(words[i])) { numIdx = i; break; }
   }
   if (numIdx < 1) return [];
 
-  // Collect up to 6 non-punctuation word indices before the number, closest-first
   const prev = [];
   for (let i = numIdx - 1; i >= 0 && prev.length < 6; i--) {
-    if (!PUNCT_ONLY.test(words[i])) prev.push(i);
+    if (!PUNCT_RE.test(words[i])) prev.push(i);
   }
   if (prev.length === 0) return [];
 
-  // Build a phrase from startIdx up to and including the house number, dropping punctuation
   const phrase = (start) =>
-    words.slice(start, numIdx + 1).filter(w => !PUNCT_ONLY.test(w)).join(' ');
+    words.slice(start, numIdx + 1).filter(w => !PUNCT_RE.test(w)).join(' ');
 
   const results = [];
-  const seen   = new Set();
-  const push   = (q) => { if (q && !seen.has(q)) { seen.add(q); results.push(q); } };
+  const seen    = new Set();
+  const push    = q => { if (q && !seen.has(q)) { seen.add(q); results.push(q); } };
 
   for (let n = 1; n <= prev.length; n++) {
     push(`${phrase(prev[n - 1])}, ${country}`);
-
-    // At 3 words before the number, also try "street+number, town, country" format —
-    // Nominatim resolves this more reliably than "town street number, country"
     if (n === 3) {
-      const town      = words[prev[n - 1]];
-      const streetNum = phrase(prev[n - 2]);
-      push(`${streetNum}, ${town}, ${country}`);
+      push(`${phrase(prev[n - 2])}, ${words[prev[n - 1]]}, ${country}`);
     }
   }
-
   return results;
 }
 
+// ── Main parser ───────────────────────────────────────────────────────────────
 function parseLocation(text, countryCode = 'si') {
   if (!text) return { lat: null, lng: null };
 
@@ -87,12 +211,12 @@ function parseLocation(text, countryCode = 'si') {
     if (valid(lat, lng)) return { lat, lng };
   }
 
-  // No explicit coords — detect address candidates for deferred geocoding
-  if (/\d/.test(text)) {
-    const candidates = suffixCandidates(text, countryCode);
-    if (candidates.length > 0) return { lat: null, lng: null, candidates };
-  }
+  const country    = COUNTRY_NAMES[countryCode] || countryCode.toUpperCase();
+  const candidates = countryCode === 'si'
+    ? siCandidates(text, country)
+    : legacyCandidates(text, country);
 
+  if (candidates.length > 0) return { lat: null, lng: null, candidates };
   return { lat: null, lng: null };
 }
 
@@ -104,7 +228,6 @@ let   _geoChain = Promise.resolve(); // serialises every HTTP request globally
 
 function _enqueue(work) {
   const slot = _geoChain.then(work);
-  // Hold the queue for 1.1 s after each attempt, success or failure
   _geoChain = slot.then(() => new Promise(r => setTimeout(r, 1100)),
                          () => new Promise(r => setTimeout(r, 1100)));
   return slot;
@@ -112,21 +235,22 @@ function _enqueue(work) {
 
 async function geocodeAddress(candidates, countryCode = 'si') {
   const queries = Array.isArray(candidates) ? candidates : [candidates].filter(Boolean);
+  // Candidates are pre-validated and sorted by confidence; limit to first 3
+  const toTry = queries.slice(0, 3).filter(q => q?.trim());
 
-  for (const query of queries) {
-    if (!query?.trim()) continue;
+  for (const query of toTry) {
     const key = `${query}|${countryCode}`;
     if (_geoCache.has(key)) return _geoCache.get(key);
 
     const result = await _enqueue(async () => {
-      if (_geoCache.has(key)) return _geoCache.get(key); // filled while queued
+      if (_geoCache.has(key)) return _geoCache.get(key);
       const ctrl  = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 8000);
       try {
         const url = `https://nominatim.openstreetmap.org/search?` +
           `q=${encodeURIComponent(query)}&countrycode=${countryCode}&format=json&limit=1`;
         const r = await fetch(url, {
-          headers: { 'Accept-Language': 'sl,en', 'User-Agent': 'PagerMonitor/2.1' },
+          headers: { 'Accept-Language': 'sl,en', 'User-Agent': 'PagerMonitor/2.2' },
           signal: ctrl.signal,
         });
         if (!r.ok) return null;

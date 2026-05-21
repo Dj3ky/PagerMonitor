@@ -6,8 +6,9 @@ client/node_modules/
 # Build output
 frontend/dist/
 
-# Database and runtime data
-backend/data/
+# Database and runtime data (exclude user data, but keep committed resources)
+backend/data/*
+!backend/data/si_streets.json
 
 # Environment files (contain secrets — never commit these)
 backend/.env
@@ -28,7 +29,8 @@ backend/.env
 
 # Docker build artifacts
 frontend/dist
-backend/data/
+backend/data/*
+!backend/data/si_streets.json
 
 # Backups
 *.pmbackup
