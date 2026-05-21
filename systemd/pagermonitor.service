@@ -26,6 +26,7 @@ StartLimitIntervalSec=60
 
 # Give the SDR time to be ready after boot
 TimeoutStartSec=30
+TimeoutStopSec=10
 
 # Logging to journald
 StandardOutput=journal

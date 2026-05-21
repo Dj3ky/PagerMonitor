@@ -60,4 +60,10 @@ function safeSend(ws, obj, raw) {
 
 function getClientCount() { return clientCount; }
 
-module.exports = { initWebSocket, broadcast, getClientCount };
+function closeWebSocket() {
+  if (!wss) return;
+  wss.clients.forEach(ws => ws.terminate());
+  wss.close();
+}
+
+module.exports = { initWebSocket, broadcast, getClientCount, closeWebSocket };

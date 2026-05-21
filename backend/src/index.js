@@ -5,8 +5,8 @@ const cors    = require('cors');
 const path    = require('path');
 
 const { initDb }            = require('./services/database');
-const { initWebSocket }     = require('./services/websocket');
-const { startSdrPipeline }      = require('./services/sdr');
+const { initWebSocket, closeWebSocket } = require('./services/websocket');
+const { startSdrPipeline, stopSdrPipeline } = require('./services/sdr');
 const { startDeadAirCheck }     = require('./services/deadair');
 const { startArchiveScheduler } = require('./services/archive');
 const { loadSdrConfigIntoEnv } = require('./services/config');
@@ -162,7 +162,13 @@ async function main() {
   startDeadAirCheck();
   startArchiveScheduler();
 
-  const shutdown = sig => { logger.info(`${sig} received`); server.close(() => process.exit(0)); };
+  const shutdown = sig => {
+    logger.info(`${sig} received`);
+    stopSdrPipeline();
+    closeWebSocket();
+    server.close(() => process.exit(0));
+    setTimeout(() => { logger.warn('Forced exit after 5s'); process.exit(0); }, 5000).unref();
+  };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT',  () => shutdown('SIGINT'));
 }
