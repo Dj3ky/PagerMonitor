@@ -14,18 +14,19 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Stage 2: Production image ─────────────────────────────────────────────────
-FROM node:20-alpine
+# node:20-slim (Debian) is used here because multimon-ng is not in the Alpine repo.
+FROM node:20-slim
 
 LABEL org.opencontainers.image.title="PagerMonitor"
 LABEL org.opencontainers.image.description="Real-time POCSAG/FLEX pager monitoring"
 LABEL org.opencontainers.image.source="https://github.com/yourusername/pagermonitor"
 
 # Install SDR tools + wget (used by healthcheck)
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     rtl-sdr \
     multimon-ng \
     wget \
-    && rm -rf /var/cache/apk/*
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
