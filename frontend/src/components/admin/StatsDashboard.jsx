@@ -5,11 +5,11 @@ const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
 const api  = (p) => fetch(`${BASE}${p}`,{headers:{'Authorization':`Bearer ${tok()}`}}).then(r=>r.json());
 
-function Bar({ value, max, color='var(--accent-green)', label, sublabel }) {
+function Bar({ value, max, color='var(--accent-green)', label, sublabel, labelWidth='80px' }) {
   const pct = max > 0 ? (value / max) * 100 : 0;
   return (
     <div style={{display:'flex',alignItems:'center',gap:'0.5rem',marginBottom:'0.2rem'}}>
-      <div style={{width:'80px',fontSize:'0.65rem',color:'var(--text-3)',fontFamily:'monospace',textAlign:'right',flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={label}>{label}</div>
+      <div style={{width:labelWidth,fontSize:'0.65rem',color:'var(--text-3)',fontFamily:'monospace',textAlign:'right',flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={label}>{label}</div>
       <div style={{flex:1,height:'14px',background:'var(--bg-3)',borderRadius:'2px',overflow:'hidden'}}>
         <div style={{width:`${pct}%`,height:'100%',background:color,borderRadius:'2px',transition:'width 0.4s'}}/>
       </div>
@@ -75,6 +75,7 @@ export default function StatsDashboard() {
             : stats.topCodes.map(r=>(
               <Bar key={r.capcode} value={r.n} max={maxCode}
                 label={r.name ? `${r.capcode} — ${r.name}` : r.capcode}
+                labelWidth='160px'
                 color='var(--accent-amber)'/>
             ))}
         </div>
