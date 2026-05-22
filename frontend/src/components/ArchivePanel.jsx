@@ -3,6 +3,8 @@ import { Archive, Search, X, RefreshCw, Download } from 'lucide-react';
 import MessageRow from './MessageRow.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
+const tok  = () => localStorage.getItem('pm_token') || '';
+const authHeaders = () => ({ Authorization: `Bearer ${tok()}` });
 
 function fmtDate(ts) {
   if (!ts) return '—';
@@ -18,10 +20,10 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
 
   // Load stats and recent archive on mount
   useEffect(() => {
-    fetch(`${BASE}/api/archive/stats`).then(r => r.json()).then(setStats).catch(() => {});
-    fetch(`${BASE}/api/archive?limit=50`).then(r => r.json()).then(d => {
-      if (Array.isArray(d)) setResults(d);
-    }).catch(() => {});
+    fetch(`${BASE}/api/archive/stats`, { headers: authHeaders() })
+      .then(r => r.json()).then(d => { if (d && d.total != null) setStats(d); }).catch(() => {});
+    fetch(`${BASE}/api/archive?limit=50`, { headers: authHeaders() })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setResults(d); }).catch(() => {});
   }, []);
 
   const search = async (q) => {
@@ -30,7 +32,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
       const url = q.trim()
         ? `${BASE}/api/archive?q=${encodeURIComponent(q)}&limit=200`
         : `${BASE}/api/archive?limit=200`;
-      const r = await fetch(url);
+      const r = await fetch(url, { headers: authHeaders() });
       const d = await r.json();
       setResults(Array.isArray(d) ? d : []);
       setSearched(true);
@@ -38,12 +40,19 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
     finally { setLoading(false); }
   };
 
-  const downloadCsv = () => {
+  const downloadCsv = async () => {
     const url = query.trim()
       ? `${BASE}/api/archive/export?q=${encodeURIComponent(query)}`
       : `${BASE}/api/archive/export`;
-    const a = document.createElement('a');
-    a.href = url; a.click();
+    try {
+      const r    = await fetch(url, { headers: authHeaders() });
+      const blob = await r.blob();
+      const a    = document.createElement('a');
+      a.href     = URL.createObjectURL(blob);
+      a.download = `pagermonitor-archive-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (_) {}
   };
 
   return (
