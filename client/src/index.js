@@ -184,6 +184,7 @@ function createPipeline(baseCfg, index) {
   let stopping = false;
   let restartTimer    = null;
   let consecutiveFails = 0;
+  let generation = 0;
   const label = `[dongle-${cfg.device}]`;
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -198,9 +199,11 @@ function createPipeline(baseCfg, index) {
   async function start() {
     if (stopping) return;
     kill();
+    const myGen = ++generation;
 
     log('info', `${label} Waiting 3s before starting...`);
     await sleep(3000);
+    if (stopping || myGen !== generation) return;
 
     const rtlArgs  = buildRtlArgs(cfg);
     const mmonArgs = buildMmonArgs(cfg);
@@ -240,13 +243,14 @@ function createPipeline(baseCfg, index) {
       });
 
       const onExit = (src) => (code, sig) => {
+        if (myGen !== generation) return;
         log('info', `${label} ${src} exited (${code}/${sig})`);
         if (!stopping) scheduleRestart();
       };
       rtlProc.on('exit',  onExit('rtl_fm'));
       mmonProc.on('exit', onExit('multimon-ng'));
-      rtlProc.on('error',  e => { log('error', `${label} rtl_fm error: ${e.message}`);  if (!stopping) scheduleRestart(); });
-      mmonProc.on('error', e => { log('error', `${label} mmon error: ${e.message}`);     if (!stopping) scheduleRestart(); });
+      rtlProc.on('error',  e => { if (myGen !== generation) return; log('error', `${label} rtl_fm error: ${e.message}`);  if (!stopping) scheduleRestart(); });
+      mmonProc.on('error', e => { if (myGen !== generation) return; log('error', `${label} mmon error: ${e.message}`);     if (!stopping) scheduleRestart(); });
 
       consecutiveFails = 0;
       log('info', `${label} Pipeline running — freq=${cfg.freq} protocols=${cfg.protocols}`);

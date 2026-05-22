@@ -120,6 +120,7 @@ let stopping         = false;   // true while we are intentionally tearing down
 let restartTimer     = null;
 let consecutiveFails = 0;
 let isFirstStart     = true;
+let generation       = 0;
 let logBuffer        = [];
 const MAX_LOG_LINES  = 300;
 
@@ -141,8 +142,9 @@ function addLog(source, line) {
 
 // ── Kill only OUR child processes ─────────────────────────────────────────────
 function killOwnProcesses() {
-  try { if (mmonProc) { mmonProc.stdout?.unpipe(); mmonProc.kill('SIGTERM'); } } catch (_) {}
-  try { if (rtlProc)  { rtlProc.kill('SIGTERM'); } } catch (_) {}
+  try { if (rtlProc && mmonProc) rtlProc.stdout?.unpipe(mmonProc.stdin); } catch (_) {}
+  try { if (mmonProc) mmonProc.kill('SIGTERM'); } catch (_) {}
+  try { if (rtlProc)  rtlProc.kill('SIGTERM'); } catch (_) {}
   rtlProc  = null;
   mmonProc = null;
 }
@@ -153,6 +155,7 @@ async function startSdrPipeline() {
 
   killOwnProcesses();
   stopMultiDonglePipelines();
+  const myGen = ++generation;
 
   if (isFirstStart) {
     logger.info('First start — waiting 3s for USB to settle…');
@@ -166,7 +169,7 @@ async function startSdrPipeline() {
   const dongles = getDongleConfigs();
   if (Array.isArray(dongles) && dongles.length > 1) {
     logger.info(`Starting ${dongles.length} SDR dongles in parallel`);
-    donglePipelines       = dongles.map((d, i) => spawnDonglePipeline(d, `[dongle-${d.device ?? i}]`));
+    donglePipelines       = dongles.map((d, i) => spawnDonglePipeline(d, `[dongle-${d.device ?? i}]`, myGen));
     sdrStatus.running     = true;
     sdrStatus.startedAt   = new Date().toISOString();
     sdrStatus.error       = null;
@@ -198,6 +201,8 @@ async function startSdrPipeline() {
     logger.info(`Spawned rtl_fm PID=${rtlProc.pid}  multimon-ng PID=${mmonProc.pid}`);
 
     rtlProc.stdout.pipe(mmonProc.stdin);
+    rtlProc.stdout.on('error', () => {});
+    mmonProc.stdin.on('error',  () => {});
 
     rtlProc.stderr.on('data', d => {
       d.toString().split('\n').forEach(l => { l = l.trim(); if (l) { logger.debug(`rtl_fm: ${l}`); addLog('rtl_fm', l); } });
@@ -225,11 +230,13 @@ async function startSdrPipeline() {
     });
 
     rtlProc.on('error', err => {
+      if (myGen !== generation) return;
       addLog('rtl_fm', `ERROR: ${err.message}`);
       sdrStatus.error = err.message;
       if (!stopping) scheduleRestart();
     });
     mmonProc.on('error', err => {
+      if (myGen !== generation) return;
       addLog('mmon', `ERROR: ${err.message}`);
       sdrStatus.error = err.message;
       if (!stopping) scheduleRestart();
@@ -237,11 +244,13 @@ async function startSdrPipeline() {
 
     // exit handler — only restart if WE didn't cause the exit
     rtlProc.on('exit', (code, signal) => {
+      if (myGen !== generation) return;
       addLog('rtl_fm', `exited (code=${code} signal=${signal})`);
       sdrStatus.running = false;
       if (!stopping) scheduleRestart();
     });
     mmonProc.on('exit', (code, signal) => {
+      if (myGen !== generation) return;
       addLog('mmon', `exited (code=${code} signal=${signal})`);
       sdrStatus.running = false;
       if (!stopping) scheduleRestart();
@@ -445,7 +454,7 @@ function handleLine(line) {
 }
 
 // ── Multi-dongle pipeline spawner ─────────────────────────────────────────────
-function spawnDonglePipeline(dongle, label) {
+function spawnDonglePipeline(dongle, label, myGen) {
   const rtlArgs  = buildRtlFmArgsForDongle(dongle);
   const mmonArgs = buildMmonArgsForDongle(dongle);
   logger.info(`${label} Starting: device=${dongle.device} freq=${dongle.freq || process.env.RTL_FM_FREQ}`);
@@ -455,6 +464,8 @@ function spawnDonglePipeline(dongle, label) {
   const rtl  = spawn('rtl_fm',      rtlArgs,  { stdio: ['ignore', 'pipe', 'pipe'] });
   const mmon = spawn('multimon-ng', mmonArgs, { stdio: ['pipe',   'pipe', 'pipe'] });
   rtl.stdout.pipe(mmon.stdin);
+  rtl.stdout.on('error', () => {});
+  mmon.stdin.on('error',  () => {});
 
   rtl.stderr.on('data',  d => d.toString().split('\n').forEach(l => { if (l.trim()) addLog('rtl_fm',  `${label} ${l.trim()}`); }));
   mmon.stderr.on('data', d => d.toString().split('\n').forEach(l => { if (l.trim()) addLog('mmon',    `${label} ${l.trim()}`); }));
@@ -476,6 +487,7 @@ function spawnDonglePipeline(dongle, label) {
   });
 
   const onExit = (src) => (c, s) => {
+    if (myGen !== generation) return;
     logger.info(`${label} ${src} exited (${c}/${s})`);
     if (!stopping) {
       state.running = false;
@@ -486,8 +498,8 @@ function spawnDonglePipeline(dongle, label) {
   };
   rtl.on('exit',  onExit('rtl_fm'));
   mmon.on('exit', onExit('multimon-ng'));
-  rtl.on('error',  e => { logger.error(`${label} rtl_fm: ${e.message}`);  state.running = false; state.error = e.message; if (!stopping) { broadcastDongleStatus(); scheduleRestart(); } });
-  mmon.on('error', e => { logger.error(`${label} mmon: ${e.message}`);     state.running = false; state.error = e.message; if (!stopping) { broadcastDongleStatus(); scheduleRestart(); } });
+  rtl.on('error',  e => { if (myGen !== generation) return; logger.error(`${label} rtl_fm: ${e.message}`);  state.running = false; state.error = e.message; if (!stopping) { broadcastDongleStatus(); scheduleRestart(); } });
+  mmon.on('error', e => { if (myGen !== generation) return; logger.error(`${label} mmon: ${e.message}`);     state.running = false; state.error = e.message; if (!stopping) { broadcastDongleStatus(); scheduleRestart(); } });
 
   return { rtlProc: rtl, mmonProc: mmon, cfg: dongle, label, state };
 }
@@ -509,7 +521,8 @@ function broadcastDongleStatus() {
 
 function stopMultiDonglePipelines() {
   for (const p of donglePipelines) {
-    try { p.mmonProc?.stdout?.unpipe(); p.mmonProc?.kill('SIGTERM'); } catch (_) {}
+    try { if (p.rtlProc && p.mmonProc) p.rtlProc.stdout?.unpipe(p.mmonProc.stdin); } catch (_) {}
+    try { p.mmonProc?.kill('SIGTERM'); } catch (_) {}
     try { p.rtlProc?.kill('SIGTERM'); } catch (_) {}
   }
   donglePipelines = [];
