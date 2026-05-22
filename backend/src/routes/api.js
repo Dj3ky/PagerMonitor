@@ -40,8 +40,17 @@ router.get('/search', requireAuth, (req, res) => {
 });
 
 router.get('/status', requireAuth, (_req, res) => {
+  const sdrDisabled = process.env.DISABLE_SDR === 'true';
+  let sdrClients = null;
+  if (sdrDisabled) {
+    try {
+      sdrClients = require('../services/clientTracker').getClients().map(c => ({
+        id: c.id, online: c.online, freq: c.freq, protocols: c.protocols, silentSec: c.silentSec,
+      }));
+    } catch (_) { sdrClients = []; }
+  }
   res.json({ ok: true, version: require('../../package.json').version, mode: process.env.MODE||'single',
-    sdrDisabled: process.env.DISABLE_SDR === 'true',
+    sdrDisabled, sdrClients,
     uptime: process.uptime(), wsClients: getClientCount(),
     memory: process.memoryUsage(), loadAvg: os.loadavg(),
     freeMem: os.freemem(), totalMem: os.totalmem(), sdr: getStatus(), stats: getStats() });

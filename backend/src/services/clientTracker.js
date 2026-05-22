@@ -75,17 +75,19 @@ function recordClientMessage(clientId, ip, extra = {}) {
 }
 
 // ── Record status ping (no message) ──────────────────────────────────────────
-function recordClientPing(clientId, ip) {
+function recordClientPing(clientId, ip, extra = {}) {
   if (!clientId) return;
   try {
     ensureTables();
     getDb().prepare(`
-      INSERT INTO sdr_clients (id, last_seen, ip)
-      VALUES (?, datetime('now'), ?)
+      INSERT INTO sdr_clients (id, last_seen, ip, freq, protocols)
+      VALUES (?, datetime('now'), ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         last_seen = datetime('now'),
-        ip = COALESCE(excluded.ip, ip)
-    `).run(clientId, ip || null);
+        ip        = COALESCE(excluded.ip, ip),
+        freq      = COALESCE(excluded.freq, freq),
+        protocols = COALESCE(excluded.protocols, protocols)
+    `).run(clientId, ip || null, extra.freq || null, extra.protocols || null);
   } catch (e) {
     logger.warn(`clientTracker.recordClientPing: ${e.message}`);
   }

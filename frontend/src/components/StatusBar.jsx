@@ -1,6 +1,13 @@
 import { useRef, useLayoutEffect, useState, useEffect } from 'react';
 import { Activity, Wifi, WifiOff, Clock, HardDrive, RefreshCw } from 'lucide-react';
 
+function fmtSilent(sec) {
+  if (sec < 60)    return `${sec}s ago`;
+  if (sec < 3600)  return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
 function fmt24(ts) {
   if (!ts) return '—';
   return new Date(ts).toLocaleTimeString('sl-SI', {
@@ -8,43 +15,65 @@ function fmt24(ts) {
   });
 }
 
-function Dot({ on }) {
+function SdrDot({ on, title }) {
   return (
-    <span style={{ width:'7px', height:'7px', borderRadius:'50%', flexShrink:0, display:'inline-block',
-      background: on ? 'var(--accent-green)' : 'var(--accent-red)',
-      boxShadow: on ? '0 0 6px var(--accent-green)' : 'none' }} />
+    <span title={title} style={{ display:'inline-flex', alignItems:'center' }}>
+      <span style={{
+        width:'7px', height:'7px', borderRadius:'50%', flexShrink:0,
+        background: on ? 'var(--accent-green)' : 'var(--accent-red)',
+        boxShadow:  on ? 'var(--glow-green)'   : 'var(--glow-red)',
+        animation:  on ? 'blink 2s ease-in-out infinite' : 'none',
+      }}/>
+    </span>
   );
 }
 
 function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount }) {
-  const sdrRunning = sdrStatus?.running ?? false;
-  const total      = serverStatus?.stats?.total;
+  const sdrRunning  = sdrStatus?.running ?? false;
+  const sdrDisabled = serverStatus?.sdrDisabled ?? false;
+  const total       = serverStatus?.stats?.total;
 
   return (
     <>
-      <span style={{ display:'inline-flex', alignItems:'center', gap:'0.35rem' }}
-        title={sdrRunning ? 'SDR active' : 'SDR offline'}>
-        {/* Multi-dongle: show individual dots */}
-        {sdrStatus?.dongleStatuses?.length > 1 ? (
-          <>
-            {sdrStatus.dongleStatuses.map((d, i) => {
-              const ok = d.running;
-              const tip = ok
-                ? `Dongle ${d.device} (${d.freq}) — OK`
-                : `Dongle ${d.device} (${d.freq}) — DOWN${d.error ? `: ${d.error}` : ''}`;
+      <span style={{ display:'inline-flex', alignItems:'center', gap:'0.35rem' }}>
+        {sdrDisabled ? (() => {
+          const clients = serverStatus?.sdrClients ?? [];
+          if (clients.length === 0) return (
+            <span style={{ fontWeight:700, color:'var(--text-3)' }}>SDR: REMOTE</span>
+          );
+          const allOn  = clients.every(c => c.online);
+          const someOn = clients.some(c => c.online);
+          return (<>
+            {clients.map((c, i) => {
+              const tip = c.online
+                ? `${c.id}${c.freq ? ` · ${c.freq}` : ''}${c.protocols ? ` · ${c.protocols}` : ''} · ONLINE`
+                : `${c.id}${c.freq ? ` · ${c.freq}` : ''} · OFFLINE · ${fmtSilent(c.silentSec)}`;
               return (
-                <span key={i} title={tip} style={{ display:'inline-flex', alignItems:'center', gap:'0.2rem' }}>
+                <span key={i} title={tip} style={{ display:'inline-flex', alignItems:'center' }}>
                   <span style={{
                     width:'7px', height:'7px', borderRadius:'50%',
-                    background: ok ? 'var(--accent-green)' : 'var(--accent-red)',
-                    boxShadow:  ok ? 'var(--glow-green)'  : 'var(--glow-red)',
-                    animation:  ok ? 'blink 2s ease-in-out infinite' : 'none',
+                    background: c.online ? 'var(--accent-green)' : 'var(--accent-red)',
+                    boxShadow:  c.online ? 'var(--glow-green)'  : 'var(--glow-red)',
+                    animation:  c.online ? 'blink 2s ease-in-out infinite' : 'none',
                     flexShrink: 0,
                   }}/>
                 </span>
               );
             })}
-            <span style={{ fontWeight:700, fontSize:'0.75rem',
+            <span style={{ fontWeight:700, color: allOn ? 'var(--accent-green)' : someOn ? 'var(--accent-amber)' : 'var(--accent-red)' }}>
+              SDR {allOn ? 'ACTIVE' : someOn ? 'PARTIAL' : 'OFFLINE'}
+            </span>
+          </>);
+        })() : sdrStatus?.dongleStatuses?.length > 1 ? (
+          <>
+            {sdrStatus.dongleStatuses.map((d, i) => {
+              const ok  = d.running;
+              const tip = ok
+                ? `Dongle ${d.device} · ${d.freq}${d.protocols ? ` · ${d.protocols}` : ''} · ACTIVE`
+                : `Dongle ${d.device} · ${d.freq} · OFFLINE${d.error ? ` · ${d.error}` : ''}`;
+              return <SdrDot key={i} on={ok} title={tip} />;
+            })}
+            <span style={{ fontWeight:700,
               color: sdrStatus.dongleStatuses.every(d => d.running)
                 ? 'var(--accent-green)'
                 : sdrStatus.dongleStatuses.some(d => d.running)
@@ -57,15 +86,19 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount }) {
                   : 'OFFLINE'}
             </span>
           </>
-        ) : (
-          // Single dongle: original display
-          <>
-            <Dot on={sdrRunning} />
+        ) : (() => {
+          const freq      = sdrStatus?.freq;
+          const protocols = Array.isArray(sdrStatus?.protocols) ? sdrStatus.protocols.join(' ') : sdrStatus?.protocols;
+          const tip = sdrRunning
+            ? `${freq ? `${freq} · ` : ''}${protocols ? `${protocols} · ` : ''}ACTIVE`
+            : `SDR OFFLINE${sdrStatus?.error ? ` · ${sdrStatus.error}` : ''}`;
+          return (<>
+            <SdrDot on={sdrRunning} title={tip} />
             <span style={{ fontWeight:700, color: sdrRunning ? 'var(--accent-green)' : 'var(--accent-red)' }}>
               SDR {sdrRunning ? 'ACTIVE' : 'OFFLINE'}
             </span>
-          </>
-        )}
+          </>);
+        })()}
       </span>
       <span style={{ opacity:0.3 }}>·</span>
       <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem' }}

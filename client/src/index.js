@@ -160,7 +160,9 @@ let globalOverrideCfg   = null; // remote config overlay (applies to all dongles
 
 async function pollConfig(pipelines) {
   try {
-    const r = await httpRequest('GET', '/client/config');
+    const freqs     = pipelines.map(p => p.getCfg().freq).join(':');
+    const protocols = [...new Set(pipelines.map(p => p.getCfg().protocols))].join(' ');
+    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}`);
     if (r.status !== 200 || !r.body?.config) return;
     const { config, version } = r.body;
     if (!config || version === globalConfigVersion) return;
@@ -284,7 +286,7 @@ function createPipeline(baseCfg, index) {
     kill();
   }
 
-  return { start, stop, applyRemoteConfig, label };
+  return { start, stop, applyRemoteConfig, getCfg: () => ({ ...cfg }), label };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

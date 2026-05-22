@@ -177,7 +177,7 @@ async function startSdrPipeline() {
     sdrStatus.protocols   = dongles.map(d => d.protocols || process.env.MULTIMON_PROTOCOLS || '');
     sdrStatus.dongleCount = dongles.length;
     sdrStatus.dongleStatuses = donglePipelines.map(p => ({
-      device: p.cfg.device, freq: p.cfg.freq, label: p.label,
+      device: p.cfg.device, freq: p.cfg.freq, protocols: p.cfg.protocols, label: p.label,
       running: true, error: null, lastMessage: null,
     }));
     broadcast({ type: 'sdr_status', status: getStatus() });

@@ -167,7 +167,10 @@ router.get('/config', requireClientKey, (req, res) => {
   const clientId = req.headers['x-client-id'] || '';
   if (!clientId) return res.status(400).json({ error: 'X-Client-Id header required' });
 
-  recordClientPing(clientId, req.ip);
+  recordClientPing(clientId, req.ip, {
+    freq:      req.query.freq      || null,
+    protocols: req.query.protocols || null,
+  });
 
   const cfg = getClientConfig(clientId);
   if (!cfg) return res.json({ config: null, version: null }); // no config set yet

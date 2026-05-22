@@ -100,10 +100,11 @@ function ClientCard({ client, configs, onRemove, onSaveConfig, flash }) {
           { label:'Last seen',      value: fmtSilent(client.silentSec), color: client.online ? 'var(--accent-green)' : 'var(--accent-amber)' },
           { label:'Frequency',      value: client.freq || '—', color:'var(--text-2)' },
           { label:'Protocols',      value: client.protocols || '—', color:'var(--text-2)' },
-          { label:'First seen',     value: fmtTime(client.firstSeen), color:'var(--text-3)' },
-        ].map(({label, value, color}) => (
+          { label:'First seen',     value: fmtTime(client.firstSeen), color:'var(--text-3)', span: 2 },
+        ].map(({label, value, color, span}) => (
           <div key={label} style={{ background:'var(--bg-0)', padding:'0.4rem 0.5rem',
-            borderRadius:'0.4rem', border:'1px solid var(--border-soft)' }}>
+            borderRadius:'0.4rem', border:'1px solid var(--border-soft)',
+            gridColumn: span ? `span ${span}` : undefined }}>
             <div style={{ fontSize:'0.6rem', color:'var(--text-3)', marginBottom:'0.15rem', textTransform:'uppercase', letterSpacing:'0.05em' }}>{label}</div>
             <div style={{ fontFamily:'monospace', fontSize:'0.78rem', fontWeight:600, color, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={value}>{value}</div>
           </div>
