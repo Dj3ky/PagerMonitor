@@ -468,6 +468,12 @@ function addMessageNote(messageId, userId, username, note, isPrivate) {
   `).run(messageId, userId, username, note.trim(), isPrivate ? 1 : 0).lastInsertRowid;
 }
 
+function deleteMessage(id) {
+  const db = getDb();
+  db.prepare('DELETE FROM messages_fts WHERE rowid = ?').run(id);
+  db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+}
+
 function deleteMessageNote(noteId, userId, userRole) {
   // Users can only delete their own notes; admins can delete any
   if (userRole === 'admin') {
@@ -515,7 +521,7 @@ function pruneExpiredSessions() {
 
 module.exports = {
   initDb, getDb,
-  insertMessage, getHistory, searchMessages, getMessageStats,
+  insertMessage, getHistory, searchMessages, getMessageStats, deleteMessage,
   getGroups, createGroup, updateGroup, deleteGroup,
   getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
   getSetting, setSetting,

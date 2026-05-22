@@ -12,6 +12,7 @@ const { getDb, getStats, getMessageStats,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
         getWebhooks, upsertWebhook, deleteWebhook,
         addAuditLog, getAuditLog,
+        deleteMessage,
         getSetting: _gs, setSetting: _ss } = require('../services/database');
 const { getConfig, updateConfig, testNotification } = require('../services/notifications');
 const { getSdrConfig, saveSdrConfig, getDedupConfig, saveDedupConfig,
@@ -117,6 +118,16 @@ router.delete('/db/purge', adminOnly, (req, res) => {
 
     res.json({ ok: true, deleted: toDelete.length, days });
     addAuditLog(req.session?.username||'admin', 'db.purge', `deleted=${toDelete.length} days=${days}`);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/messages/:id', adminOnly, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id || isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    deleteMessage(id);
+    addAuditLog(req.session?.username||'admin', 'message.delete', `id=${id}`);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

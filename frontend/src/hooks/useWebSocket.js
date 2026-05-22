@@ -162,5 +162,9 @@ export function useWebSocket(backendUrl) {
     });
   }, []);
 
-  return { messages, wsStatus, sdrStatus, prependHistory, appendHistory };
+  const removeMessage = useCallback((id) => {
+    setMessages(prev => prev.filter(m => m.id !== id));
+  }, []);
+
+  return { messages, wsStatus, sdrStatus, prependHistory, appendHistory, removeMessage };
 }

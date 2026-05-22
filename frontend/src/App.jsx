@@ -30,7 +30,7 @@ export default function App() {
   const [showProfile, setShowProfile]   = useState(false);
   const [resetToken]                    = useState(() => new URLSearchParams(window.location.search).get('reset'));
 
-  const { messages, wsStatus, sdrStatus, prependHistory, appendHistory } = useWebSocket(BACKEND_URL);
+  const { messages, wsStatus, sdrStatus, prependHistory, appendHistory, removeMessage } = useWebSocket(BACKEND_URL);
 
   const [filters, setFilters]               = useState({ capcode:'', keyword:'', alias:'', group:'' });
   const [searchResults, setSearchResults]   = useState(null);
@@ -214,7 +214,8 @@ export default function App() {
               onLoadMore={safePage === totalPages - 1 ? handleLoadMore : null}
               loadingMore={loadingMore} noMoreMessages={noMoreMessages}
               totalInDb={serverStatus?.stats?.total || 0}
-              totalLoaded={messages.length} />
+              totalLoaded={messages.length}
+              onDelete={removeMessage} />
           </div>
           {/* MapView always mounted so geocoding/state persists across tab switches */}
           <div style={{ position:'absolute', inset:0, display: view === 'map' ? 'block' : 'none' }}>

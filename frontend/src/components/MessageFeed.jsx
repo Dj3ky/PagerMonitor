@@ -25,7 +25,7 @@ function FeedHeader() {
   );
 }
 
-export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded }) {
+export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete }) {
   const { newBadgeSeconds = 10 } = useSite();
 
   // lastSeenId from the server — tracks per-user across all devices
@@ -104,7 +104,8 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
             highlightRules={highlightRules}
             groups={groups}
             onFilter={onFilter}
-            onMapClick={onMapClick} />
+            onMapClick={onMapClick}
+            onDelete={onDelete} />
         );
       })}
 

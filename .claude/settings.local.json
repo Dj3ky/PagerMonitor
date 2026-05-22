@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(git -C d:/GitHub/PagerMonitor status --short)",
-      "Bash(git -C d:/GitHub/PagerMonitor status --short --untracked-files=all)",
-      "Bash(git -C d:/GitHub/PagerMonitor check-ignore -v backend/data/si_streets.json)"
-    ]
-  }
-}

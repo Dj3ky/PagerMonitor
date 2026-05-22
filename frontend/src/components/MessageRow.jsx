@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { StickyNote } from 'lucide-react';
+import { StickyNote, ChevronDown, ChevronRight, MapPin, Trash2 } from 'lucide-react';
 import MessageNotes from './MessageNotes.jsx';
-import { ChevronDown, ChevronRight, MapPin } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+
+const BASE = import.meta.env.VITE_BACKEND_URL || '';
 
 function fmtTime(ts) { return new Date(ts).toLocaleTimeString('sl-SI', { hour12:false }); }
 function fmtDate(ts) { return new Date(ts).toLocaleDateString('sl-SI', { day:'2-digit', month:'2-digit', year:'numeric' }); }
@@ -53,10 +55,12 @@ function Badge({ label, color, title, onClick }) {
   );
 }
 
-export default function MessageRow({ msg, isNew, highlightRules=[], groups=[], onFilter, onMapClick }) {
+export default function MessageRow({ msg, isNew, highlightRules=[], groups=[], onFilter, onMapClick, onDelete }) {
   const [expanded, setExpanded] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const { showMapButton = true } = useSite();
+  const { user, token } = useAuth();
   // Only show map button if message has confirmed stored coordinates in DB
   const hasLocation  = !!(msg.lat && msg.lng);
   const isKeyAlert   = !!(window.__pm_alerts?.has(msg.id));
@@ -242,6 +246,37 @@ export default function MessageRow({ msg, isNew, highlightRules=[], groups=[], o
               <div style={{ marginTop:'0.35rem', fontFamily:'monospace', fontSize:'0.68rem',
                 color:'var(--text-3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
                 title={msg.raw}>RAW: {msg.raw}</div>
+            )}
+            {user?.role === 'admin' && msg.id && (
+              <div style={{ marginTop:'0.6rem', display:'flex', justifyContent:'flex-end' }}
+                onClick={e => e.stopPropagation()}>
+                <button
+                  disabled={deleting}
+                  onClick={async () => {
+                    if (!confirm('Delete this message permanently?')) return;
+                    setDeleting(true);
+                    try {
+                      await fetch(`${BASE}/admin/messages/${msg.id}`, {
+                        method: 'DELETE',
+                        headers: { Authorization: `Bearer ${token}` },
+                      });
+                      onDelete?.(msg.id);
+                    } catch (_) {
+                      setDeleting(false);
+                    }
+                  }}
+                  title="Delete message"
+                  style={{ display:'flex', alignItems:'center', gap:'0.3rem',
+                    fontSize:'0.7rem', fontFamily:'monospace', fontWeight:600,
+                    padding:'0.25rem 0.6rem', borderRadius:'0.35rem', cursor: deleting ? 'wait' : 'pointer',
+                    background:'color-mix(in srgb,var(--accent-red,#ef4444) 10%,transparent)',
+                    border:'1px solid color-mix(in srgb,var(--accent-red,#ef4444) 30%,transparent)',
+                    color:'var(--accent-red,#ef4444)', transition:'background 0.1s' }}
+                  onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-red,#ef4444) 20%,transparent)'}
+                  onMouseLeave={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-red,#ef4444) 10%,transparent)'}>
+                  <Trash2 size={11}/>{deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
             )}
           </div>
         )}
