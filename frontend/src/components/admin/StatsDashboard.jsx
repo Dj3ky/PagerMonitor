@@ -66,29 +66,27 @@ export default function StatsDashboard() {
           ))}
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
-        {/* Top capcodes */}
-        <div className="pm-card">
-          <div className="pm-section-title">Top capcodes</div>
-          {stats.topCodes.length === 0
-            ? <div style={{color:'var(--text-3)',fontSize:'0.8rem'}}>No data</div>
-            : stats.topCodes.map(r=>(
-              <Bar key={r.capcode} value={r.n} max={maxCode}
-                label={r.name ? `${r.capcode} — ${r.name}` : r.capcode}
-                labelWidth='160px'
-                color='var(--accent-amber)'/>
-            ))}
-        </div>
+      {/* Top capcodes */}
+      <div className="pm-card" style={{marginBottom:'1rem'}}>
+        <div className="pm-section-title">Top capcodes</div>
+        {stats.topCodes.length === 0
+          ? <div style={{color:'var(--text-3)',fontSize:'0.8rem'}}>No data</div>
+          : stats.topCodes.map(r=>(
+            <Bar key={r.capcode} value={r.n} max={maxCode}
+              label={r.name ? `${r.capcode} — ${r.name}` : r.capcode}
+              labelWidth='200px'
+              color='var(--accent-amber)'/>
+          ))}
+      </div>
 
-        {/* Protocol breakdown */}
-        <div className="pm-card">
-          <div className="pm-section-title">By protocol</div>
-          {stats.byProtocol.length === 0
-            ? <div style={{color:'var(--text-3)',fontSize:'0.8rem'}}>No data</div>
-            : stats.byProtocol.map(r=>(
-              <Bar key={r.protocol} value={r.n} max={stats.byProtocol[0].n} label={r.protocol||'unknown'} color='var(--accent-blue)'/>
-            ))}
-        </div>
+      {/* Protocol breakdown */}
+      <div className="pm-card">
+        <div className="pm-section-title">By protocol</div>
+        {stats.byProtocol.length === 0
+          ? <div style={{color:'var(--text-3)',fontSize:'0.8rem'}}>No data</div>
+          : stats.byProtocol.map(r=>(
+            <Bar key={r.protocol} value={r.n} max={stats.byProtocol[0].n} label={r.protocol||'unknown'} color='var(--accent-blue)'/>
+          ))}
       </div>
     </div>
   );
