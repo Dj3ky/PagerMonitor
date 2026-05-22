@@ -125,7 +125,7 @@ function httpRequest(method, path, body) {
     const req = lib.request({
       hostname: url.hostname,
       port:     url.port || (url.protocol === 'https:' ? 443 : 80),
-      path:     url.pathname,
+      path:     url.pathname + url.search,
       method, headers,
     }, res => {
       let raw = '';
