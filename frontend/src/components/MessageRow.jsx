@@ -15,7 +15,7 @@ function highlightSegments(text, rules) {
   for (const rule of rules.filter(r => r.enabled && r.pattern)) {
     try {
       const escaped = rule.is_regex ? rule.pattern : rule.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re      = new RegExp(`(${escaped})`, 'gi');
+      const re      = new RegExp(`((?:${escaped}))`, 'gi');
       const parts   = text.split(re);
       if (parts.length <= 1) continue;
       const hl = { color: rule.color || '#ffb800', bg: rule.bg || (rule.color || '#ffb800') + '35' };

@@ -24,6 +24,10 @@ export default function KeywordAlerts() {
   const cancel = () => { setEditing(null); setForm(EMPTY); };
 
   const save = async () => {
+    if (!form.pattern) { flash('err', 'Pattern is required'); return; }
+    if (form.is_regex) {
+      try { new RegExp(form.pattern); } catch { flash('err', 'Invalid regular expression'); return; }
+    }
     try {
       await api('PUT','/admin/keyword-alerts', form);
       await load(); cancel(); flash('ok','Saved');
@@ -92,7 +96,7 @@ export default function KeywordAlerts() {
           <div style={{display:'flex',alignItems:'center',gap:'0.75rem',marginTop:'0.4rem'}}>
             <label style={{display:'flex',alignItems:'center',gap:'0.4rem',fontSize:'0.8rem',cursor:'pointer'}}>
               <input type="checkbox" checked={!!form.is_regex} onChange={e=>setForm(f=>({...f,is_regex:e.target.checked?1:0}))}/>
-              Regular expression
+              Use regex
             </label>
             <label style={{display:'flex',alignItems:'center',gap:'0.4rem',fontSize:'0.8rem',cursor:'pointer'}}>
               <input type="checkbox" checked={!!form.enabled} onChange={e=>setForm(f=>({...f,enabled:e.target.checked?1:0}))}/>
