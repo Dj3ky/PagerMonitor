@@ -223,7 +223,10 @@ function createPipeline(baseCfg, index) {
 
       const tap = new PassThrough();
       let lastRtlMs = Date.now();
-      tap.on('data', () => { lastRtlMs = Date.now(); });
+      tap.on('data', () => {
+        lastRtlMs = Date.now();
+        if (!pipelineRunning) pipelineRunning = true;
+      });
       tap.on('error', () => {});
       rtlProc.stdout.pipe(tap);
       tap.pipe(mmonProc.stdin);
@@ -275,8 +278,7 @@ function createPipeline(baseCfg, index) {
       mmonProc.on('error', e => { if (myGen !== generation) return; log('error', `${label} mmon error: ${e.message}`);     pipelineRunning = false; if (!stopping) scheduleRestart(); });
 
       consecutiveFails = 0;
-      pipelineRunning = true;
-      log('info', `${label} Pipeline running — freq=${cfg.freq} protocols=${cfg.protocols}`);
+      log('info', `${label} Pipeline spawned — waiting for audio data`);
     } catch (e) {
       log('error', `${label} Spawn failed: ${e.message}`);
       if (!stopping) scheduleRestart();

@@ -173,7 +173,7 @@ async function startSdrPipeline() {
   if (Array.isArray(dongles) && dongles.length > 1) {
     logger.info(`Starting ${dongles.length} SDR dongles in parallel`);
     donglePipelines       = dongles.map((d, i) => spawnDonglePipeline(d, `[dongle-${d.device ?? i}]`, myGen));
-    sdrStatus.running     = true;
+    sdrStatus.running     = false;
     sdrStatus.startedAt   = new Date().toISOString();
     sdrStatus.error       = null;
     sdrStatus.freq        = dongles.map(d => d.freq).join(', ');
@@ -181,7 +181,7 @@ async function startSdrPipeline() {
     sdrStatus.dongleCount = dongles.length;
     sdrStatus.dongleStatuses = donglePipelines.map(p => ({
       device: p.cfg.device, freq: p.cfg.freq, protocols: p.cfg.protocols, label: p.label,
-      running: true, error: null, lastMessage: null,
+      running: false, error: null, lastMessage: null,
     }));
     broadcast({ type: 'sdr_status', status: getStatus() });
     consecutiveFails = 0;
@@ -205,7 +205,13 @@ async function startSdrPipeline() {
 
     const rtlTap = new PassThrough();
     let lastRtlMs = Date.now();
-    rtlTap.on('data', () => { lastRtlMs = Date.now(); });
+    rtlTap.on('data', () => {
+      lastRtlMs = Date.now();
+      if (!sdrStatus.running && myGen === generation) {
+        sdrStatus.running = true;
+        broadcast({ type: 'sdr_status', status: getStatus() });
+      }
+    });
     rtlTap.on('error', () => {});
     rtlProc.stdout.pipe(rtlTap);
     rtlTap.pipe(mmonProc.stdin);
@@ -275,7 +281,6 @@ async function startSdrPipeline() {
       if (!stopping) scheduleRestart();
     });
 
-    sdrStatus.running   = true;
     sdrStatus.startedAt = new Date().toISOString();
     sdrStatus.error     = null;
     sdrStatus.rtlArgs   = rtlArgs;
@@ -283,9 +288,7 @@ async function startSdrPipeline() {
     sdrStatus.freq      = process.env.RTL_FM_FREQ || '';
     sdrStatus.protocols = (process.env.MULTIMON_PROTOCOLS || '').split(/\s+/);
     consecutiveFails    = 0;
-
-    broadcast({ type: 'sdr_status', status: getStatus() });
-    logger.info('SDR pipeline running');
+    logger.info('SDR pipeline spawned — waiting for audio data');
 
   } catch (err) {
     logger.error(`Failed to spawn: ${err.message}`);
@@ -478,13 +481,19 @@ function spawnDonglePipeline(dongle, label, myGen) {
   const mmonArgs = buildMmonArgsForDongle(dongle);
   logger.info(`${label} Starting: device=${dongle.device} freq=${dongle.freq || process.env.RTL_FM_FREQ}`);
 
-  const state = { running: true, error: null, restarts: 0, lastMessage: null };
+  const state = { running: false, error: null, restarts: 0, lastMessage: null };
 
   const rtl  = spawn('rtl_fm',      rtlArgs,  { stdio: ['ignore', 'pipe', 'pipe'] });
   const mmon = spawn('multimon-ng', mmonArgs, { stdio: ['pipe',   'pipe', 'pipe'] });
   const tap = new PassThrough();
   let lastRtlMs = Date.now();
-  tap.on('data', () => { lastRtlMs = Date.now(); });
+  tap.on('data', () => {
+    lastRtlMs = Date.now();
+    if (!state.running && myGen === generation) {
+      state.running = true;
+      broadcastDongleStatus();
+    }
+  });
   tap.on('error', () => {});
   rtl.stdout.pipe(tap);
   tap.pipe(mmon.stdin);
