@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
-         Copy, Layers, Filter, Settings2, ChevronDown, Wifi,
+         Copy, Layers, Settings2, ChevronDown, Wifi,
          BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
 import DbTools        from './DbTools.jsx';
 import NotifConfig    from './NotifConfig.jsx';
-import NotifFilter    from './NotifFilter.jsx';
 import AliasManager   from './AliasManager.jsx';
 import GroupManager   from './GroupManager.jsx';
 import LogViewer      from './LogViewer.jsx';
@@ -47,7 +46,6 @@ const TABS = [
 
   { group: 'Notifications' },
   { id:'notif',       label:'Services',       icon:<Bell size={14}/> },
-  { id:'notiffilter', label:'Filter',         icon:<Filter size={14}/> },
   { id:'webhooks',    label:'Webhooks',       icon:<Link size={14}/> },
   { id:'email',       label:'Email (SMTP)',   icon:<Mail size={14}/> },
   { id:'usernotif',   label:'User preferences', icon:<Bell size={14}/> },
@@ -74,7 +72,6 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'db':          return <DbTools />;
     case 'stats':       return <StatsDashboard />;
     case 'notif':       return <NotifConfig />;
-    case 'notiffilter': return <NotifFilter />;
     case 'keyword':     return <KeywordAlerts />;
     case 'deadair':     return <DeadAirConfig />;
     case 'webhooks':    return <Webhooks />;

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, Send, Save } from 'lucide-react';
 import { adminFetchNotifConfig, adminSetNotifConfig, adminTestNotif } from '../../utils/api.js';
+import NotifFilter from './NotifFilter.jsx';
 
 // Safe defaults — always a valid object even if backend returns garbage
 const DEFAULTS = {
@@ -191,6 +192,10 @@ export default function NotifConfig() {
       <button className="pm-btn pm-btn-primary" onClick={save} disabled={saving}>
         <Save size={13} /> {saving ? 'Saving…' : 'Save config'}
       </button>
+
+      <div style={{ borderTop: '1px solid var(--border)', margin: '1.5rem 0' }} />
+
+      <NotifFilter />
     </div>
   );
 }
