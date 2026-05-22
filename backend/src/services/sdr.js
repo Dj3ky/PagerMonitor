@@ -188,8 +188,9 @@ async function startSdrPipeline() {
     return;
   }
 
-  // Single dongle — reset count
-  sdrStatus.dongleCount = 1;
+  // Single dongle — clear multi-dongle state so the status bar switches back to the single-dot view
+  sdrStatus.dongleCount    = 1;
+  sdrStatus.dongleStatuses = null;
 
   // ── Single dongle mode (original) ─────────────────────────────────────────
   const rtlArgs  = buildRtlFmArgs();
