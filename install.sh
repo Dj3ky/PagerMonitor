@@ -85,10 +85,16 @@ mkdir -p "$PAGEMON_DIR/backend/data"
 echo ""
 echo "► Installing systemd service…"
 
+if [ $SERVER_ONLY -eq 1 ]; then
+  AFTER_UNITS="network.target"
+else
+  AFTER_UNITS="network.target dev-bus-usb.device"
+fi
+
 sudo tee /etc/systemd/system/pagermonitor.service > /dev/null << EOF
 [Unit]
 Description=PageMon — Real-time Pager Monitor
-After=network.target dev-bus-usb.device
+After=$AFTER_UNITS
 Wants=network.target
 StartLimitBurst=5
 StartLimitIntervalSec=120
