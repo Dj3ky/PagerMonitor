@@ -20,7 +20,9 @@ const CFG_FIELDS = [
 
 function fmtTime(ts) {
   if (!ts) return '—';
-  return new Date(ts).toLocaleString('sl-SI', {
+  // SQLite datetime('now') is UTC with no timezone suffix — append Z so JS parses it as UTC
+  const normalized = (ts.includes('T') || ts.endsWith('Z')) ? ts : ts.replace(' ', 'T') + 'Z';
+  return new Date(normalized).toLocaleString('sl-SI', {
     hour12:false, day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit',
   });
 }
@@ -132,7 +134,7 @@ function ClientCard({ client, configs, onRemove, onSaveConfig, flash }) {
           <Flash msg={cfgMsg}/>
           {existingCfg?.version && (
             <div style={{ fontSize:'0.7rem', color:'var(--text-3)', fontFamily:'monospace', marginBottom:'0.5rem' }}>
-              Current version on server: <span style={{ color:'var(--accent-blue)' }}>{existingCfg.version}</span>
+              Config version: <span style={{ color:'var(--accent-blue)' }}>{existingCfg.version}</span>
               {' · '}Updated: {fmtTime(existingCfg.updatedAt)}
             </div>
           )}

@@ -143,13 +143,8 @@ router.get('/download', requireAdmin, async (req, res) => {
 // Server must be restarted after restore for changes to take effect.
 router.post('/restore', requireAdmin, async (req, res) => {
   try {
-    let body = '';
-    req.on('data', chunk => { body += chunk; if (body.length > 500 * 1024 * 1024) req.destroy(); });
-    await new Promise((resolve, reject) => { req.on('end', resolve); req.on('error', reject); });
-
-    let bundle;
-    try { bundle = JSON.parse(body); } catch { return res.status(400).json({ error: 'Invalid backup file — not valid JSON' }); }
-    if (!bundle.version || !bundle.main) return res.status(400).json({ error: 'Invalid backup file — missing required fields' });
+    const bundle = req.body;
+    if (!bundle || !bundle.version || !bundle.main) return res.status(400).json({ error: 'Invalid backup file — missing required fields' });
 
     const mainPath = path.resolve(DB_PATH);
     const archPath = path.resolve(ARCHIVE_PATH);
