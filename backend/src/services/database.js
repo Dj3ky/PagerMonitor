@@ -305,8 +305,9 @@ function getMessageStats() {
     GROUP BY day ORDER BY day ASC
   `).all();
   const topCodes = d.prepare(`
-    SELECT capcode, COUNT(*) as n FROM messages
-    GROUP BY capcode ORDER BY n DESC LIMIT 10
+    SELECT m.capcode, COUNT(*) as n, a.name
+    FROM messages m LEFT JOIN aliases a ON a.capcode = m.capcode
+    GROUP BY m.capcode ORDER BY n DESC LIMIT 10
   `).all();
   const byProtocol = d.prepare(`
     SELECT protocol, COUNT(*) as n FROM messages

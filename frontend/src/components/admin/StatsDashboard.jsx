@@ -73,7 +73,9 @@ export default function StatsDashboard() {
           {stats.topCodes.length === 0
             ? <div style={{color:'var(--text-3)',fontSize:'0.8rem'}}>No data</div>
             : stats.topCodes.map(r=>(
-              <Bar key={r.capcode} value={r.n} max={maxCode} label={r.capcode} color='var(--accent-amber)'/>
+              <Bar key={r.capcode} value={r.n} max={maxCode}
+                label={r.name ? `${r.capcode} — ${r.name}` : r.capcode}
+                color='var(--accent-amber)'/>
             ))}
         </div>
 
