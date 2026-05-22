@@ -189,7 +189,8 @@ function createPipeline(baseCfg, index) {
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   function kill() {
-    try { if (mmonProc) { mmonProc.stdout?.unpipe(); mmonProc.kill('SIGTERM'); } } catch (_) {}
+    try { if (rtlProc && mmonProc) rtlProc.stdout?.unpipe(mmonProc.stdin); } catch (_) {}
+    try { if (mmonProc) mmonProc.kill('SIGTERM'); } catch (_) {}
     try { if (rtlProc)  rtlProc.kill('SIGTERM'); } catch (_) {}
     rtlProc = null; mmonProc = null;
   }
@@ -210,6 +211,8 @@ function createPipeline(baseCfg, index) {
       mmonProc = spawn('multimon-ng', mmonArgs, { stdio: ['pipe',   'pipe', 'pipe'] });
 
       rtlProc.stdout.pipe(mmonProc.stdin);
+      rtlProc.stdout.on('error', () => {});
+      mmonProc.stdin.on('error',  () => {});
 
       rtlProc.stderr.on('data', d =>
         d.toString().split('\n').forEach(l => { if (l.trim()) log('debug', `${label} rtl_fm: ${l.trim()}`); })
