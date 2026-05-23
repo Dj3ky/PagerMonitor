@@ -78,17 +78,21 @@ function normSI(s) {
 }
 
 function detectCity(text, countryCode) {
-  // Try dynamic regex built from place index first (covers all municipality centers)
+  // Run both the dynamic index regex and the hardcoded fallback, then pick
+  // whichever match appears earlier in the text.  This prevents a settlement
+  // name that happens to be a municipality center (e.g. "Smrečje") from
+  // shadowing a major city that appears earlier in the message (e.g. "KAMNIK").
+  let dynMatch = null;
   if (countryCode) {
     const dynRe = pi().buildCityRegex(countryCode);
-    if (dynRe) {
-      const m = dynRe.exec(text);
-      if (m) return m[1];
-    }
+    if (dynRe) dynMatch = dynRe.exec(text);
   }
-  // Fall back to hardcoded list for when place data hasn't been downloaded yet
-  const m = CITY_RE.exec(text);
-  return m ? m[1] : null;
+  const staticMatch = CITY_RE.exec(text);
+
+  if (dynMatch && staticMatch) {
+    return dynMatch.index <= staticMatch.index ? dynMatch[1] : staticMatch[1];
+  }
+  return dynMatch ? dynMatch[1] : (staticMatch ? staticMatch[1] : null);
 }
 
 // Lazy-load street index (only for SI, file read once at first use)
@@ -187,7 +191,14 @@ function siCandidates(text, country, countryCode) {
     const inSuffix  = streetPhrase.toLowerCase().split(/\s+/).find(w => SUFFIX_RE.test(w)) || '';
     const idxSuffix = (matches[0]?.name || '').toLowerCase().split(/\s+/).find(w => SUFFIX_RE.test(w)) || '';
     const suffixOk  = !inSuffix || normSI(inSuffix) === normSI(idxSuffix);
-    const streetUsed = (streetSim >= 0.90 && matches[0]?.name && suffixOk)
+    // Guard: first significant word must match after normalization — prevents
+    // "POTOKU" (inflected single-word chunk) from being corrected to "K potoku"
+    // (different preposition, same key "potoku").
+    // Diacritic-only fixes pass fine: normSI("SMRECJE") === normSI("Smrečje").
+    const inFirst     = normSI(streetPhrase.trim().split(/\s+/)[0] || '');
+    const idxFirst    = normSI((matches[0]?.name || '').trim().split(/\s+/)[0] || '');
+    const firstWordOk = !inFirst || !idxFirst || inFirst === idxFirst;
+    const streetUsed = (streetSim >= 0.90 && matches[0]?.name && suffixOk && firstWordOk)
       ? matches[0].name
       : streetPhrase;
 
