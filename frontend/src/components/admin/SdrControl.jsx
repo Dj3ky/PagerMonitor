@@ -103,7 +103,10 @@ export default function SdrControl({ sdrStatus }) {
     finally { setSaving(false); }
   };
 
-  const addDongle = () => setDongles(d => [...d, { ...DONGLE_DEFAULTS, device: String(d.length) }]);
+  const addDongle = () => setDongles(d => {
+    const nextDevice = d.length === 0 ? 0 : Math.max(...d.map(x => Number(x.device))) + 1;
+    return [...d, { ...DONGLE_DEFAULTS, device: String(nextDevice) }];
+  });
   const removeDongle = (i) => setDongles(d => d.filter((_, j) => j !== i));
   const updateDongle = (i, key, val) => setDongles(d => d.map((x, j) => j === i ? { ...x, [key]: val } : x));
 
