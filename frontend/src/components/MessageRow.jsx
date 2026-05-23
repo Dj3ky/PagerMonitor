@@ -39,7 +39,7 @@ function HighlightedMsg({ text, rules, style }) {
 }
 
 // Fixed-width badge column keeps alignment in desktop feed
-const BADGE_COL_W = '120px';
+const BADGE_COL_W = '130px';
 
 function Badge({ label, color, title, onClick }) {
   return (
@@ -122,7 +122,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             title="Click to filter"
             style={{ fontFamily:'monospace', fontSize:'0.75rem', fontWeight:700,
               color:'var(--accent-amber)', flexShrink:0, minWidth:'70px', cursor:'pointer',
-              borderRadius:'0.3rem', padding:'0.1rem 0.35rem',
+              borderRadius:'0.3rem', padding:'0.1rem 0.35rem', textAlign:'center',
               background:'color-mix(in srgb,var(--accent-amber) 8%,transparent)',
               border:'1px solid color-mix(in srgb,var(--accent-amber) 22%,transparent)',
               transition:'background 0.1s' }}
@@ -188,13 +188,16 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
         <div className="msg-mobile" style={{ display:'none', padding:'0.5rem 0.75rem', gap:'0.2rem', flexDirection:'column' }}>
           {/* Top line: time + capcode + badges + NEW */}
           <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', flexWrap:'wrap' }}>
-            <span style={{ fontFamily:'monospace', fontSize:'0.68rem', color:'var(--text-3)', flexShrink:0, lineHeight:1.3 }}>
-              <span style={{ fontSize:'0.62rem', opacity:0.7 }}>{fmtDate(msg.timestamp)} </span>
-              {fmtTime(msg.timestamp)}
+            <span style={{ fontFamily:'monospace', flexShrink:0, lineHeight:1.3 }}>
+              <span style={{ fontSize:'0.62rem', color:'var(--text-3)', opacity:0.7 }}>{fmtDate(msg.timestamp)} </span>
+              <span style={{ fontSize:'0.7rem', color:'var(--text-2)' }}>{fmtTime(msg.timestamp)}</span>
             </span>
             <span onClick={e => { e.stopPropagation(); onFilter?.('capcode', msg.capcode); }}
-              style={{ fontFamily:'monospace', fontSize:'0.75rem', fontWeight:700,
-                color:'var(--accent-amber)', flexShrink:0, cursor:'pointer' }}>
+              style={{ fontFamily:'monospace', fontSize:'0.73rem', fontWeight:700,
+                color:'var(--accent-amber)', flexShrink:0, cursor:'pointer',
+                borderRadius:'0.3rem', padding:'0.1rem 0.3rem',
+                background:'color-mix(in srgb,var(--accent-amber) 8%,transparent)',
+                border:'1px solid color-mix(in srgb,var(--accent-amber) 22%,transparent)' }}>
               {msg.capcode}
             </span>
             {alias     && <Badge label={alias}     color={aliasColor} onClick={() => onFilter?.('alias',alias)} />}
@@ -222,7 +225,8 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             </span>
             {isNew && <span style={{ fontSize:'0.58rem', fontWeight:800, color:'var(--accent-green)',
               background:'color-mix(in srgb,var(--accent-green) 15%,transparent)',
-              padding:'0.08rem 0.3rem', borderRadius:'0.25rem' }}>NEW</span>}
+              padding:'0.08rem 0.3rem', borderRadius:'0.25rem',
+              animation:'new-pulse 2s ease-in-out infinite' }}>NEW</span>}
             <span style={{ color:'var(--text-3)', lineHeight:1 }}>
               {expanded ? <ChevronDown size={10}/> : <ChevronRight size={10}/>}
             </span>

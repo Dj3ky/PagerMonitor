@@ -8,12 +8,20 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
   const [query, setQuery]       = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef                 = useRef(null);
+  const debounceRef             = useRef(null);
   const { theme, toggle: toggleTheme } = useTheme();
   const { user, logout }        = useAuth();
   const { siteName } = useSite();
 
+  // Dynamic search — fires 350ms after user stops typing
+  useEffect(() => {
+    debounceRef.current = setTimeout(() => { onSearch(query); }, 350);
+    return () => clearTimeout(debounceRef.current);
+  }, [query]);
+
   const handleSubmit = e => {
     e.preventDefault();
+    clearTimeout(debounceRef.current);
     onSearch(query);
     setMenuOpen(false);
   };

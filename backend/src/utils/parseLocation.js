@@ -135,8 +135,10 @@ function siCandidates(text, country, countryCode) {
     });
     if (sc < CONF_MIN) return;
 
-    // Use corrected index name for diacritics/typo fixing; keep original if no strong match
-    const streetUsed = (streetSim >= (hasKeyword ? 0.90 : 0.75) && matches[0]?.name)
+    // Use corrected index name for diacritics/typo fixing; keep original if no strong match.
+    // 0.90 threshold for both cases — diacritics fixes normalize to sim=1.0 anyway,
+    // and lower values swap different streets (e.g. "Ob potoku" → "K potoku").
+    const streetUsed = (streetSim >= 0.90 && matches[0]?.name)
       ? matches[0].name
       : streetPhrase;
 
