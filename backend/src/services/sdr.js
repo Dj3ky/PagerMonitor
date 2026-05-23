@@ -505,10 +505,7 @@ function spawnDonglePipeline(dongle, label, myGen) {
     if (Date.now() - lastRtlMs > 20000) {
       clearInterval(watchdog);
       logger.warn(`${label} watchdog: no audio data for 20s — restarting`);
-      state.running = false;
-      state.error   = 'rtl_fm stalled';
-      broadcastDongleStatus();
-      if (!stopping && !donglePipelines.some(p => p.state !== state && p.rtlProc && p.rtlProc.exitCode === null)) scheduleRestart();
+      if (!stopping) onFail('watchdog', 'rtl_fm stalled');
     }
   }, 10000);
 
@@ -533,20 +530,38 @@ function spawnDonglePipeline(dongle, label, myGen) {
 
   const otherPipelinesAlive = () => donglePipelines.some(p => p.state !== state && p.rtlProc && p.rtlProc.exitCode === null);
 
+  let perDongleTimer = null;
+  const schedulePerDongleRestart = () => {
+    if (perDongleTimer || stopping || myGen !== generation) return;
+    // 5s fixed retry — acts as a poll for "is the dongle now connected?"
+    perDongleTimer = setTimeout(() => {
+      perDongleTimer = null;
+      if (stopping || myGen !== generation) return;
+      const idx = donglePipelines.findIndex(p => p.state === state);
+      if (idx === -1) return;
+      logger.info(`${label} Retrying dongle…`);
+      donglePipelines[idx] = spawnDonglePipeline(dongle, label, myGen);
+      broadcastDongleStatus();
+    }, 5000);
+  };
+
+  const onFail = (src, err) => {
+    state.running = false;
+    state.error   = err;
+    broadcastDongleStatus();
+    if (otherPipelinesAlive()) schedulePerDongleRestart();
+    else scheduleRestart();
+  };
+
   const onExit = (src) => (c, s) => {
     if (myGen !== generation) return;
     logger.info(`${label} ${src} exited (${c}/${s})`);
-    if (!stopping) {
-      state.running = false;
-      state.error   = `${src} exited (${c}/${s})`;
-      broadcastDongleStatus();
-      if (!otherPipelinesAlive()) scheduleRestart();
-    }
+    if (!stopping) onFail(src, `${src} exited (${c}/${s})`);
   };
   rtl.on('exit',  onExit('rtl_fm'));
   mmon.on('exit', onExit('multimon-ng'));
-  rtl.on('error',  e => { if (myGen !== generation) return; logger.error(`${label} rtl_fm: ${e.message}`);  state.running = false; state.error = e.message; if (!stopping) { broadcastDongleStatus(); if (!otherPipelinesAlive()) scheduleRestart(); } });
-  mmon.on('error', e => { if (myGen !== generation) return; logger.error(`${label} mmon: ${e.message}`);     state.running = false; state.error = e.message; if (!stopping) { broadcastDongleStatus(); if (!otherPipelinesAlive()) scheduleRestart(); } });
+  rtl.on('error',  e => { if (myGen !== generation) return; logger.error(`${label} rtl_fm: ${e.message}`);  if (!stopping) onFail('rtl_fm',  e.message); });
+  mmon.on('error', e => { if (myGen !== generation) return; logger.error(`${label} mmon: ${e.message}`);     if (!stopping) onFail('mmon',    e.message); });
 
   return { rtlProc: rtl, mmonProc: mmon, cfg: dongle, label, state, watchdog };
 }
