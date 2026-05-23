@@ -51,10 +51,10 @@ function detectCity(text) {
 // Threshold 0.40 (lower than backend since no index data available)
 const FE_CONF_MIN = 0.40;
 
-function feScore({ hasKeyword, hasCityHint, hasHouseNum, hasHint }) {
+function feScore({ hasKeyword, hasCityHint, hasHouseNum, hasHint, hasMultipleHints = false }) {
   let s = 0;
   s += hasKeyword  ? 0.35 : 0;
-  s += hasCityHint ? 0.30 : (hasHint ? 0.12 : 0); // any settlement hint still helps
+  s += hasCityHint ? 0.30 : (hasMultipleHints ? 0.20 : (hasHint ? 0.12 : 0));
   s += hasHouseNum ? 0.25 : 0;
   return s;
 }
@@ -78,13 +78,14 @@ function siCandidatesFE(text, country) {
   const ranked   = [];
 
   function add(streetPhrase, houseNum, hasKeyword, hints = []) {
-    // Prefer a known city; fall back to any extracted settlement hint
-    const settlement = cityHint || hints[0] || null;
+    // Use most proximate hints (last elements) — closest to the address in the message
+    const settlement = cityHint || (hints.length > 0 ? hints.slice(-2).join(' ') : null);
     const sc = feScore({
       hasKeyword,
-      hasCityHint: !!cityHint,
-      hasHouseNum: !!houseNum,
-      hasHint:     hints.length > 0,
+      hasCityHint:     !!cityHint,
+      hasHouseNum:     !!houseNum,
+      hasHint:         hints.length > 0,
+      hasMultipleHints: hints.length >= 2,
     });
     if (sc < FE_CONF_MIN) return;
     const parts = houseNum ? `${streetPhrase} ${houseNum}` : streetPhrase;
@@ -139,10 +140,25 @@ function siCandidatesFE(text, country) {
     }
     if (numIdx >= 1) {
       for (let width = 1; width <= Math.min(4, numIdx); width++) {
-        const chunk = words.slice(numIdx - width, numIdx)
-          .filter(w => !PUNCT_RE.test(w) && !SI_STOPWORDS_FE.has(w.toLowerCase()));
+        const startIdx = numIdx - width;
+        const rawChunk = words.slice(startIdx, numIdx).filter(w => !PUNCT_RE.test(w));
+        const chunk    = rawChunk.filter(w => !SI_STOPWORDS_FE.has(w.toLowerCase()));
         if (chunk.length === 0) continue;
-        add(chunk.join(' '), words[numIdx], SUFFIX_RE.test(chunk[chunk.length - 1]));
+
+        const hints = [];
+        for (let j = startIdx - 1; j >= Math.max(0, startIdx - 4); j--) {
+          const w = words[j];
+          if (PUNCT_RE.test(w) || HOUSE_RE.test(w)) continue;
+          if (SI_STOPWORDS_FE.has(w.toLowerCase())) continue;
+          if (/^[\p{L}]{2,}/u.test(w)) hints.unshift(w);
+        }
+
+        const hasSuffix = SUFFIX_RE.test(chunk[chunk.length - 1]);
+        add(chunk.join(' '), words[numIdx], hasSuffix, hints);
+
+        if (rawChunk.length > chunk.length) {
+          add(rawChunk.join(' '), words[numIdx], hasSuffix, hints);
+        }
       }
     }
   }

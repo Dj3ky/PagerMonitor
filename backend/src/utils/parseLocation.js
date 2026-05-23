@@ -66,14 +66,18 @@ function pi() {
 // Returns 0..1. Candidates below CONF_MIN are discarded.
 const CONF_MIN = 0.55;
 
-function confScore({ hasKeyword, streetSim, hasCityHint, hasHouseNum, indexLoaded, placeConfidence = 0 }) {
+function confScore({ hasKeyword, streetSim, hasCityHint, hasHouseNum, indexLoaded, placeConfidence = 0, hasMultipleContext = false }) {
   let s = 0;
   s += hasKeyword  ? 0.25 : 0;
-  s += indexLoaded ? streetSim * 0.35 : 0.15;
+  // Floor of 0.10 prevents the index penalising settlement names (streetSim≈0)
+  // that legitimately don't appear in the street list.
+  s += indexLoaded ? Math.max(0.10, streetSim * 0.35) : 0.15;
   if (placeConfidence > 0) {
-    // 0.10 base + up to 0.15 scaled by how confidently we disambiguated
     s += 0.10 + placeConfidence * 0.15;
   } else if (hasCityHint) {
+    s += 0.20;
+  } else if (hasMultipleContext) {
+    // 2+ proximate context words (e.g. DOBROVA-POLHOV GRADEC) ≈ city hint strength
     s += 0.20;
   }
   s += hasHouseNum ? 0.25 : 0;
@@ -110,6 +114,7 @@ function siCandidates(text, country, countryCode) {
       hasHouseNum: !!houseNum,
       indexLoaded: hasIdx,
       placeConfidence: placeMatch?.confidence || 0,
+      hasMultipleContext: hints.length >= 2,
     });
     if (sc < CONF_MIN) return;
 
@@ -123,7 +128,6 @@ function siCandidates(text, country, countryCode) {
     // Build Nominatim query: "Street Number, Settlement, Municipality, Country"
     let query;
     if (placeMatch) {
-      // Include municipality only when disambiguation is unambiguous enough
       const addMuni = placeMatch.confidence >= 0.70 &&
                       placeMatch.municipality !== placeMatch.name;
       query = addMuni
@@ -131,6 +135,10 @@ function siCandidates(text, country, countryCode) {
         : `${parts}, ${placeMatch.name}, ${country}`;
     } else if (cityHint) {
       query = `${parts}, ${cityHint}, ${country}`;
+    } else if (hints.length > 0) {
+      // No place index match — pass the most proximate context words directly to
+      // Nominatim (e.g. "GABRJE 30, DOBROVA-POLHOV GRADEC, Slovenia")
+      query = `${parts}, ${hints.slice(-2).join(' ')}, ${country}`;
     } else {
       query = `${parts}, ${country}`;
     }
@@ -187,11 +195,31 @@ function siCandidates(text, country, countryCode) {
 
     if (numIdx >= 1) {
       for (let width = 1; width <= Math.min(4, numIdx); width++) {
-        const chunk = words.slice(numIdx - width, numIdx)
-          .filter(w => !PUNCT_RE.test(w) && !SI_STOPWORDS.has(w.toLowerCase()));
+        const startIdx = numIdx - width;
+        const rawChunk = words.slice(startIdx, numIdx).filter(w => !PUNCT_RE.test(w));
+        const chunk    = rawChunk.filter(w => !SI_STOPWORDS.has(w.toLowerCase()));
         if (chunk.length === 0) continue;
+
+        // Collect settlement hints from words before this chunk.
+        // Use continue (not break) on stopwords so a settlement like ŠKOFLJICA
+        // isn't missed just because a preposition (OB) sits between it and the street.
+        const hints = [];
+        for (let j = startIdx - 1; j >= Math.max(0, startIdx - 4); j--) {
+          const w = words[j];
+          if (PUNCT_RE.test(w) || HOUSE_RE.test(w)) continue;
+          if (SI_STOPWORDS.has(w.toLowerCase())) continue;
+          if (/^[\p{L}]{2,}/u.test(w)) hints.unshift(w);
+        }
+
         const hasSuffix = SUFFIX_RE.test(chunk[chunk.length - 1]);
-        addCandidate(chunk.join(' '), words[numIdx], hasSuffix);
+        addCandidate(chunk.join(' '), words[numIdx], hasSuffix, hints);
+
+        // Also try the raw chunk (prepositions kept) for streets like
+        // "Ob potoku", "Pod lipami", "K potoku" where the preposition is
+        // part of the official street name.
+        if (rawChunk.length > chunk.length) {
+          addCandidate(rawChunk.join(' '), words[numIdx], hasSuffix, hints);
+        }
       }
     }
   }
