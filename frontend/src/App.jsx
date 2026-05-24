@@ -67,7 +67,7 @@ export default function App() {
   const [pageSize, setPageSize]             = useState(50);
   const [page, setPage]                     = useState(0);
 
-  useEffect(() => { window.__pagemon_sound = soundEnabled; }, [soundEnabled]);
+  useEffect(() => { window.__pagermonitor_sound = soundEnabled; }, [soundEnabled]);
 
   // Sync push subscription with the browser notification bell
   useEffect(() => {

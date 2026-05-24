@@ -12,7 +12,7 @@ function authMiddleware(req, res, next) {
 }
 
 function challenge(res) {
-  res.setHeader('WWW-Authenticate', 'Basic realm="PageMon"');
+  res.setHeader('WWW-Authenticate', 'Basic realm="PagerMonitor"');
   res.status(401).json({ error: 'Unauthorized' });
 }
 

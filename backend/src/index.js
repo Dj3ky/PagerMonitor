@@ -24,7 +24,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const MODE = process.env.MODE || 'single';
 
 async function main() {
-  logger.info(`PageMon v2 starting in ${MODE} mode`);
+  logger.info(`PagerMonitor v2 starting in ${MODE} mode`);
 
   // Init database (creates tables including users, settings, highlight_rules)
   initDb();

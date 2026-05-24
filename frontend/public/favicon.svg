@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <rect width="64" height="64" rx="14" fill="#09090f"/>
-  <g transform="translate(32,32) scale(2.5) translate(-12,-12)"
+  <g transform="translate(32,32) scale(1.8) translate(-12,-12)"
      stroke="#00ff9d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
     <!-- Left outer arc -->
     <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/>

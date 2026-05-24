@@ -609,6 +609,11 @@ router.get('/update/status', adminOnly, (_req, res) => {
   res.json({ version, localHash, localDate, localCommits });
 });
 
+// Strip ANSI colour escape codes (e.g. \x1b[33m) from Vite/npm output
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 // POST /admin/update — streams update-web.sh output via SSE, then restarts service
 router.post('/update', adminOnly, (req, res) => {
   res.setHeader('Content-Type',  'text/event-stream');
@@ -626,10 +631,10 @@ router.post('/update', adminOnly, (req, res) => {
   });
 
   child.stdout.on('data', d =>
-    d.toString().split('\n').forEach(l => { if (l.trim()) send({ type: 'log', text: l }); })
+    d.toString().split('\n').forEach(l => { const c = stripAnsi(l); if (c.trim()) send({ type: 'log', text: c }); })
   );
   child.stderr.on('data', d =>
-    d.toString().split('\n').forEach(l => { if (l.trim()) send({ type: 'log', text: l, err: true }); })
+    d.toString().split('\n').forEach(l => { const c = stripAnsi(l); if (c.trim()) send({ type: 'log', text: c, err: true }); })
   );
   child.on('error', err => {
     send({ type: 'error', text: err.message });

@@ -1,5 +1,5 @@
 #!/bin/bash
-# PageMon install script for Raspberry Pi
+# PagerMonitor install script for Raspberry Pi
 # Run from the pagermonitor directory: cd ~/pagermonitor && bash install.sh
 
 set -e
@@ -89,7 +89,7 @@ check_multimon_ng() {
 
 echo ""
 echo "═══════════════════════════════════════════"
-echo "  PageMon Installer"
+echo "  PagerMonitor Installer"
 echo "  Directory : $PAGEMON_DIR"
 echo "  User      : $CURRENT_USER"
 echo "  Node      : $NODE_PATH"
@@ -181,7 +181,7 @@ fi
 
 $SUDO tee /etc/systemd/system/pagermonitor.service > /dev/null << EOF
 [Unit]
-Description=PageMon — Real-time Pager Monitor
+Description=PagerMonitor — Real-time Pager Monitor
 After=$AFTER_UNITS
 Wants=network.target
 StartLimitBurst=5
@@ -271,7 +271,7 @@ else
     echo "     nano $PAGEMON_DIR/backend/.env"
     echo "     → Set DISABLE_SDR=true"
     echo ""
-    echo "  2. Start PageMon:"
+    echo "  2. Start PagerMonitor:"
     echo "     sudo systemctl start pagermonitor"
     echo ""
     echo "  3. Open in browser and generate a client key:"
@@ -282,7 +282,7 @@ else
     echo "     nano $PAGEMON_DIR/backend/.env"
     echo "     → RTL_FM_FREQ=your_frequency  (e.g. 152.240M)"
     echo ""
-    echo "  2. Start PageMon:"
+    echo "  2. Start PagerMonitor:"
     echo "     sudo systemctl start pagermonitor"
     echo ""
     echo "  3. Watch logs:"

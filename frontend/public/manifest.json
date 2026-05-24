@@ -1,6 +1,6 @@
 {
   "name": "PagerMonitor",
-  "short_name": "PagerMon",
+  "short_name": "PagerMonitor",
   "description": "Real-time pager message monitor",
   "start_url": "/",
   "scope": "/",

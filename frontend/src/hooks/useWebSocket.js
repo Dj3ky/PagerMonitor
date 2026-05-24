@@ -77,7 +77,7 @@ export function useWebSocket(backendUrl) {
             return next.length > MAX_MESSAGES ? next.slice(0, MAX_MESSAGES) : next;
           });
           // Normal sound alert
-          if (window.__pagemon_sound) {
+          if (window.__pagermonitor_sound) {
             try {
               const ctx  = new AudioContext();
               const osc  = ctx.createOscillator();

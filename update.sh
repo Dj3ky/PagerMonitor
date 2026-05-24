@@ -1,5 +1,5 @@
 #!/bin/bash
-# PageMon updater — pulls latest code, upgrades system packages, re-runs installer
+# PagerMonitor updater — pulls latest code, upgrades system packages, re-runs installer
 # Usage:
 #   bash update.sh            # standard (with SDR)
 #   bash update.sh --server   # server-only mode (no SDR tools)
@@ -27,7 +27,7 @@ grep -qE "^DISABLE_SDR=true" "$PAGEMON_DIR/backend/.env" 2>/dev/null && SERVER_O
 
 echo ""
 echo "═══════════════════════════════════════════"
-echo "  PageMon Updater"
+echo "  PagerMonitor Updater"
 echo "  Directory : $PAGEMON_DIR"
 [ $SERVER_ONLY -eq 1 ] && echo "  Mode      : server-only"
 echo "═══════════════════════════════════════════"
