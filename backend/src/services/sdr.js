@@ -459,8 +459,8 @@ function handleLine(line) {
   // Geocode address first if no explicit coords, so notifications include a map link
   ;(async () => {
     let notifyPayload = payload;
-    if (!lat && location.candidates?.length) {
-      const result = await geocodeAddress(location.candidates, geocodeCountry, parsed.message).catch(() => null);
+    if (!lat) {
+      const result = await geocodeAddress(location.candidates || [], geocodeCountry, parsed.message).catch(() => null);
       if (result) {
         try { require('./database').getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(result.lat, result.lng, id); } catch (_) {}
         broadcast({ type: 'message_location', id, lat: result.lat, lng: result.lng });

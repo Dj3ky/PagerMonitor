@@ -149,8 +149,7 @@ router.post('/messages/:id/regeocode', adminOnly, async (req, res) => {
       addAuditLog(req.session?.username||'admin', 'message.regeocode', `id=${id} type=coords`);
       return res.json({ ok: true, lat: loc.lat, lng: loc.lng, query: loc.raw });
     }
-    if (!loc.candidates?.length) return res.json({ ok: false, reason: 'No address candidates found' });
-    const result = await geocodeAddress(loc.candidates, cc, row.message);
+    const result = await geocodeAddress(loc.candidates || [], cc, row.message);
     if (!result) return res.json({ ok: false, reason: 'Nominatim returned no results', query: loc.candidates[0] });
     getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(result.lat, result.lng, id);
     require('../services/websocket').broadcast({ type: 'message_location', id, lat: result.lat, lng: result.lng });
