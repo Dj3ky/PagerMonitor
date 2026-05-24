@@ -119,7 +119,16 @@ export default function App() {
   }, []);
 
   const handleSearch = useCallback(async q => {
-    if (!q.trim()) { setSearchResults(null); handleSetView('feed'); return; }
+    if (!q.trim()) {
+      setSearchResults(null);
+      // Only return to feed when leaving search — don't override admin/map/archive on initial mount
+      setView(prev => {
+        const next = prev === 'search' ? 'feed' : prev;
+        if (next !== prev) sessionStorage.setItem('pm_view', next);
+        return next;
+      });
+      return;
+    }
     setSearching(true);
     try { const r = await fetchSearch(q); setSearchResults(r); handleSetView('search'); }
     catch (e) { console.warn(e); }

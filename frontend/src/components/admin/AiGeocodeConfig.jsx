@@ -4,11 +4,17 @@ import { Brain, Save, Play, RefreshCw, ExternalLink, Eye, EyeOff,
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
-const api  = (m, p, b) => fetch(`${BASE}${p}`, {
-  method: m,
-  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok()}` },
-  body: b !== undefined ? JSON.stringify(b) : undefined,
-}).then(r => r.json());
+// Throws on HTTP error so callers can catch failures properly
+const api  = async (m, p, b) => {
+  const r = await fetch(`${BASE}${p}`, {
+    method: m,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok()}` },
+    body: b !== undefined ? JSON.stringify(b) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+};
 
 const MASKED = '••••••••';
 
@@ -137,8 +143,8 @@ export default function AiGeocodeConfig() {
 
   const loadConfig = useCallback(() => {
     api('GET', '/admin/ai-geocode/config')
-      .then(d => setCfg(c => ({ ...c, ...d })))
-      .catch(() => {});
+      .then(d => setCfg({ ...DEFAULTS, ...d }))
+      .catch(e => flash('err', 'Could not load AI settings: ' + e.message));
   }, []);
 
   const loadStatus = useCallback(() => {
@@ -149,8 +155,8 @@ export default function AiGeocodeConfig() {
       .finally(() => setStatusLoading(false));
   }, []);
 
-  useEffect(() => { loadConfig(); }, [loadConfig]);
-  useEffect(() => { if (cfg.provider !== 'none') loadStatus(); }, [cfg.provider, loadStatus]);
+  useEffect(() => { loadConfig(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (cfg.provider !== 'none') loadStatus(); }, [cfg.provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     setSaving(true);
@@ -169,7 +175,6 @@ export default function AiGeocodeConfig() {
     try {
       const r = await api('POST', '/admin/ai-geocode/test', { text: testText });
       setTestResult(r);
-      if (!r.ok) flash('err', r.error || 'No address extracted');
     } catch (e) { flash('err', e.message); }
     finally { setTesting(false); }
   };
