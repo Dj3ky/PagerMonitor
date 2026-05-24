@@ -16,7 +16,7 @@ const logger = require('../utils/logger');
 // ── Regexes ───────────────────────────────────────────────────────────────────
 const EOT_RE    = /<EOT>|<NUL>|<STX>|<ETX>|\x04/gi;
 const POCSAG_RE = /^(POCSAG\d+):\s*Address:\s*(\d+)\s+Function:\s*(\d)\s+(?:Alpha|Numeric|Skyper):\s*(.*)/i;
-const FLEX_RE   = /^FLEX:\s*(\d+)\[(\d)\]\s+(\w+)\s+(.*)/i;
+const FLEX_RE   = /^FLEX:\s*(\d+)\s*\[(\d)\]\s+(\w+)\s+(.*)/i;
 
 // ── Build CLI args from process.env ───────────────────────────────────────────
 function buildRtlFmArgs() {
