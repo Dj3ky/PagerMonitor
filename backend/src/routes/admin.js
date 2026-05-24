@@ -622,7 +622,7 @@ router.post('/update', adminOnly, (req, res) => {
 
   const child = spawn('bash', [UPDATE_SCRIPT], {
     cwd: ROOT_DIR,
-    env: { ...process.env, FORCE_COLOR: '0' },
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1', TERM: 'dumb' },
   });
 
   child.stdout.on('data', d =>

@@ -6,6 +6,11 @@
 set -e
 PAGEMON_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Disable ANSI colour codes — output is streamed to the web UI
+export NO_COLOR=1
+export FORCE_COLOR=0
+export TERM=dumb
+
 # ── Privilege helper ──────────────────────────────────────────────────────────
 if [ "$(id -u)" -eq 0 ]; then
   SUDO=""
