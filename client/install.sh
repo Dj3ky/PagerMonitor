@@ -10,10 +10,76 @@ echo "  PagerMonitor Client Installer"
 echo "  User: $USER  Node: $NODE"
 echo "═══════════════════════════════════════"
 
-# Check deps
-for cmd in node rtl_fm multimon-ng; do
-  command -v "$cmd" &>/dev/null && echo "  ✓ $cmd" || { echo "  ✗ $cmd missing"; exit 1; }
+# ── multimon-ng: auto-install/upgrade to latest GitHub release ────────────────
+_mmon_build() {
+  local tag="$1"
+  echo "  ► Building multimon-ng ${tag} from source…"
+  sudo apt-get install -y --no-install-recommends cmake build-essential libpulse-dev libx11-dev
+  local tmp; tmp=$(mktemp -d)
+  curl -sL "https://github.com/EliasOenal/multimon-ng/archive/refs/tags/${tag}.tar.gz" \
+    | tar xz -C "$tmp"
+  local src; src=$(find "$tmp" -maxdepth 1 -type d -name 'multimon-ng*' | head -1)
+  cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+    > /dev/null 2>&1
+  make -C "$src/build" -j"$(nproc)"
+  sudo make -C "$src/build" install
+  rm -rf "$tmp"
+  echo "  ✓ multimon-ng ${tag} installed from source"
+}
+
+check_multimon_ng() {
+  echo ""
+  echo "► Checking multimon-ng…"
+
+  local installed=""
+  if command -v multimon-ng &>/dev/null; then
+    installed=$(multimon-ng --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+    echo "  Installed : ${installed:-unknown}"
+  else
+    echo "  Installed : not found"
+  fi
+
+  local latest="" resp=""
+  resp=$(curl -sf --max-time 10 \
+    "https://api.github.com/repos/EliasOenal/multimon-ng/releases/latest" 2>/dev/null) \
+    && latest=$(echo "$resp" | grep -oP '"tag_name":\s*"\K[^"]+' | head -1)
+
+  if [ -z "$latest" ]; then
+    echo "  ⚠ Cannot reach GitHub"
+    if [ -z "$installed" ]; then
+      echo "  → Falling back to: sudo apt-get install multimon-ng"
+      sudo apt-get install -y multimon-ng
+    else
+      echo "  ✓ Using installed version $installed"
+    fi
+    return
+  fi
+
+  local latest_v="${latest#v}"
+  local installed_v="${installed#v}"
+  echo "  Latest    : ${latest_v} (github.com/EliasOenal/multimon-ng)"
+
+  if [ -n "$installed_v" ] && [ "$installed_v" = "$latest_v" ]; then
+    echo "  ✓ Already up to date"
+    return
+  fi
+
+  [ -n "$installed_v" ] \
+    && echo "  ↑ Upgrading ${installed_v} → ${latest_v}…" \
+    || echo "  ↓ Installing ${latest_v} from source…"
+
+  _mmon_build "$latest"
+}
+
+# Check hard requirements first
+echo ""
+echo "► Checking dependencies…"
+for cmd in node rtl_fm; do
+  command -v "$cmd" &>/dev/null && echo "  ✓ $cmd" || { echo "  ✗ $cmd missing — install it first"; exit 1; }
 done
+
+# multimon-ng: auto-install/upgrade from GitHub
+check_multimon_ng
 
 # Blacklist DVB-T driver
 echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/rtlsdr.conf > /dev/null

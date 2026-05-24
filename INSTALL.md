@@ -65,7 +65,8 @@ Multiple RPi clients can forward to the same server — useful for monitoring mu
 
 ```bash
 # 1. Install dependencies
-sudo apt update && sudo apt install -y rtl-sdr multimon-ng nodejs npm
+# Note: multimon-ng latest is built automatically from source by install.sh
+sudo apt update && sudo apt install -y rtl-sdr nodejs npm
 
 # 2. Clone and install
 git clone https://github.com/dj3ky/pagermonitor.git ~/pagermonitor
@@ -118,7 +119,8 @@ forwards it to the server set up above. No web UI runs on the Pi itself.
 
 ```bash
 # 1. Install dependencies
-sudo apt update && sudo apt install -y rtl-sdr multimon-ng nodejs npm
+# Note: multimon-ng latest is built automatically from source by client/install.sh
+sudo apt update && sudo apt install -y rtl-sdr nodejs npm
 
 # 2. Clone repo
 git clone https://github.com/dj3ky/pagermonitor.git ~/pagermonitor
@@ -260,6 +262,7 @@ Or configure per-dongle in **Admin → SDR Control → Multiple SDR dongles**.
 | **Aliases & Groups** | Groups | Organise aliases into groups/subgroups with colour coding |
 | | Aliases | Friendly names for capcodes, CSV import/export |
 | **System** | System | RAM, CPU, disk, uptime, connected clients |
+| | Update | Compare installed vs latest GitHub commit — one-click update with live output |
 | | Activity | Audit log of who changed what and when |
 | | Backup & Restore | Download `.pmbackup`, restore from backup |
 | | Audit Log | Full audit trail with filtering |
@@ -549,28 +552,23 @@ pagermonitor/
 
 Always check [CHANGELOG.md](CHANGELOG.md) before updating — major version bumps may require manual steps.
 
-### Native (systemd)
+### Native (systemd) — one command
 
 ```bash
 cd ~/pagermonitor
-
-# 1. Pull latest code
-git pull
-
-# 2. Update dependencies (only needed if package.json changed)
-cd backend && npm install --omit=dev && cd ..
-cd frontend && npm install && cd ..
-
-# 3. Rebuild frontend
-cd frontend && npm run build && cd ..
-
-# 4. Restart
-sudo systemctl restart pagermonitor
-
-# 5. Verify
-sudo journalctl -u pagermonitor -n 20 --no-pager
-curl -s http://localhost:3000/health | grep version
+bash update.sh
 ```
+
+This does everything automatically:
+1. `git pull` — latest code
+2. `apt update && apt upgrade` — system packages
+3. multimon-ng version check — upgrades from source if newer available
+4. `npm install` + frontend rebuild
+5. Restarts the service
+
+**Or use the admin panel** — Admin → System → Update compares your installed commit with the latest on GitHub and has an **Update Now** button with live terminal output. The page reloads automatically when the service restarts.
+
+> **RPi client** has no web UI — update via SSH: `cd ~/pagermonitor && bash update.sh`
 
 ### Docker
 
@@ -587,30 +585,19 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-### RPi client (distributed mode)
+### RPi client (distributed mode, native)
 
 ```bash
 cd ~/pagermonitor
-
-git pull
-docker compose -f docker-compose.client.yml down
-docker compose -f docker-compose.client.yml up -d --build
-```
-
-Or native:
-```bash
-cd ~/pagermonitor
-git pull
-sudo systemctl restart pagermonitor-client
+bash update.sh
 ```
 
 ### Check running version
 
+Admin → System → Update shows installed commit vs latest on GitHub. Or:
 ```bash
-# From the admin panel footer (visible after login)
-# or:
 curl -s http://localhost:3000/health | grep version
-# → "version": "2.1.0"
+# → "version": "2.3.0"
 ```
 
 ### After a major version bump (x.0.0)
@@ -620,7 +607,7 @@ curl -s http://localhost:3000/health | grep version
 3. Follow any manual steps listed in the CHANGELOG
 4. Then update normally
 
-Minor (`2.2.0`) and patch (`2.1.1`) versions are always safe — no manual steps needed.
+Minor and patch versions are always safe — no manual steps needed.
 
 ---
 

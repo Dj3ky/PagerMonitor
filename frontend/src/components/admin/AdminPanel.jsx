@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
-         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain } from 'lucide-react';
+         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
@@ -28,6 +28,7 @@ import EmailConfig      from './EmailConfig.jsx';
 import UserNotifPrefs  from './UserNotifPrefs.jsx';
 import ArchiveConfig   from './ArchiveConfig.jsx';
 import AiGeocodeConfig from './AiGeocodeConfig.jsx';
+import UpdatePanel    from './UpdatePanel.jsx';
 
 const TABS = [
   { group: 'SDR' },
@@ -57,6 +58,7 @@ const TABS = [
 
   { group: 'System' },
   { id:'system',      label:'System',          icon:<Server size={14}/> },
+  { id:'update',      label:'Update',          icon:<RefreshCw size={14}/> },
   { id:'activity',    label:'Activity',         icon:<Activity size={14}/> },
   { id:'backup',      label:'Backup & Restore', icon:<HardDrive size={14}/> },
   { id:'auditlog',    label:'Audit Log',        icon:<ClipboardList size={14}/> },
@@ -71,6 +73,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
   switch (tab) {
     case 'sdr':         return <SdrControl sdrStatus={sdrStatus} />;
     case 'system':      return <SystemStats serverStatus={serverStatus} />;
+    case 'update':      return <UpdatePanel />;
     case 'db':          return <DbTools />;
     case 'aigeocode':   return <AiGeocodeConfig />;
     case 'stats':       return <StatsDashboard />;

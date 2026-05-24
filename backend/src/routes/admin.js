@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const os      = require('os');
+const path    = require('path');
 const { execSync, spawn } = require('child_process');
 const { version } = require('../../package.json');
 
@@ -591,6 +592,67 @@ router.post('/ai-geocode/test', adminOnly, async (req, res) => {
     const extracted = await aiGeocode.extractAddress(text);
     res.json({ ok: !!extracted?.street, extracted: extracted || null });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── System Update ─────────────────────────────────────────────────────────────
+const ROOT_DIR      = path.join(__dirname, '../../..');
+const UPDATE_SCRIPT = path.join(ROOT_DIR, 'update-web.sh');
+
+// GET /admin/update/status — local git info (frontend fetches GitHub API itself)
+router.get('/update/status', adminOnly, (_req, res) => {
+  let localHash = null, localDate = null, localCommits = null;
+  try {
+    localHash    = execSync('git rev-parse --short HEAD',      { cwd: ROOT_DIR, timeout: 5000 }).toString().trim();
+    localDate    = execSync('git log -1 --format=%ci',         { cwd: ROOT_DIR, timeout: 5000 }).toString().trim();
+    localCommits = execSync('git rev-parse HEAD',              { cwd: ROOT_DIR, timeout: 5000 }).toString().trim();
+  } catch (_) {}
+  res.json({ version, localHash, localDate, localCommits });
+});
+
+// POST /admin/update — streams update-web.sh output via SSE, then restarts service
+router.post('/update', adminOnly, (req, res) => {
+  res.setHeader('Content-Type',  'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection',    'keep-alive');
+  res.flushHeaders();
+
+  const send = obj => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(obj)}\n\n`); };
+  const hb   = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 20_000);
+  req.on('close', () => clearInterval(hb));
+
+  const child = spawn('bash', [UPDATE_SCRIPT], {
+    cwd: ROOT_DIR,
+    env: { ...process.env, FORCE_COLOR: '0' },
+  });
+
+  child.stdout.on('data', d =>
+    d.toString().split('\n').forEach(l => { if (l.trim()) send({ type: 'log', text: l }); })
+  );
+  child.stderr.on('data', d =>
+    d.toString().split('\n').forEach(l => { if (l.trim()) send({ type: 'log', text: l, err: true }); })
+  );
+  child.on('error', err => {
+    send({ type: 'error', text: err.message });
+    clearInterval(hb);
+    res.end();
+  });
+  child.on('close', code => {
+    clearInterval(hb);
+    if (code !== 0) {
+      send({ type: 'error', text: `Update script exited with code ${code}` });
+      res.end();
+      return;
+    }
+    send({ type: 'restarting' });
+    res.end();
+    addAuditLog(req.session?.username || 'admin', 'system.update', 'web update completed');
+    // Restart the service — spawned detached so it survives this process dying
+    setTimeout(() => {
+      const r = spawn('sudo', ['systemctl', 'restart', 'pagermonitor'],
+        { detached: true, stdio: 'ignore' });
+      r.unref();
+    }, 800);
+  });
 });
 
 module.exports = router;

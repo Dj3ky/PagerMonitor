@@ -1,6 +1,6 @@
 {
   "name": "pagermonitor-backend",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "PagerMonitor real-time pager monitoring backend",
   "main": "src/index.js",
   "scripts": {

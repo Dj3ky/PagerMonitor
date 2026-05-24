@@ -14,9 +14,14 @@ const { loadSdrConfigIntoEnv, getDedupConfig, getDongleConfigs } = require('./co
 const logger = require('../utils/logger');
 
 // ── Regexes ───────────────────────────────────────────────────────────────────
-const EOT_RE    = /<EOT>|<NUL>|<STX>|<ETX>|\x04/gi;
-const POCSAG_RE = /^(POCSAG\d+):\s*Address:\s*(\d+)\s+Function:\s*(\d)\s+(?:Alpha|Numeric|Skyper):\s*(.*)/i;
-const FLEX_RE   = /^FLEX:\s*(\d+)\s*\[(\d)\]\s+(\w+)\s+(.*)/i;
+const EOT_RE      = /<EOT>|<NUL>|<STX>|<ETX>|\x04/gi;
+const POCSAG_RE   = /^(POCSAG\d+):\s*Address:\s*(\d+)\s+Function:\s*(\d)\s+(?:Alpha|Numeric|Skyper):\s*(.*)/i;
+// multimon-ng ≤ 1.x  →  "FLEX: 12345 [3] ALN message"
+const FLEX_RE_OLD = /^FLEX:\s*(\d+)\s*\[(\d)\]\s+(\w+)\s+(.*)/i;
+// multimon-ng ≥ 2.x  →  "FLEX|date|baud/lvl/pol/phase|cyc.frame|capcode|type|message"
+const FLEX_RE_NEW = /^FLEX\|[^|]+\|[^|]+\|[^|]+\|(\d+)\|(\w+)\|(.*)/i;
+// Map FLEX message-type letters → funcbits number (same scheme as old [N])
+const FLEX_TYPE_FUNC = { TON: 0, NUM: 1, SKY: 2, ALN: 3 };
 
 // ── Build CLI args from process.env ───────────────────────────────────────────
 function buildRtlFmArgs() {
@@ -354,11 +359,18 @@ function parseLine(line) {
     return { protocol, baud: parseInt((protocol.match(/\d+/) || ['0'])[0], 10),
       capcode: capcode.trim(), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw), raw: line };
   }
-  const fm = FLEX_RE.exec(line);
-  if (fm) {
-    const [, capcode, funcStr, , msgRaw] = fm;
+  // Try old format first, then new pipe-delimited format
+  const fmOld = FLEX_RE_OLD.exec(line);
+  if (fmOld) {
+    const [, capcode, funcStr, , msgRaw] = fmOld;
     return { protocol: 'FLEX', baud: null, capcode: capcode.trim(),
       funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw), raw: line };
+  }
+  const fmNew = FLEX_RE_NEW.exec(line);
+  if (fmNew) {
+    const [, capcode, msgType, msgRaw] = fmNew;
+    return { protocol: 'FLEX', baud: null, capcode: capcode.trim(),
+      funcbits: FLEX_TYPE_FUNC[msgType] ?? 3, message: cleanMessage(msgRaw), raw: line };
   }
   return null;
 }
@@ -377,10 +389,15 @@ function handleLine(line) {
     parsed = { protocol, baud, capcode: capcode.trim(), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw) };
   }
 
-  const fm = FLEX_RE.exec(line);
-  if (fm && !parsed) {
-    const [, capcode, funcStr, , msgRaw] = fm;
+  const fmOld = !parsed && FLEX_RE_OLD.exec(line);
+  if (fmOld) {
+    const [, capcode, funcStr, , msgRaw] = fmOld;
     parsed = { protocol: 'FLEX', baud: null, capcode: capcode.trim(), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw) };
+  }
+  const fmNew = !parsed && FLEX_RE_NEW.exec(line);
+  if (fmNew) {
+    const [, capcode, msgType, msgRaw] = fmNew;
+    parsed = { protocol: 'FLEX', baud: null, capcode: capcode.trim(), funcbits: FLEX_TYPE_FUNC[msgType] ?? 3, message: cleanMessage(msgRaw) };
   }
 
   if (!parsed) return;

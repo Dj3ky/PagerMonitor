@@ -11,6 +11,22 @@ Versioning follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATC
 
 ---
 
+## [2.3.0] — 2026-05-24
+
+### Added
+- **One-click update** — Admin → System → Update tab shows installed commit vs latest on GitHub. Update Now button streams live terminal output and auto-reloads the page when the service restarts
+- **`update.sh`** — single command updater: `git pull` + `apt upgrade` + multimon-ng check + npm install + frontend rebuild + service restart. Auto-detects server-only mode from `.env`
+- **Auto-install latest multimon-ng from source** — `install.sh` and `client/install.sh` now query the GitHub API for the latest release and build it from source automatically, replacing the outdated apt package (1.3.1 → 1.5.1+). Falls back to apt if GitHub is unreachable
+- **Sudo check** — all install scripts now check for `sudo` at startup and exit with a clear message if missing (some minimal Debian/server installs don't have it). Running as root skips sudo entirely
+- **Sudoers rule** — `install.sh` configures passwordless sudo for `apt-get`, `systemctl`, and `make` so the web update button works without manual password input
+- **AI-assisted geocoding (optional)** — When enabled, the raw pager message text is sent to an AI model to extract the street, house number, and settlement before falling back to the built-in regex pipeline — useful for unusual or abbreviated address formats that regex misses.
+
+### Fixed
+- **FLEX messages not appearing in feed** — multimon-ng ≥ 1.3 outputs FLEX in a pipe-delimited format (`FLEX|date|baud|frame|capcode|type|message`) that the old regex didn't match. Both old (`FLEX: capcode [func] type msg`) and new formats are now supported
+- **UI fixes**
+
+---
+
 ## [2.2.0] — 2026-05-21
 
 ### Added

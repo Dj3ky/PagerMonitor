@@ -110,7 +110,7 @@ Run **multiple RTL-SDR dongles in parallel** — each on its own frequency, prot
 - Backup & restore as a single `.pmbackup` file
 
 ### ⚙️ Admin panel
-Dead air detection · Live log viewer · System stats · Webhook management · Audit log · Site settings · Dedup · Statistics dashboard · **AI Geocode** (Groq / OpenAI / Ollama)
+Dead air detection · Live log viewer · System stats · Webhook management · Audit log · Site settings · Dedup · Statistics dashboard · **AI Geocode** (Groq / OpenAI / Ollama) · **One-click update** with live terminal output
 
 ---
 
@@ -119,8 +119,8 @@ Dead air detection · Live log viewer · System stats · Webhook management · A
 ### Raspberry Pi (single device, 5 minutes)
 
 ```bash
-# Prerequisites
-sudo apt update && sudo apt install -y rtl-sdr multimon-ng nodejs npm
+# Prerequisites (multimon-ng latest is built from source automatically by install.sh)
+sudo apt update && sudo apt install -y rtl-sdr nodejs npm
 
 # Install
 git clone https://github.com/dj3ky/pagermonitor.git ~/pagermonitor
@@ -227,15 +227,18 @@ No external services required by default. Everything runs locally. AI geocoding 
 
 Check [CHANGELOG.md](CHANGELOG.md) first to see what changed.
 
-### Native (systemd)
+### Native (systemd) — one command
 
 ```bash
 cd ~/pagermonitor
-git pull
-cd frontend && npm install && npm run build && cd ..
-cd backend && npm install && cd ..
-sudo systemctl restart pagermonitor
+bash update.sh
 ```
+
+This pulls the latest code, upgrades system packages, upgrades multimon-ng if a newer version is available, rebuilds the frontend, and restarts the service automatically.
+
+**Or use the admin panel** — Admin → System → Update shows the current vs latest commit and has an **Update Now** button that streams live progress and reloads the page when done.
+
+> The RPi client has no web UI — update it via SSH: `cd ~/pagermonitor && bash update.sh`
 
 ### Docker
 
@@ -247,12 +250,12 @@ make update        # pulls, rebuilds, restarts in one command
 
 ### Check your current version
 
-Admin panel footer shows the running version, or:
+Admin → System → Update shows the current and latest GitHub commit. Or:
 ```bash
 curl -s http://localhost:3000/health | grep version
 ```
 
-> **After major version bumps** (e.g. `2.x → 3.0`) always read the CHANGELOG — there may be a manual migration step. Minor and patch versions (`2.1.0 → 2.1.1` or `2.2.0`) are always safe to update without any extra steps.
+> **After major version bumps** (e.g. `2.x → 3.0`) always read the CHANGELOG — there may be a manual migration step. Minor and patch versions are always safe to update without any extra steps.
 
 ---
 
