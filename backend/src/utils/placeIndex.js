@@ -9,9 +9,12 @@ const _indexes = new Map();
 // countryCode → compiled RegExp (city names where name===municipality) | null
 const _cityRegexCache = new Map();
 
-// Same normalization as streetIndex for consistency
+// Same normalization as streetIndex for consistency.
+// Hyphens (with or without surrounding spaces) are collapsed to a single space so
+// "Log - Dragomer" and "LOG-DRAGOMER" both normalize to "log dragomer".
 function _norm(s) {
   return s.toLowerCase()
+    .replace(/\s*-\s*/g, ' ')
     .replace(/š/g, 's').replace(/č/g, 'c').replace(/ž/g, 'z')
     .replace(/ć/g, 'c').replace(/đ/g, 'd')
     .trim();
@@ -119,7 +122,9 @@ function buildCityRegex(countryCode = 'si') {
   if (cityNames.size === 0) { _cityRegexCache.set(countryCode, null); return null; }
 
   const pattern = [...cityNames]
-    .map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'))
+    .map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                .replace(/\s*-\s*/g, '\\s*-\\s*')  // "Log - Dragomer" matches "LOG-DRAGOMER" too
+                .replace(/\s+/g, '\\s+'))
     .join('|');
   const re = new RegExp(`(?<!\\p{L})(${pattern})(?!\\p{L})`, 'iu');
   _cityRegexCache.set(countryCode, re);
