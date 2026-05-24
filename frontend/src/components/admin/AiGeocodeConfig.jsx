@@ -137,7 +137,7 @@ export default function AiGeocodeConfig() {
   const [statusLoading, setStatusLoading] = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [testing,   setTesting]   = useState(false);
-  const [testText,  setTestText]  = useState('DIHALNA STISKA LOG-DRAGOMER V LOKI 20');
+  const [testText,  setTestText]  = useState(null);
   const [testResult, setTestResult] = useState(null);
   const [msg,       setMsg]       = useState(null);
 
