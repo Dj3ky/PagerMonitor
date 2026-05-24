@@ -557,12 +557,13 @@ const aiGeocode = require('../utils/aiGeocode');
 router.get('/ai-geocode/config', adminOnly, (_req, res) => {
   try {
     const cfg = aiGeocode.getConfig();
+    // Never send key values to the frontend — send only whether they are set and from where
     res.json({
       provider:        cfg.provider,
-      groqKey:         cfg.groqKey   ? aiGeocode.MASKED : '',
+      groqKeySaved:    !!cfg.groqKey,
       groqKeySource:   process.env.GROQ_API_KEY   ? 'env' : (cfg.groqKey   ? 'db' : 'none'),
       groqModel:       cfg.groqModel,
-      openaiKey:       cfg.openaiKey ? aiGeocode.MASKED : '',
+      openaiKeySaved:  !!cfg.openaiKey,
       openaiKeySource: process.env.OPENAI_API_KEY ? 'env' : (cfg.openaiKey ? 'db' : 'none'),
       openaiModel:     cfg.openaiModel,
       ollamaUrl:       cfg.ollamaUrl,

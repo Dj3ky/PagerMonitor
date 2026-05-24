@@ -3,8 +3,6 @@
 const { getSetting, setSetting } = require('../services/database');
 const logger = require('./logger');
 
-const MASKED = '••••••••';
-
 // ── Config ────────────────────────────────────────────────────────────────────
 function getConfig() {
   const saved = getSetting('ai_geocode', {});
@@ -22,9 +20,10 @@ function getConfig() {
 function saveConfig(incoming) {
   const existing = getSetting('ai_geocode', {});
   const cfg = { ...existing, ...incoming };
-  // Never store masked placeholder back to DB
-  if (cfg.groqKey   === MASKED) cfg.groqKey   = existing.groqKey   || '';
-  if (cfg.openaiKey === MASKED) cfg.openaiKey = existing.openaiKey || '';
+  // Keys are never round-tripped to the frontend, so the only way they arrive
+  // non-empty is when the user explicitly typed a new one. Empty → keep existing.
+  if (!incoming.groqKey)   cfg.groqKey   = existing.groqKey   || '';
+  if (!incoming.openaiKey) cfg.openaiKey = existing.openaiKey || '';
   setSetting('ai_geocode', cfg);
 }
 
@@ -172,4 +171,4 @@ async function checkStatus() {
   return status;
 }
 
-module.exports = { extractAddress, getConfig, saveConfig, checkStatus, MASKED };
+module.exports = { extractAddress, getConfig, saveConfig, checkStatus };

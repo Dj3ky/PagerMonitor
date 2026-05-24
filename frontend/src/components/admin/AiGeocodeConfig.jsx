@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Brain, Save, Play, RefreshCw, ExternalLink, Eye, EyeOff,
+import { Brain, Save, Play, RefreshCw, ExternalLink,
          CheckCircle, XCircle, AlertCircle, Info } from 'lucide-react';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
@@ -16,16 +16,20 @@ const api  = async (m, p, b) => {
   return data;
 };
 
-const MASKED = '••••••••';
-
 const DEFAULTS = {
-  provider:    'none',
-  groqKey:     '',
-  groqModel:   'llama-3.1-8b-instant',
-  openaiKey:   '',
-  openaiModel: 'gpt-4o-mini',
-  ollamaUrl:   'http://localhost:11434',
-  ollamaModel: 'llama3.2:1b',
+  provider:       'none',
+  // Keys are never returned from the server — inputs always start empty.
+  // groqKeySaved / openaiKeySaved booleans come from the GET response.
+  groqKey:        '',
+  groqKeySaved:   false,
+  groqKeySource:  'none',
+  groqModel:      'llama-3.1-8b-instant',
+  openaiKey:      '',
+  openaiKeySaved: false,
+  openaiKeySource:'none',
+  openaiModel:    'gpt-4o-mini',
+  ollamaUrl:      'http://localhost:11434',
+  ollamaModel:    'llama3.2:1b',
 };
 
 // ── Small helpers ──────────────────────────────────────────────────────────────
@@ -136,8 +140,6 @@ export default function AiGeocodeConfig() {
   const [testText,  setTestText]  = useState('DIHALNA STISKA LOG-DRAGOMER V LOKI 20');
   const [testResult, setTestResult] = useState(null);
   const [msg,       setMsg]       = useState(null);
-  const [showGroqKey,   setShowGroqKey]   = useState(false);
-  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4500); };
 
@@ -162,7 +164,9 @@ export default function AiGeocodeConfig() {
     setSaving(true);
     try {
       await api('PUT', '/admin/ai-geocode/config', cfg);
-      flash('ok', 'AI geocode settings saved');
+      flash('ok', 'Settings saved');
+      // Reload config so the "Key saved ✓" badge updates and inputs reset to empty
+      loadConfig();
       loadStatus();
     } catch (e) { flash('err', e.message); }
     finally { setSaving(false); }
@@ -236,25 +240,25 @@ export default function AiGeocodeConfig() {
           <label className="pm-label">
             API Key
             <KeySourceBadge source={cfg.groqKeySource} />
-          </label>
-          <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
-            <input className="pm-input"
-              type={showGroqKey ? 'text' : 'password'}
-              value={cfg.groqKey}
-              placeholder={cfg.groqKeySource === 'env' ? 'Set via GROQ_API_KEY env var' : 'gsk_…'}
-              disabled={cfg.groqKeySource === 'env'}
-              onChange={e => set('groqKey', e.target.value)}
-              style={{ paddingRight: '2.2rem' }}
-            />
-            {cfg.groqKeySource !== 'env' && (
-              <button onClick={() => setShowGroqKey(s => !s)} style={{
-                position: 'absolute', right: '0.4rem', top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)',
-              }}>
-                {showGroqKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+            {cfg.groqKeySaved && cfg.groqKeySource !== 'env' && (
+              <span style={{ fontSize: '0.65rem', color: 'var(--accent-green)',
+                marginLeft: '0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                <CheckCircle size={10} /> Key saved
+              </span>
             )}
-          </div>
+          </label>
+          <input className="pm-input"
+            type="password"
+            value={cfg.groqKey}
+            placeholder={
+              cfg.groqKeySource === 'env' ? 'Loaded from GROQ_API_KEY env var' :
+              cfg.groqKeySaved            ? 'Enter new key to replace the saved one' :
+                                            'gsk_…'
+            }
+            disabled={cfg.groqKeySource === 'env'}
+            onChange={e => set('groqKey', e.target.value)}
+            style={{ marginBottom: '0.75rem' }}
+          />
 
           <label className="pm-label">Model</label>
           <select className="pm-input" style={{ marginBottom: '0.25rem' }}
@@ -288,25 +292,25 @@ export default function AiGeocodeConfig() {
           <label className="pm-label">
             API Key
             <KeySourceBadge source={cfg.openaiKeySource} />
-          </label>
-          <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
-            <input className="pm-input"
-              type={showOpenaiKey ? 'text' : 'password'}
-              value={cfg.openaiKey}
-              placeholder={cfg.openaiKeySource === 'env' ? 'Set via OPENAI_API_KEY env var' : 'sk-…'}
-              disabled={cfg.openaiKeySource === 'env'}
-              onChange={e => set('openaiKey', e.target.value)}
-              style={{ paddingRight: '2.2rem' }}
-            />
-            {cfg.openaiKeySource !== 'env' && (
-              <button onClick={() => setShowOpenaiKey(s => !s)} style={{
-                position: 'absolute', right: '0.4rem', top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)',
-              }}>
-                {showOpenaiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+            {cfg.openaiKeySaved && cfg.openaiKeySource !== 'env' && (
+              <span style={{ fontSize: '0.65rem', color: 'var(--accent-green)',
+                marginLeft: '0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                <CheckCircle size={10} /> Key saved
+              </span>
             )}
-          </div>
+          </label>
+          <input className="pm-input"
+            type="password"
+            value={cfg.openaiKey}
+            placeholder={
+              cfg.openaiKeySource === 'env' ? 'Loaded from OPENAI_API_KEY env var' :
+              cfg.openaiKeySaved            ? 'Enter new key to replace the saved one' :
+                                              'sk-…'
+            }
+            disabled={cfg.openaiKeySource === 'env'}
+            onChange={e => set('openaiKey', e.target.value)}
+            style={{ marginBottom: '0.75rem' }}
+          />
 
           <label className="pm-label">Model</label>
           <select className="pm-input" style={{ marginBottom: '0.25rem' }}
