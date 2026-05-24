@@ -98,6 +98,10 @@ const SI_STOPWORDS_FE = new Set([
   'je', 'so', 'in', 'ali', 'ter', 'da', 'ne', 'se', 'pa', 'ko', 'ker',
   'požar', 'gorenje', 'nesreča', 'prometna', 'intervencija',
   'gasilci', 'reševalci', 'policija', 'nujno', 'pomoč', 'klic', 'alarm',
+  // medical / incident-type descriptors
+  'stiska', 'dihalna', 'srčna', 'nezavest', 'poškodba', 'poškodbe',
+  'utopitev', 'zastrupitev', 'opeklina', 'krvavitev', 'kolaps',
+  'porodniška', 'porod', 'bolečina', 'bolečine', 'nezgoda',
   'km', 'm', 'ha',
   'oseba', 'osebe', 'oseb', 'osebno', 'vozilo', 'vozila', 'vozilu', 'vozilom',
   'motorist', 'kolesar', 'pešec',

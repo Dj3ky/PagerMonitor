@@ -143,6 +143,10 @@ const SI_HINT_STOPWORDS = new Set([
   // emergency / dispatch words
   'požar', 'gorenje', 'nesreča', 'prometna', 'intervencija',
   'gasilci', 'reševalci', 'policija', 'nujno', 'pomoč', 'klic', 'alarm',
+  // medical / incident-type descriptors
+  'stiska', 'dihalna', 'srčna', 'nezavest', 'poškodba', 'poškodbe',
+  'utopitev', 'zastrupitev', 'opeklina', 'krvavitev', 'kolaps',
+  'porodniška', 'porod', 'bolečina', 'bolečine', 'nezgoda',
   // vehicles / persons
   'oseba', 'osebe', 'oseb', 'osebno', 'vozilo', 'vozila', 'vozilu', 'vozilom',
   'motorist', 'kolesar', 'pešec',
