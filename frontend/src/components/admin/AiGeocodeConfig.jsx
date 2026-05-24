@@ -130,6 +130,41 @@ function ExtLink({ href, children }) {
   );
 }
 
+// Model dropdown — shows live models fetched from the provider when available,
+// falls back to hardcoded options otherwise.
+function ModelSelect({ value, onChange, liveModels, fallbackOptions, note, liveNote }) {
+  const useLive = Array.isArray(liveModels) && liveModels.length > 0;
+  // Always include the currently-selected model so it never disappears from the list.
+  const options = useLive
+    ? Array.from(new Set([value, ...liveModels].filter(Boolean))).sort()
+    : null;
+  return (
+    <>
+      <label className="pm-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        Model
+        {useLive && (
+          <span style={{
+            fontSize: '0.6rem', padding: '0.1rem 0.35rem', borderRadius: '0.25rem',
+            background: 'color-mix(in srgb,var(--accent-green) 12%,transparent)',
+            color: 'var(--accent-green)', fontWeight: 600,
+          }}>
+            ↻ {liveModels.length} live
+          </span>
+        )}
+      </label>
+      <select className="pm-input" style={{ marginBottom: '0.25rem' }}
+        value={value} onChange={onChange}>
+        {useLive
+          ? options.map(id => <option key={id} value={id}>{id}</option>)
+          : fallbackOptions}
+      </select>
+      <div style={{ fontSize: '0.65rem', color: 'var(--text-3)', marginBottom: '0.75rem' }}>
+        {useLive ? liveNote : note}
+      </div>
+    </>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function AiGeocodeConfig() {
   const [cfg,       setCfg]       = useState(DEFAULTS);
@@ -260,17 +295,19 @@ export default function AiGeocodeConfig() {
             style={{ marginBottom: '0.75rem' }}
           />
 
-          <label className="pm-label">Model</label>
-          <select className="pm-input" style={{ marginBottom: '0.25rem' }}
-            value={cfg.groqModel} onChange={e => set('groqModel', e.target.value)}>
-            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant — fast, free, recommended</option>
-            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile — slower but smarter</option>
-            <option value="mixtral-8x7b-32768">mixtral-8x7b-32768 — multilingual</option>
-            <option value="gemma2-9b-it">gemma2-9b-it — Google Gemma</option>
-          </select>
-          <div style={{ fontSize: '0.65rem', color: 'var(--text-3)', marginBottom: '0.75rem' }}>
-            All models are free on Groq. <ExtLink href="https://console.groq.com/docs/models">Full model list</ExtLink>
-          </div>
+          <ModelSelect
+            value={cfg.groqModel}
+            onChange={e => set('groqModel', e.target.value)}
+            liveModels={status?.availableModels}
+            fallbackOptions={<>
+              <option value="llama-3.1-8b-instant">llama-3.1-8b-instant — fast, free, recommended</option>
+              <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile — slower but smarter</option>
+              <option value="mixtral-8x7b-32768">mixtral-8x7b-32768 — multilingual</option>
+              <option value="gemma2-9b-it">gemma2-9b-it — Google Gemma</option>
+            </>}
+            note={<>All models are free on Groq. <ExtLink href="https://console.groq.com/docs/models">Full model list</ExtLink></>}
+            liveNote={<>Model list fetched live from Groq. All are free. <ExtLink href="https://console.groq.com/docs/models">Docs</ExtLink></>}
+          />
         </div>
       )}
 
@@ -312,19 +349,19 @@ export default function AiGeocodeConfig() {
             style={{ marginBottom: '0.75rem' }}
           />
 
-          <label className="pm-label">Model</label>
-          <select className="pm-input" style={{ marginBottom: '0.25rem' }}
-            value={cfg.openaiModel} onChange={e => set('openaiModel', e.target.value)}>
-            <option value="gpt-4o-mini">gpt-4o-mini — cheapest, recommended</option>
-            <option value="gpt-4o">gpt-4o — most accurate, higher cost</option>
-            <option value="gpt-4.1-mini">gpt-4.1-mini — newer mini model</option>
-            <option value="gpt-3.5-turbo">gpt-3.5-turbo — legacy, low cost</option>
-          </select>
-          <div style={{ fontSize: '0.65rem', color: 'var(--text-3)', marginBottom: '0.75rem' }}>
-            <ExtLink href="https://openai.com/pricing">OpenAI pricing</ExtLink>
-            {' · '}
-            <ExtLink href="https://platform.openai.com/usage">Usage dashboard</ExtLink>
-          </div>
+          <ModelSelect
+            value={cfg.openaiModel}
+            onChange={e => set('openaiModel', e.target.value)}
+            liveModels={status?.availableModels}
+            fallbackOptions={<>
+              <option value="gpt-4o-mini">gpt-4o-mini — cheapest, recommended</option>
+              <option value="gpt-4o">gpt-4o — most accurate, higher cost</option>
+              <option value="gpt-4.1-mini">gpt-4.1-mini — newer mini model</option>
+              <option value="gpt-3.5-turbo">gpt-3.5-turbo — legacy, low cost</option>
+            </>}
+            note={<><ExtLink href="https://openai.com/pricing">OpenAI pricing</ExtLink>{' · '}<ExtLink href="https://platform.openai.com/usage">Usage dashboard</ExtLink></>}
+            liveNote={<>Model list fetched live from OpenAI. <ExtLink href="https://openai.com/pricing">Pricing</ExtLink>{' · '}<ExtLink href="https://platform.openai.com/usage">Usage</ExtLink></>}
+          />
         </div>
       )}
 

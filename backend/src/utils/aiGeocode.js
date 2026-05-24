@@ -153,6 +153,22 @@ async function checkStatus() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         status.error = body?.error?.message || `HTTP ${res.status} — check your API key`;
+      } else {
+        // Bonus: fetch available chat models for the UI dropdown.
+        // Optional — failure here does not affect connected status.
+        try {
+          const mRes = await fetch('https://api.groq.com/openai/v1/models', {
+            headers: { 'Authorization': `Bearer ${cfg.groqKey}` },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (mRes.ok) {
+            const mData = await mRes.json();
+            status.availableModels = (mData.data || [])
+              .map(m => m.id)
+              .filter(id => !/(whisper|guard|distil)/i.test(id))
+              .sort();
+          }
+        } catch (_) {}
       }
     } catch (e) { status.connected = false; status.error = e.message; }
 
@@ -175,6 +191,23 @@ async function checkStatus() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         status.error = body?.error?.message || `HTTP ${res.status} — check your API key`;
+      } else {
+        // Bonus: fetch available chat models for the UI dropdown.
+        try {
+          const mRes = await fetch('https://api.openai.com/v1/models', {
+            headers: { 'Authorization': `Bearer ${cfg.openaiKey}` },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (mRes.ok) {
+            const mData = await mRes.json();
+            status.availableModels = (mData.data || [])
+              .map(m => m.id)
+              // Keep only chat-capable models; exclude audio, image, embedding, etc.
+              .filter(id => /^(gpt-|o[0-9])/.test(id))
+              .filter(id => !/(audio|realtime|instruct|search|embedding|moderation|dall|whisper|tts)/.test(id))
+              .sort();
+          }
+        } catch (_) {}
       }
     } catch (e) { status.connected = false; status.error = e.message; }
 
