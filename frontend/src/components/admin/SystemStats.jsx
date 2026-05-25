@@ -1,6 +1,10 @@
-import { RefreshCw, Server, HardDrive } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { RefreshCw, Server, HardDrive, Power, Loader } from 'lucide-react';
 import { adminFetchSystem } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
+
+const BASE = import.meta.env.VITE_BACKEND_URL || '';
+const tok  = () => localStorage.getItem('pm_token') || '';
 
 function fmtBytes(b) {
   if (!b || isNaN(b)) return '—';
@@ -46,6 +50,38 @@ function BarMeter({ used, total, label, color }) {
 
 export default function SystemStats() {
   const { data, loading, reload } = useAdminFetch(adminFetchSystem, null);
+
+  const [restartPhase, setRestartPhase] = useState('idle'); // idle | waiting | polling
+
+  useEffect(() => {
+    if (restartPhase !== 'polling') return;
+    let tries = 0;
+    const poll = setInterval(async () => {
+      tries++;
+      try {
+        const r = await fetch(`${BASE}/health`);
+        if (r.ok) { clearInterval(poll); window.location.reload(); }
+      } catch (_) {}
+      if (tries > 60) { clearInterval(poll); setRestartPhase('idle'); }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [restartPhase]);
+
+  const restartService = async () => {
+    if (!confirm('⚠️ Restart the service now?\n\nThe server will go offline briefly. The page will reload automatically when it comes back up.')) return;
+    setRestartPhase('waiting');
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3000);
+    try {
+      await fetch(`${BASE}/admin/backup/restart`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tok()}` },
+        signal: ctrl.signal,
+      });
+    } catch (_) {}
+    finally { clearTimeout(timer); }
+    setRestartPhase('polling');
+  };
 
   return (
     <div style={{ maxWidth:'680px' }}>
@@ -105,6 +141,29 @@ export default function SystemStats() {
             <StatRow label="Total"     value={data.stats?.total?.toLocaleString()} />
             <StatRow label="Today"     value={data.stats?.today?.toLocaleString()} />
             <StatRow label="Last hour" value={data.stats?.lastHour?.toLocaleString()} />
+          </div>
+
+          <div className="pm-card" style={{ borderColor:'color-mix(in srgb, var(--accent-amber) 25%, var(--border))' }}>
+            <div className="pm-section-title">Service Control</div>
+            <p style={{ fontSize:'0.78rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
+              Restart the service process. The page will reload automatically when it comes back up.
+            </p>
+            <button className="pm-btn" onClick={restartService}
+              disabled={restartPhase !== 'idle'}
+              style={{ display:'flex', alignItems:'center', gap:'0.4rem',
+                color:'var(--accent-amber)',
+                borderColor:'color-mix(in srgb, var(--accent-amber) 40%, var(--border))' }}>
+              <Power size={13}/> Restart Service
+            </button>
+            {restartPhase !== 'idle' && (
+              <div style={{ display:'flex', alignItems:'center', gap:'0.5rem',
+                marginTop:'0.75rem', fontSize:'0.82rem', color:'var(--accent-amber)' }}>
+                <Loader size={13} style={{ animation:'spin 1s linear infinite', flexShrink:0 }}/>
+                {restartPhase === 'waiting'
+                  ? 'Sending restart signal…'
+                  : 'Service restarting — page will reload automatically…'}
+              </div>
+            )}
           </div>
 
         </div>

@@ -123,7 +123,7 @@ export default function BackupRestore() {
       });
       const d = await r.json();
       if (r.ok) {
-        flash('ok', `✓ Restore complete (backup from ${fmtDate(bundle.created)}). Restart the server to apply.`);
+        flash('ok', `✓ Restore complete (backup from ${fmtDate(bundle.created)}). Restart the service to apply.`);
         loadStatus();
       } else {
         flash('err', d.error || 'Restore failed');
@@ -205,7 +205,7 @@ export default function BackupRestore() {
           <div style={{ fontSize:'0.75rem', color:'var(--accent-amber)', lineHeight:1.5 }}>
             Restoring will replace your current database with the backup.
             Your existing DB is saved as a <code>.pre-restore</code> file before overwriting.
-            <strong> Restart the server after restore.</strong>
+            <strong> Restart the service after restore.</strong>
           </div>
         </div>
 
@@ -227,7 +227,7 @@ export default function BackupRestore() {
             style={{ display:'flex', alignItems:'center', gap:'0.4rem',
               color:'var(--accent-amber)',
               borderColor:'color-mix(in srgb, var(--accent-amber) 40%, var(--border))' }}>
-            <Power size={13}/> Restart Server
+            <Power size={13}/> Restart Service
           </button>
         </div>
 
@@ -237,7 +237,7 @@ export default function BackupRestore() {
             <Loader size={13} style={{ animation:'spin 1s linear infinite', flexShrink:0 }}/>
             {restartPhase === 'waiting'
               ? 'Sending restart signal…'
-              : 'Server restarting — page will reload automatically…'}
+              : 'Service restarting — page will reload automatically…'}
           </div>
         )}
       </div>
