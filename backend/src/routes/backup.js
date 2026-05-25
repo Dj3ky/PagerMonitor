@@ -15,6 +15,7 @@ const fs       = require('fs');
 const os       = require('os');
 const { pipeline } = require('stream');
 const { promisify } = require('util');
+const { spawn } = require('child_process');
 const pipelineAsync = promisify(pipeline);
 
 const { requireAdmin }  = require('../services/auth');
@@ -186,17 +187,22 @@ router.post('/restore', requireAdmin, async (req, res) => {
 });
 
 // ── POST /admin/backup/restart ─────────────────────────────────────────────────
-// Gracefully restarts the server by sending SIGTERM to itself.
-// The SIGTERM handler in index.js broadcasts 'server_shutdown' to all WS clients
-// (so the UI shows "restarting" instead of "error"), closes the HTTP server, then exits.
-// Under Docker (restart: unless-stopped) or systemd the process manager brings it back up.
+// Restarts the server the same way the update panel does:
+//   1. systemctl restart (detached) — works when running as a systemd service
+//   2. SIGTERM fallback after 2s   — works under Docker (restart: unless-stopped) / PM2
 router.post('/restart', requireAdmin, (req, res) => {
   addAuditLog(req.session.username, 'server.restart', 'manual restart via admin panel');
   logger.warn(`Server restart requested by ${req.session.username}`);
   res.json({ ok: true, message: 'Restarting server…' });
-  // Send SIGTERM after the HTTP response has fully flushed —
-  // the graceful shutdown handler will broadcast server_shutdown to all WS clients
-  res.on('finish', () => process.kill(process.pid, 'SIGTERM'));
+  res.on('finish', () => {
+    // Primary: ask systemd to restart the service (proven to work — same as update panel)
+    const r = spawn('sudo', ['systemctl', 'restart', 'pagermonitor'],
+      { detached: true, stdio: 'ignore' });
+    r.unref();
+    // Fallback: if not running under systemd (Docker, PM2, etc.) exit after 2s
+    // so the process manager brings us back up
+    setTimeout(() => process.kill(process.pid, 'SIGTERM'), 2000);
+  });
 });
 
 module.exports = router;
