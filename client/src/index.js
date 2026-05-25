@@ -198,9 +198,8 @@ function handleRemoteCommand(command) {
 }
 
 function runUpdateScript() {
-  // update.sh lives at the repo root — two levels up from src/
-  // (repo root → client/ → src/)
-  const scriptPath = path.join(__dirname, '..', '..', 'update.sh');
+  // update.sh lives in the client directory — one level up from src/
+  const scriptPath = path.join(__dirname, '..', 'update.sh');
 
   if (!fs.existsSync(scriptPath)) {
     log('warn', `update.sh not found at ${scriptPath} — cannot run remote update`);
@@ -211,7 +210,7 @@ function runUpdateScript() {
 
   // Spawn detached so the script survives the service restart it triggers
   const child = spawn('bash', [scriptPath], {
-    cwd:      path.join(__dirname, '..', '..'), // repo root
+    cwd:      path.join(__dirname, '..'), // client directory
     detached: true,
     stdio:    ['ignore', 'pipe', 'pipe'],
     env:      { ...process.env, TERM: 'dumb', NO_COLOR: '1' },
