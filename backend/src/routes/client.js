@@ -180,10 +180,14 @@ router.get('/config', requireClientKey, (req, res) => {
   const clientId = req.headers['x-client-id'] || '';
   if (!clientId) return res.status(400).json({ error: 'X-Client-Id header required' });
 
+  let liveConfig = null;
+  try { if (req.query.cfg) liveConfig = JSON.parse(req.query.cfg); } catch (_) {}
+
   recordClientPing(clientId, req.ip, {
     freq:       req.query.freq       || null,
     protocols:  req.query.protocols  || null,
     sdrRunning: req.query.sdrRunning === 'true' ? true : req.query.sdrRunning === 'false' ? false : null,
+    liveConfig,
   });
 
   const cfg     = getClientConfig(clientId);

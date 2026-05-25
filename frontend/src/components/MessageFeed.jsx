@@ -29,7 +29,11 @@ function FeedHeader() {
 }
 
 export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete }) {
-  const { newBadgeSeconds = 10 } = useSite();
+  // settingsLoaded is true once the /api/site-settings fetch has resolved (success or fail).
+  // We must NOT start the badge timer until then — otherwise a slow mobile network causes
+  // the timer to fire with the hard-coded default (10 s) before the real configured value
+  // arrives, permanently clearing the NEW badges too early.
+  const { newBadgeSeconds = 10, settingsLoaded = true } = useSite();
 
   // lastSeenId from the server — tracks per-user across all devices
   const [lastSeenId, setLastSeenId] = useState(null); // null = not yet loaded
@@ -43,8 +47,11 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
       .catch(() => setLastSeenId(0)); // if fetch fails, show nothing as new
   }, []);
 
-  // When messages change or lastSeenId loads, schedule marking as seen
+  // When messages change or lastSeenId loads, schedule marking as seen.
+  // Guard: wait until settingsLoaded so we always use the real configured duration,
+  // not the hard-coded default that is in place while the settings fetch is in flight.
   useEffect(() => {
+    if (!settingsLoaded) return;                       // ← wait for real newBadgeSeconds
     if (lastSeenId === null || messages.length === 0) return;
     const topId = messages[0]?.id;
     if (!topId || topId <= lastSeenId) return; // nothing new
@@ -61,11 +68,12 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
     }, newBadgeSeconds * 1000);
 
     return () => clearTimeout(markSeenTimer.current);
-  }, [messages, lastSeenId, newBadgeSeconds]);
+  }, [messages, lastSeenId, newBadgeSeconds, settingsLoaded]);
 
   // When tab regains focus, also mark as seen after a short delay
   useEffect(() => {
     const onFocus = () => {
+      if (!settingsLoaded) return;                     // ← wait for real newBadgeSeconds
       if (lastSeenId === null || messages.length === 0) return;
       const topId = messages[0]?.id;
       if (!topId || topId <= lastSeenId) return;
@@ -80,7 +88,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [messages, lastSeenId, newBadgeSeconds]);
+  }, [messages, lastSeenId, newBadgeSeconds, settingsLoaded]);
 
   useEffect(() => () => clearTimeout(markSeenTimer.current), []);
 

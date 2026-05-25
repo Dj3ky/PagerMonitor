@@ -65,18 +65,33 @@
     margin: 0; padding: 0;
   }
 
+  /* iOS Safari: use fill-available so the height tracks the visible viewport */
+  html {
+    height: -webkit-fill-available;
+  }
+
   body {
     background: var(--bg-0);
     color: var(--text-1);
     font-family: 'Space Grotesk', sans-serif;
     -webkit-font-smoothing: antialiased;
     transition: background 0.2s, color 0.2s;
+    /* Prevent iOS rubber-band scroll from revealing content behind the header */
+    overscroll-behavior: none;
   }
 
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track  { background: var(--bg-1); }
   ::-webkit-scrollbar-thumb  { background: var(--bg-4); border-radius: 2px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--bg-5); }
+}
+
+/* ── App shell height — uses dvh so the header never hides behind the mobile toolbar ── */
+.app-shell {
+  /* Fallback for older browsers */
+  height: 100vh;
+  /* Modern: dynamic viewport height tracks the visible area as toolbars show/hide */
+  height: 100dvh;
 }
 
 /* ── Semantic colour utilities ────────────────────────────── */

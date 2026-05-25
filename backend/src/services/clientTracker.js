@@ -40,6 +40,7 @@ function ensureTables() {
     ['last_message_ts',  'TEXT'],
     ['sdr_running',      'INTEGER'],
     ['pending_command',  'TEXT'],
+    ['live_config',      'TEXT'],
   ]) {
     if (!cols.includes(col)) {
       db.exec(`ALTER TABLE sdr_clients ADD COLUMN ${col} ${def}`);
@@ -81,17 +82,19 @@ function recordClientPing(clientId, ip, extra = {}) {
   if (!clientId) return;
   try {
     ensureTables();
-    const sdrRunning = extra.sdrRunning != null ? (extra.sdrRunning ? 1 : 0) : null;
+    const sdrRunning  = extra.sdrRunning != null ? (extra.sdrRunning ? 1 : 0) : null;
+    const liveConfig  = extra.liveConfig ? JSON.stringify(extra.liveConfig) : null;
     getDb().prepare(`
-      INSERT INTO sdr_clients (id, last_seen, ip, freq, protocols, sdr_running)
-      VALUES (?, datetime('now'), ?, ?, ?, ?)
+      INSERT INTO sdr_clients (id, last_seen, ip, freq, protocols, sdr_running, live_config)
+      VALUES (?, datetime('now'), ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         last_seen   = datetime('now'),
         ip          = COALESCE(excluded.ip, ip),
         freq        = COALESCE(excluded.freq, freq),
         protocols   = COALESCE(excluded.protocols, protocols),
-        sdr_running = COALESCE(excluded.sdr_running, sdr_running)
-    `).run(clientId, ip || null, extra.freq || null, extra.protocols || null, sdrRunning);
+        sdr_running = COALESCE(excluded.sdr_running, sdr_running),
+        live_config = COALESCE(excluded.live_config, live_config)
+    `).run(clientId, ip || null, extra.freq || null, extra.protocols || null, sdrRunning, liveConfig);
   } catch (e) {
     logger.warn(`clientTracker.recordClientPing: ${e.message}`);
   }
@@ -122,6 +125,7 @@ function getClients() {
         silentSec:       Math.round((now - lastMs) / 1000),
         sdrRunning:      r.sdr_running == null ? null : r.sdr_running === 1,
         pendingCommand:  r.pending_command || null,
+        liveConfig:      r.live_config ? JSON.parse(r.live_config) : null,
       };
     });
   } catch (e) {

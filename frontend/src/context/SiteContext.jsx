@@ -3,10 +3,11 @@ import { createContext, useContext, useState, useEffect } from 'react';
 const DEFAULT = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si' };
 const BASE    = import.meta.env.VITE_BACKEND_URL || '';
 
-const SiteContext = createContext({ ...DEFAULT, update: () => {} });
+const SiteContext = createContext({ ...DEFAULT, settingsLoaded: false, update: () => {} });
 
 export function SiteProvider({ children }) {
-  const [settings, setSettings] = useState(DEFAULT);
+  const [settings, setSettings]         = useState(DEFAULT);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
     fetch(`${BASE}/api/site-settings`)
@@ -26,7 +27,9 @@ export function SiteProvider({ children }) {
         setSettings(s);
         document.title = s.siteName;
       })
-      .catch(() => {});
+      .catch(() => {})
+      // Always mark loaded — even if the fetch failed we fall back to defaults
+      .finally(() => setSettingsLoaded(true));
   }, []);
 
   const update = (patch) => {
@@ -38,7 +41,7 @@ export function SiteProvider({ children }) {
   };
 
   return (
-    <SiteContext.Provider value={{ ...settings, update }}>
+    <SiteContext.Provider value={{ ...settings, settingsLoaded, update }}>
       {children}
     </SiteContext.Provider>
   );

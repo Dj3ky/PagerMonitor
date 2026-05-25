@@ -211,7 +211,7 @@ Edit `backend/.env` (native) or `.env` (Docker):
 | `RTL_FM_PPM` | `0` | Frequency correction (run `rtl_test -p` to find) |
 | `RTL_FM_DEVICE_INDEX` | `0` | Dongle index when using one dongle |
 | `MULTIMON_PROTOCOLS` | `POCSAG1200` | Space-separated: `POCSAG512 POCSAG1200 FLEX` |
-| `MULTIMON_POCSAG_CHARSET` | _(empty)_ | e.g. `ISO-8859-2` for Slovenian Š Č Ž |
+| `MULTIMON_POCSAG_CHARSET` | _(empty)_ | Charset: `US` (default), `FR`, `DE`, `SE`, `DK`, `SI` |
 | `LOG_LEVEL` | `info` | `error` / `warn` / `info` / `debug` |
 | `DEFAULT_ADMIN_PASS` | _(random)_ | First-run admin password. If unset, a random password is generated and printed to the startup log. |
 
@@ -642,7 +642,7 @@ rtl_fm -f 173.250M -M fm -s 22050 - | \
 
 ### Slovenian/special characters (Š Č Ž) not showing
 
-Admin → SDR Control → **POCSAG charset (-C)** = `ISO-8859-2`
+Admin → SDR Control → **POCSAG charset (-C)** = `SI`
 
 ### SDR OFFLINE in status bar
 

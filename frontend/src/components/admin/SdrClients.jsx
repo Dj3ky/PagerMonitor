@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { Wifi, WifiOff, Trash2, RefreshCw, Activity, Settings2, ChevronDown, ChevronUp, Save, Download } from 'lucide-react';
 
+function FieldLabel({ text }) {
+  const m = text.match(/^(.*?)(\s*\(-[a-zA-Z]+\))$/);
+  if (!m) return text;
+  return <>{m[1]}<span style={{ textTransform: 'none', letterSpacing: 'normal', fontFamily: 'monospace' }}>{m[2]}</span></>;
+}
+
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
 const api  = (m, p, b) => fetch(`${BASE}${p}`, {
@@ -10,12 +16,16 @@ const api  = (m, p, b) => fetch(`${BASE}${p}`, {
 }).then(r => r.json());
 
 const CFG_FIELDS = [
-  { key:'freq',       label:'Frequency',    placeholder:'173.250M', hint:'Use : to scan multiple: 173.250M:152.240M' },
-  { key:'gain',       label:'Gain (dB)',     placeholder:'40',       hint:'0 = auto AGC' },
-  { key:'ppm',        label:'PPM',           placeholder:'0',        hint:'Frequency correction' },
-  { key:'squelch',    label:'Squelch',       placeholder:'0',        hint:'0 = disabled' },
-  { key:'protocols',  label:'Protocols',     placeholder:'POCSAG1200', hint:'Space-separated: POCSAG512 POCSAG1200 POCSAG2400 FLEX' },
-  { key:'charset',    label:'Charset (-C)',  placeholder:'',         hint:'Possible values: US,FR,DE,DK,SE,SI' },
+  { key:'freq',        label:'Frequency',     placeholder:'173.250M', hint:'Use : to scan multiple: 173.250M:152.240M',          group:'rtl' },
+  { key:'modulation',  label:'Modulation',    placeholder:'fm',       hint:'fm | am | usb | lsb | wbfm | raw',                   group:'rtl' },
+  { key:'sampleRate',  label:'Sample rate',   placeholder:'22050',    hint:'Hz — 22050 recommended for POCSAG',                  group:'rtl' },
+  { key:'gain',        label:'Gain (dB)',      placeholder:'40',       hint:'0 = auto AGC, 40 = typical',                        group:'rtl' },
+  { key:'device',      label:'Device index',  placeholder:'0',        hint:'0 = first dongle, 1 = second, …',                   group:'rtl' },
+  { key:'ppm',         label:'PPM',            placeholder:'0',        hint:'Frequency correction (run rtl_test -p)',             group:'rtl' },
+  { key:'squelch',     label:'Squelch',        placeholder:'0',        hint:'0 = disabled',                                      group:'rtl' },
+  { key:'protocols',   label:'Protocols',      placeholder:'POCSAG1200', hint:'Space-separated: POCSAG512 POCSAG1200 POCSAG2400 FLEX', group:'mmon' },
+  { key:'quiet',       label:'Quiet mode',     placeholder:'1',        hint:'1 = suppress banner (recommended), 0 = off',        group:'mmon' },
+  { key:'charset',     label:'Charset (-C)',   placeholder:'',         hint:'Set charset: US (default), FR, DE, SE, DK, SI',     group:'mmon' },
 ];
 
 function fmtTime(ts) {
@@ -46,6 +56,7 @@ function Flash({ msg }) {
 }
 
 function ClientCard({ client, configs, onRemove, onSaveConfig, onSendCommand, flash }) {
+  const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
   const existingCfg = configs.find(c => c.clientId === client.id);
   const [form, setForm] = useState(existingCfg?.config || {});
@@ -158,13 +169,38 @@ function ClientCard({ client, configs, onRemove, onSaveConfig, onSendCommand, fl
               {' · '}Updated: {fmtTime(existingCfg.updatedAt)}
             </div>
           )}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem', marginBottom:'0.75rem' }}>
-            {CFG_FIELDS.map(f => (
+          {/* rtl_fm settings */}
+          <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
+            textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
+            rtl_fm
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem', marginBottom:'0.65rem' }}>
+            {CFG_FIELDS.filter(f => f.group === 'rtl').map(f => (
               <div key={f.key}>
-                <label className="pm-label">{f.label}</label>
+                <label className="pm-label"><FieldLabel text={f.label} /></label>
                 <input className="pm-input" value={form[f.key] || ''}
                   onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-                  placeholder={f.placeholder}/>
+                  placeholder={live[f.key] || f.placeholder}/>
+                <div style={{ fontSize:'0.62rem', color:'var(--text-3)', marginTop:'0.15rem' }}>{f.hint}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* divider */}
+          <div style={{ height:'1px', background:'var(--border-soft)', margin:'0.5rem 0 0.65rem' }}/>
+
+          {/* multimon-ng settings */}
+          <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
+            textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
+            multimon-ng
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem', marginBottom:'0.75rem' }}>
+            {CFG_FIELDS.filter(f => f.group === 'mmon').map(f => (
+              <div key={f.key}>
+                <label className="pm-label"><FieldLabel text={f.label} /></label>
+                <input className="pm-input" value={form[f.key] || ''}
+                  onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                  placeholder={live[f.key] || f.placeholder}/>
                 <div style={{ fontSize:'0.62rem', color:'var(--text-3)', marginTop:'0.15rem' }}>{f.hint}</div>
               </div>
             ))}

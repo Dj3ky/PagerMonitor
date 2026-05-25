@@ -166,7 +166,17 @@ async function pollConfig(pipelines) {
     const freqs      = pipelines.map(p => p.getCfg().freq).join(':');
     const protocols  = [...new Set(pipelines.map(p => p.getCfg().protocols))].join(' ');
     const sdrRunning = pipelines.every(p => p.isRunning());
-    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}&sdrRunning=${sdrRunning}`);
+    // Report the full running config of the primary dongle so the server UI can
+    // show .env values as grey placeholders for fields that have no DB override.
+    const mainCfg  = pipelines[0].getCfg();
+    const liveCfg  = {
+      freq: mainCfg.freq, modulation: mainCfg.modulation,
+      sampleRate: mainCfg.sampleRate, gain: mainCfg.gain,
+      device: mainCfg.device, ppm: mainCfg.ppm,
+      squelch: mainCfg.squelch, protocols: mainCfg.protocols,
+      quiet: mainCfg.quiet, charset: mainCfg.charset,
+    };
+    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}&sdrRunning=${sdrRunning}&cfg=${encodeURIComponent(JSON.stringify(liveCfg))}`);
     if (r.status !== 200 || !r.body) return;
 
     // Handle remote command (one-shot — server clears it after delivery)

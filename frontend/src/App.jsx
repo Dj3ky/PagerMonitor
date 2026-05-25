@@ -187,7 +187,7 @@ export default function App() {
   if (isGuest && showLogin) return <LoginPage onCancel={() => setShowLogin(false)} />;
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100vh', overflow:'hidden', background:'var(--bg-0)' }}>
+    <div className="app-shell" style={{ display:'flex', flexDirection:'column', overflow:'hidden', background:'var(--bg-0)' }}>
       <Header wsStatus={wsStatus} soundEnabled={soundEnabled}
         onToggleSound={() => setSoundEnabled(s => !s)}
         browserNotif={browserNotif}

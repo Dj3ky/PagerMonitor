@@ -51,7 +51,7 @@ function buildMmonArgs() {
   if (e.MULTIMON_VERBOSITY)               args.push('-v', e.MULTIMON_VERBOSITY);
   if (e.MULTIMON_QUIET === '1')           args.push('-q');
   if (e.MULTIMON_POCSAG_SPECIAL === '1') args.push('-s');
-  if (e.MULTIMON_POCSAG_CHARSET)          args.push('-C', e.MULTIMON_POCSAG_CHARSET); // -C POCSAG charset e.g. ISO-8859-2
+  if (e.MULTIMON_POCSAG_CHARSET)          args.push('-C', e.MULTIMON_POCSAG_CHARSET); // -C POCSAG charset: US, FR, DE, SE, DK, SI
   args.push('-');
   return args;
 }

@@ -2,6 +2,14 @@ import { useState, useEffect } from 'react';
 import { Play, Square, RotateCcw, Save, ChevronDown, ChevronUp, Terminal, Plus, Trash2 } from 'lucide-react';
 import { adminSdrStart, adminSdrStop, adminSdrRestart, adminFetchSdrConfig, adminSdrSetConfig } from '../../utils/api.js';
 
+// Renders a field label keeping the (-x) flag suffix in its original case
+// despite the .pm-label text-transform:uppercase rule
+function FieldLabel({ text }) {
+  const m = text.match(/^(.*?)(\s*\(-[a-zA-Z]+\))$/);
+  if (!m) return text;
+  return <>{m[1]}<span style={{ textTransform: 'none', letterSpacing: 'normal', fontFamily: 'monospace' }}>{m[2]}</span></>;
+}
+
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
 const api  = (m, p, b) => fetch(`${BASE}${p}`, {
@@ -11,13 +19,15 @@ const api  = (m, p, b) => fetch(`${BASE}${p}`, {
 
 const DONGLE_DEFAULTS = { device:'0', freq:'173.250M', gain:'40', ppm:'0', squelch:'0', protocols:'POCSAG1200', charset:'' };
 const DONGLE_FIELDS = [
-  { key:'device',    label:'Device index', hint:'0 = first dongle, 1 = second, …', group:'rtl' },
-  { key:'freq',      label:'Frequency',    hint:'e.g. 173.250M or 173.250M:152.240M', group:'rtl' },
-  { key:'gain',      label:'Gain (dB)',    hint:'0 = auto AGC, 40 = typical', group:'rtl' },
-  { key:'ppm',       label:'PPM',          hint:'Frequency correction (run rtl_test -p)', group:'rtl' },
-  { key:'squelch',   label:'Squelch',      hint:'0 = disabled', group:'rtl' },
-  { key:'protocols', label:'Protocols',    hint:'POCSAG512 POCSAG1200 POCSAG2400 FLEX', group:'mmon' },
-  { key:'charset',   label:'Charset',      hint:'Possible values: US,FR,DE,DK,SE,SI', group:'mmon' },
+  { key:'device',     label:'Device index', hint:'0 = first dongle, 1 = second, …', group:'rtl' },
+  { key:'freq',       label:'Frequency',    hint:'e.g. 173.250M or 173.250M:152.240M', group:'rtl' },
+  { key:'modulation', label:'Modulation',   hint:'fm | am | usb | lsb | wbfm | raw', group:'rtl' },
+  { key:'sampleRate', label:'Sample rate',  hint:'Hz — 22050 recommended for POCSAG', group:'rtl' },
+  { key:'gain',       label:'Gain (dB)',    hint:'0 = auto AGC, 40 = typical', group:'rtl' },
+  { key:'ppm',        label:'PPM',          hint:'Frequency correction (run rtl_test -p)', group:'rtl' },
+  { key:'squelch',    label:'Squelch',      hint:'0 = disabled', group:'rtl' },
+  { key:'protocols',  label:'Protocols',    hint:'Space-separated: POCSAG512 POCSAG1200 POCSAG2400 FLEX', group:'mmon' },
+  { key:'charset',    label:'Charset',      hint:'Set charset: US (default), FR, DE, SE, DK, SI', group:'mmon' },
 ];
 
 const FIELD_GROUPS = [
@@ -25,18 +35,18 @@ const FIELD_GROUPS = [
     title: 'rtl_fm settings',
     color: 'var(--accent-blue)',
     fields: [
-      { key: 'RTL_FM_FREQ',            label: 'Frequency (-f)',          hint: 'e.g. 152.240M  or  152.240M:157.450M for multiple' },
+      { key: 'RTL_FM_FREQ',            label: 'Frequency (-f)',          hint: 'e.g. 152.240M or 152.240M:157.450M for multiple' },
       { key: 'RTL_FM_MODULATION',      label: 'Modulation (-M)',         hint: 'fm | am | usb | lsb | wbfm | raw' },
       { key: 'RTL_FM_SAMPLE_RATE',     label: 'Sample rate (-s)',        hint: 'Hz — 22050 recommended for POCSAG' },
-      { key: 'RTL_FM_GAIN',            label: 'Gain (-g)',               hint: 'dB — 0 = auto AGC' },
-      { key: 'RTL_FM_DEVICE_INDEX',    label: 'Device index (-d)',       hint: '0 = first dongle' },
-      { key: 'RTL_FM_PPM',             label: 'PPM correction (-p)',     hint: 'Find with rtl_test -p' },
+      { key: 'RTL_FM_GAIN',            label: 'Gain (-g)',               hint: '0 = auto AGC, 40 = typical' },
+      { key: 'RTL_FM_DEVICE_INDEX',    label: 'Device index (-d)',       hint: '0 = first dongle, 1 = second, …' },
+      { key: 'RTL_FM_PPM',             label: 'PPM correction (-p)',     hint: 'Frequency correction (run rtl_test -p)' },
       { key: 'RTL_FM_SQUELCH',         label: 'Squelch (-l)',            hint: '0 = disabled' },
-      { key: 'RTL_FM_RESAMPLE_RATE',   label: 'Resample rate (-r)',      hint: 'Leave empty to skip -r flag' },
-      { key: 'RTL_FM_LOWPASS',         label: 'Post-process (-E)',       hint: 'dc | deemp | comma-separated' },
-      { key: 'RTL_FM_TUNER_BANDWIDTH', label: 'Tuner bandwidth (-T)',    hint: 'Hz — 0=auto, leave empty for default' },
-      { key: 'RTL_FM_DIRECT_SAMPLING', label: 'Direct sampling (-D)',    hint: '0=off 1=I 2=Q (HF <28MHz)' },
-      { key: 'RTL_FM_OFFSET_TUNING',   label: 'Offset tuning (-O)',      hint: '0=off 1=on' },
+      { key: 'RTL_FM_RESAMPLE_RATE',   label: 'Resample rate (-r)',      hint: 'Leave empty to skip' },
+      { key: 'RTL_FM_LOWPASS',         label: 'Post-process (-E)',       hint: 'dc | deemp | edge | direct | offset (leave empty to disable)' },
+      { key: 'RTL_FM_TUNER_BANDWIDTH', label: 'Tuner bandwidth (-T)',    hint: 'Hz — 0 = auto, leave empty to skip' },
+      { key: 'RTL_FM_DIRECT_SAMPLING', label: 'Direct sampling (-D)',    hint: '0 = off, 1 = I-ADC, 2 = Q-ADC (HF <28 MHz)' },
+      { key: 'RTL_FM_OFFSET_TUNING',   label: 'Offset tuning (-O)',      hint: '0 = off, 1 = on' },
     ],
   },
   {
@@ -44,11 +54,11 @@ const FIELD_GROUPS = [
     color: 'var(--accent-green)',
     fields: [
       { key: 'MULTIMON_PROTOCOLS',       label: 'Protocols (-a)',           hint: 'Space-separated: POCSAG512 POCSAG1200 POCSAG2400 FLEX …' },
-      { key: 'MULTIMON_VERBOSITY',       label: 'Verbosity (-v)',           hint: '0=quiet 1=errors 2=info 3=verbose 4=debug' },
-      { key: 'MULTIMON_QUIET',           label: 'Quiet mode (-q)',          hint: '1=on (suppress banner) 0=off' },
-      { key: 'MULTIMON_INPUT_FORMAT',    label: 'Input format (-t)',        hint: 'raw | wav | au | aiff  (always raw with rtl_fm)' },
-      { key: 'MULTIMON_POCSAG_SPECIAL',  label: 'POCSAG special (-s)',      hint: '1=decode numeric as special 0=off' },
-      { key: 'MULTIMON_POCSAG_CHARSET',  label: 'POCSAG charset (-C)',      hint: 'Possible values: US,FR,DE,DK,SE,SI' },
+      { key: 'MULTIMON_VERBOSITY',       label: 'Verbosity (-v)',           hint: '0 = quiet, 1 = errors, 2 = info, 3 = verbose, 4 = debug' },
+      { key: 'MULTIMON_QUIET',           label: 'Quiet mode (-q)',          hint: '1 = on (suppress banner), 0 = off' },
+      { key: 'MULTIMON_INPUT_FORMAT',    label: 'Input format (-t)',        hint: 'raw | wav | au | aiff (always raw with rtl_fm)' },
+      { key: 'MULTIMON_POCSAG_SPECIAL',  label: 'POCSAG special (-s)',      hint: '1 = on (special char decoding for numeric msgs), 0 = off' },
+      { key: 'MULTIMON_POCSAG_CHARSET',  label: 'POCSAG charset (-C)',      hint: 'Set charset: US (default), FR, DE, SE, DK, SI' },
     ],
   },
 ];
@@ -207,7 +217,7 @@ export default function SdrControl({ sdrStatus }) {
                 <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.6rem' }}>
                   {group.fields.map(f => (
                     <div key={f.key}>
-                      <label className="pm-label">{f.label}</label>
+                      <label className="pm-label"><FieldLabel text={f.label} /></label>
                       <input
                         className="pm-input"
                         value={config[f.key] || ''}
@@ -272,7 +282,7 @@ export default function SdrControl({ sdrStatus }) {
                       marginBottom:'0.65rem' }}>
                       {DONGLE_FIELDS.filter(f => f.group === 'rtl').map(f => (
                         <div key={f.key}>
-                          <label className="pm-label">{f.label}</label>
+                          <label className="pm-label"><FieldLabel text={f.label} /></label>
                           <input className="pm-input" value={d[f.key] ?? ''}
                             onChange={e => updateDongle(i, f.key, e.target.value)}
                             placeholder={f.hint} />
@@ -291,7 +301,7 @@ export default function SdrControl({ sdrStatus }) {
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.4rem' }}>
                       {DONGLE_FIELDS.filter(f => f.group === 'mmon').map(f => (
                         <div key={f.key}>
-                          <label className="pm-label">{f.label}</label>
+                          <label className="pm-label"><FieldLabel text={f.label} /></label>
                           <input className="pm-input" value={d[f.key] ?? ''}
                             onChange={e => updateDongle(i, f.key, e.target.value)}
                             placeholder={f.hint} />

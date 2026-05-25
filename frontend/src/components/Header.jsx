@@ -50,7 +50,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
   return (
     <>
       <header ref={menuRef} style={{ background:'var(--bg-1)', borderBottom:'1px solid var(--border)',
-        flexShrink:0, position:'relative', zIndex:1001 }}>
+        flexShrink:0, position:'sticky', top:0, zIndex:1001 }}>
 
         {/* ── Main bar ─────────────────────────────────────────── */}
         <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.45rem 0.75rem' }}>
