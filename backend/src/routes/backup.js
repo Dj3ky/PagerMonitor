@@ -185,4 +185,15 @@ router.post('/restore', requireAdmin, async (req, res) => {
   }
 });
 
+// ── POST /admin/backup/restart ─────────────────────────────────────────────────
+// Gracefully restarts the server process. Under Docker (restart: unless-stopped)
+// or PM2, the process manager will bring it back up automatically.
+router.post('/restart', requireAdmin, (req, res) => {
+  addAuditLog(req.session.username, 'server.restart', 'manual restart via admin panel');
+  logger.warn(`Server restart requested by ${req.session.username}`);
+  res.json({ ok: true, message: 'Restarting server…' });
+  // Give the response time to flush before exiting
+  setTimeout(() => process.exit(0), 500);
+});
+
 module.exports = router;

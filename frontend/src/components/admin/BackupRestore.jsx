@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Download, Upload, RefreshCw, HardDrive, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Download, Upload, RefreshCw, HardDrive, AlertTriangle, CheckCircle, Power } from 'lucide-react';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
@@ -33,11 +33,12 @@ function StatusCard({ label, info }) {
 }
 
 export default function BackupRestore() {
-  const [status, setStatus]     = useState(null);
-  const [loading, setLoading]   = useState(true);
+  const [status, setStatus]       = useState(null);
+  const [loading, setLoading]     = useState(true);
   const [restoring, setRestoring] = useState(false);
-  const [msg, setMsg]           = useState(null);
-  const fileRef                 = useRef(null);
+  const [restarting, setRestarting] = useState(false);
+  const [msg, setMsg]             = useState(null);
+  const fileRef                   = useRef(null);
 
   const flash = (type, text) => { setMsg({type, text}); setTimeout(() => setMsg(null), 6000); };
 
@@ -62,6 +63,23 @@ export default function BackupRestore() {
       a.href = url; a.download = name; a.click();
       URL.revokeObjectURL(url);
     } catch (e) { flash('err', e.message); }
+  };
+
+  const restartServer = async () => {
+    if (!confirm('⚠️ Restart the server now?\n\nThe server will go offline briefly while it restarts. Under Docker it will come back up automatically.')) return;
+    setRestarting(true);
+    try {
+      await fetch(`${BASE}/admin/backup/restart`, {
+        method: 'POST',
+        headers: { Authorization:`Bearer ${tok()}` },
+      });
+      flash('ok', '✓ Restart signal sent. The server will be back in a few seconds…');
+    } catch (_) {
+      // The server likely dropped the connection while restarting — that's expected
+      flash('ok', '✓ Restart signal sent. The server will be back in a few seconds…');
+    } finally {
+      setRestarting(false);
+    }
   };
 
   const restore = async (file) => {
@@ -178,12 +196,23 @@ export default function BackupRestore() {
           onChange={e => restore(e.target.files?.[0])}
           style={{ display:'none' }} />
 
-        <button className="pm-btn" onClick={() => fileRef.current?.click()} disabled={restoring}
-          style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
-          {restoring
-            ? <><RefreshCw size={13} style={{ animation:'spin 1s linear infinite' }}/> Restoring…</>
-            : <><Upload size={13}/> Choose .pmbackup file to restore</>}
-        </button>
+        <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', alignItems:'center' }}>
+          <button className="pm-btn" onClick={() => fileRef.current?.click()} disabled={restoring}
+            style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
+            {restoring
+              ? <><RefreshCw size={13} style={{ animation:'spin 1s linear infinite' }}/> Restoring…</>
+              : <><Upload size={13}/> Choose .pmbackup file to restore</>}
+          </button>
+
+          <button className="pm-btn" onClick={restartServer} disabled={restarting || restoring}
+            style={{ display:'flex', alignItems:'center', gap:'0.4rem',
+              color:'var(--accent-amber)',
+              borderColor:'color-mix(in srgb, var(--accent-amber) 40%, var(--border))' }}>
+            {restarting
+              ? <><RefreshCw size={13} style={{ animation:'spin 1s linear infinite' }}/> Restarting…</>
+              : <><Power size={13}/> Restart Server</>}
+          </button>
+        </div>
       </div>
 
       {/* Info */}
