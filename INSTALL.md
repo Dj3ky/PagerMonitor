@@ -568,7 +568,7 @@ This does everything automatically:
 
 **Or use the admin panel** — Admin → System → Update compares your installed commit with the latest on GitHub and has an **Update Now** button with live terminal output. The page reloads automatically when the service restarts.
 
-> **RPi client** has no web UI — update via SSH: `cd ~/pagermonitor && bash update.sh`
+> **RPi client** has no web UI — update via SSH: `cd ~/pagermonitor/client && bash update.sh`
 
 ### Docker
 
@@ -588,7 +588,7 @@ docker compose logs -f
 ### RPi client (distributed mode, native)
 
 ```bash
-cd ~/pagermonitor
+cd ~/pagermonitor/client
 bash update.sh
 ```
 
