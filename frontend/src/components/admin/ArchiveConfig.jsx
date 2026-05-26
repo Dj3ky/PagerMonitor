@@ -27,9 +27,6 @@ function fmtDate(ts) {
   return new Date(ts).toLocaleDateString('sl-SI', { day:'numeric', month:'numeric', year:'numeric' });
 }
 
-// Snap points in days — 1-day steps for short periods, wider gaps for long ones
-const ARCHIVE_SNAP = [1, 2, 3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180, 365];
-const archiveSnapIdx = d => ARCHIVE_SNAP.reduce((best, v, i) => Math.abs(v - d) < Math.abs(ARCHIVE_SNAP[best] - d) ? i : best, 0);
 const fmtDays = d => d === 365 ? '1y' : `${d}d`;
 
 export default function ArchiveConfig() {
@@ -66,8 +63,6 @@ export default function ArchiveConfig() {
     } catch (e) { flash('err', e.message); }
     finally { setRunning(false); }
   };
-
-  const idx = archiveSnapIdx(cfg.afterDays);
 
   return (
     <div style={{ maxWidth: '520px' }}>
@@ -120,8 +115,8 @@ export default function ArchiveConfig() {
         <div style={{ marginBottom:'1.25rem', opacity: cfg.enabled ? 1 : 0.45, transition:'opacity 0.2s' }}>
           <label className="pm-label">Archive messages older than</label>
           <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-            <input type="range" min="0" max={ARCHIVE_SNAP.length - 1} step="1" value={idx}
-              onChange={e => setCfg(c => ({ ...c, afterDays: ARCHIVE_SNAP[parseInt(e.target.value, 10)] }))}
+            <input type="range" min="1" max="365" step="1" value={cfg.afterDays}
+              onChange={e => setCfg(c => ({ ...c, afterDays: parseInt(e.target.value, 10) }))}
               disabled={!cfg.enabled}
               style={{ flex:1, accentColor:'var(--accent-blue)' }} />
             <span style={{ fontFamily:'monospace', fontSize:'1rem', fontWeight:700,

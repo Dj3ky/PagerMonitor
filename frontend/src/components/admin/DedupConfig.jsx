@@ -13,9 +13,6 @@ function sanitise(raw) {
   };
 }
 
-// Snap points in seconds — 10s steps for short, wider for long
-const DEDUP_SNAP = [0, 10, 20, 30, 60, 90, 120, 180, 240, 300];
-const dedupSnapIdx = s => DEDUP_SNAP.reduce((best, v, i) => Math.abs(v - s) < Math.abs(DEDUP_SNAP[best] - s) ? i : best, 0);
 const fmtSec = s => s === 0 ? 'Off' : s < 60 ? `${s}s` : `${s / 60}m`;
 
 export default function DedupConfig() {
@@ -37,8 +34,6 @@ export default function DedupConfig() {
     catch (e) { flash('err', e.message); }
     finally { setSaving(false); }
   };
-
-  const winIdx = dedupSnapIdx(cfg.windowSeconds);
 
   return (
     <div style={{ maxWidth: '480px' }}>
@@ -67,8 +62,8 @@ export default function DedupConfig() {
         <div style={{ marginBottom: '1rem', opacity: cfg.enabled ? 1 : 0.45, transition: 'opacity 0.2s' }}>
           <label className="pm-label">Suppression window</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <input type="range" min="0" max={DEDUP_SNAP.length - 1} step="1" value={winIdx}
-              onChange={e => setCfg(c => ({ ...sanitise(c), windowSeconds: DEDUP_SNAP[parseInt(e.target.value, 10)] }))}
+            <input type="range" min="0" max="300" step="10" value={cfg.windowSeconds}
+              onChange={e => setCfg(c => ({ ...sanitise(c), windowSeconds: parseInt(e.target.value, 10) }))}
               disabled={!cfg.enabled}
               style={{ flex: 1, accentColor: 'var(--accent-green)' }} />
             <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700,

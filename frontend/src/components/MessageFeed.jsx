@@ -119,6 +119,12 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
     pendingMarkId.current = highestNew;
 
     clearTimeout(markSeenTimer.current);
+    if (newBadgeSeconds === 0) {
+      // Badge disabled — mark as seen immediately so NEW badge never appears
+      setLastSeenId(highestNew);
+      saveLastSeen(highestNew).catch(() => {});
+      return;
+    }
     markSeenTimer.current = setTimeout(() => {
       const id = pendingMarkId.current;
       if (!id) return;

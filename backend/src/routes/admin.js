@@ -325,7 +325,7 @@ router.put('/site-settings', adminOnly, (req, res) => {
     const { siteName, siteDescription, newBadgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays, publicMode, geocodeCountry } = req.body;
     _ss('site_settings', {
       siteName: siteName || 'PagerMonitor', siteDescription: siteDescription || '',
-      newBadgeSeconds: Math.max(3, Math.min(300, parseInt(newBadgeSeconds,10)||10)),
+      newBadgeSeconds: Math.max(0, Math.min(300, parseInt(newBadgeSeconds,10)||0)),
       mapDotColor: mapDotColor || '#00ff9d', showMapButton: showMapButton !== false,
       mapMaxAgeDays: Math.max(1/24, Math.min(365, parseFloat(mapMaxAgeDays)||30)),
       publicMode: !!publicMode,

@@ -7,40 +7,8 @@ const api  = (m,p,b) => fetch(`${BASE}${p}`,{method:m,headers:{'Content-Type':'a
 
 function Flash({msg}){ if(!msg)return null; const ok=msg.type==='ok'; return <div style={{padding:'0.4rem 0.75rem',borderRadius:'0.4rem',fontSize:'0.78rem',fontFamily:'monospace',marginBottom:'0.75rem',color:ok?'var(--accent-green)':'var(--accent-red)',background:`color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 10%,transparent)`,border:`1px solid color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 30%,transparent)`}}>{msg.text}</div>; }
 
-// Fixed snap points (hours). Slider index maps 1-to-1 to these values.
-const SNAP     = [1, 2, 3, 6, 12, 18, 24, 48, 72, 96, 120, 144, 168];
-const snapIdx  = h => SNAP.reduce((best, v, i) => Math.abs(v - h) < Math.abs(SNAP[best] - h) ? i : best, 0);
-const fmtHours = h => h < 24 ? `${h}h` : `${h / 24}d`;
+const fmtHours  = h => h < 24 ? `${h}h` : `${h / 24}d`;
 const descHours = h => h < 24 ? `${h} hour${h !== 1 ? 's' : ''}` : h === 24 ? '1 day' : `${h / 24} days`;
-
-function SnapSlider({ value, onChange, accentColor, disabled }) {
-  const idx = snapIdx(value);
-  return (
-    <div style={{ flex: 1 }}>
-      <input
-        type="range" min="0" max={SNAP.length - 1} step="1" value={idx}
-        onChange={e => onChange(SNAP[parseInt(e.target.value, 10)])}
-        style={{ width: '100%', accentColor, display: 'block' }}
-        disabled={disabled}
-      />
-      {/* Labels — margin matches browser track inset (~7px) so positions align */}
-      <div style={{ position: 'relative', height: '14px', margin: '2px 7px 0' }}>
-        {SNAP.map((v, i) => (
-          <span key={i} style={{
-            position: 'absolute',
-            left: `${(i / (SNAP.length - 1)) * 100}%`,
-            transform: 'translateX(-50%)',
-            fontSize: '0.6rem',
-            fontFamily: 'monospace',
-            whiteSpace: 'nowrap',
-            color:      i === idx ? accentColor : 'var(--text-3)',
-            fontWeight: i === idx ? 700 : undefined,
-          }}>{fmtHours(v)}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function DeadAirConfig() {
   const [cfg, setCfg] = useState({ enabled: false, thresholdHours: 6 });
@@ -86,15 +54,17 @@ export default function DeadAirConfig() {
 
         <div style={{marginBottom:'1.25rem',opacity:cfg.enabled?1:0.45,transition:'opacity 0.2s'}}>
           <label className="pm-label">Alert threshold</label>
-          <div style={{display:'flex',alignItems:'flex-start',gap:'0.75rem'}}>
-            <SnapSlider
-              value={hrs}
-              onChange={v => setCfg(c => ({...c, thresholdHours: v}))}
-              accentColor="var(--accent-red)"
-              disabled={!cfg.enabled}
-            />
+          <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
+            <input type="range" min="1" max="168" step="1" value={hrs}
+              onChange={e => {
+                let v = parseInt(e.target.value, 10);
+                if (v >= 24) v = Math.round(v / 24) * 24;
+                setCfg(c => ({...c, thresholdHours: Math.max(1, Math.min(168, v))}));
+              }}
+              style={{flex:1, accentColor:'var(--accent-red)'}}
+              disabled={!cfg.enabled}/>
             <span style={{fontFamily:'monospace',fontSize:'1rem',fontWeight:700,
-              color:'var(--accent-red)',minWidth:'42px',textAlign:'right',paddingTop:'2px'}}>
+              color:'var(--accent-red)',minWidth:'42px',textAlign:'right'}}>
               {fmtHours(hrs)}
             </span>
           </div>

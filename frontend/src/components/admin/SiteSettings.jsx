@@ -7,11 +7,7 @@ const getToken = () => localStorage.getItem('pm_token') || '';
 
 const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si' };
 
-// Snap points for the map age slider (hours). 1h–1y, 15 stops.
-// 4320h = 180d (exactly), 8760h = 365d = 1y
-const MAP_SNAP = [1, 2, 4, 6, 12, 24, 48, 72, 168, 336, 720, 1440, 2160, 4320, 8760];
-const mapSnapIdx  = h => MAP_SNAP.reduce((best, v, i) => Math.abs(v - h) < Math.abs(MAP_SNAP[best] - h) ? i : best, 0);
-const fmtMapHours = h => h >= 8760 ? '1y' : h >= 24 ? `${h / 24}d` : `${h}h`;
+const fmtMapHours  = h => h >= 8760 ? '1y' : h >= 24 ? `${h / 24}d` : `${h}h`;
 const descMapHours = h =>
   h < 24     ? `${h} hour${h !== 1 ? 's' : ''}`
   : h === 24  ? '1 day'
@@ -231,33 +227,44 @@ export default function SiteSettings() {
 
         <div style={{ marginBottom: '1rem' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'0.5rem' }}>
-            <input type="range" min="3" max="120" step="1" value={badgeSeconds}
+            <input type="range" min="0" max="120" step="10" value={badgeSeconds}
               onChange={e => setBadgeSeconds(parseInt(e.target.value, 10))}
               style={{ flex:1, accentColor:'var(--accent-green)' }} />
             <span style={{ fontFamily:'monospace', fontSize:'1.1rem', fontWeight:700,
-              color:'var(--accent-green)', minWidth:'46px', textAlign:'right' }}>
-              {badgeSeconds}s
+              color: badgeSeconds === 0 ? 'var(--text-3)' : 'var(--accent-green)',
+              minWidth:'46px', textAlign:'right' }}>
+              {badgeSeconds === 0 ? 'Off' : `${badgeSeconds}s`}
             </span>
           </div>
 
           {/* Visual preview of the badge */}
-          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'0.5rem' }}>
-            <span style={{ fontSize:'0.8rem', color:'var(--text-3)' }}>Preview:</span>
-            <span style={{ fontSize:'0.65rem', fontWeight:800, color:'var(--accent-green)',
-              background:'color-mix(in srgb, var(--accent-green) 15%, transparent)',
-              padding:'0.15rem 0.5rem', borderRadius:'0.3rem', letterSpacing:'0.05em',
-              animation:'new-pulse 2s ease-in-out infinite' }}>
-              NEW
-            </span>
-            <span style={{ fontSize:'0.78rem', color:'var(--text-3)', fontFamily:'monospace' }}>
-              visible for {badgeSeconds} second{badgeSeconds !== 1 ? 's' : ''} after message arrives
-            </span>
-          </div>
+          {badgeSeconds > 0 ? (
+            <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'0.5rem' }}>
+              <span style={{ fontSize:'0.8rem', color:'var(--text-3)' }}>Preview:</span>
+              <span style={{ fontSize:'0.65rem', fontWeight:800, color:'var(--accent-green)',
+                background:'color-mix(in srgb, var(--accent-green) 15%, transparent)',
+                padding:'0.15rem 0.5rem', borderRadius:'0.3rem', letterSpacing:'0.05em',
+                animation:'new-pulse 2s ease-in-out infinite' }}>
+                NEW
+              </span>
+              <span style={{ fontSize:'0.78rem', color:'var(--text-3)', fontFamily:'monospace' }}>
+                visible for {badgeSeconds} second{badgeSeconds !== 1 ? 's' : ''} after message arrives
+              </span>
+            </div>
+          ) : (
+            <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.5rem',
+              fontSize:'0.78rem', color:'var(--text-3)', fontFamily:'monospace' }}>
+              <span style={{ fontSize:'0.65rem', fontWeight:800, color:'var(--text-3)',
+                background:'var(--bg-3)', padding:'0.15rem 0.5rem', borderRadius:'0.3rem',
+                letterSpacing:'0.05em', opacity:0.4 }}>NEW</span>
+              badge disabled — messages are marked as seen immediately
+            </div>
+          )}
           <style>{`@keyframes new-pulse { 0%,100%{opacity:1} 50%{opacity:0.45} }`}</style>
 
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)' }}>
             How long the <span style={{ color:'var(--accent-green)', fontWeight:700 }}>NEW</span> badge
-            stays on a freshly received message in the feed. Range: 3–120 seconds.
+            stays on a freshly received message. Set to Off to disable it entirely.
           </div>
         </div>
 
@@ -323,33 +330,18 @@ export default function SiteSettings() {
 
         <div>
           <label className="pm-label">Show locations from last</label>
-          <div style={{ display:'flex', alignItems:'flex-start', gap:'0.75rem' }}>
-            {/* Slider + aligned labels */}
-            <div style={{ flex: 1 }}>
-              <input
-                type="range" min="0" max={MAP_SNAP.length - 1} step="1"
-                value={mapSnapIdx(mapMaxAgeHours)}
-                onChange={e => setMapMaxAgeHours(MAP_SNAP[parseInt(e.target.value, 10)])}
-                style={{ width:'100%', accentColor:'var(--accent-green)', display:'block' }}
-              />
-              {/* Labels — margin matches browser track inset (~7px) so positions align */}
-              <div style={{ position:'relative', height:'14px', margin:'2px 7px 0', userSelect:'none' }}>
-                {MAP_SNAP.map((v, i) => (
-                  <span key={i} style={{
-                    position: 'absolute',
-                    left: `${(i / (MAP_SNAP.length - 1)) * 100}%`,
-                    transform: 'translateX(-50%)',
-                    fontSize: '0.6rem',
-                    fontFamily: 'monospace',
-                    whiteSpace: 'nowrap',
-                    color:      mapMaxAgeHours === v ? 'var(--accent-green)' : 'var(--text-3)',
-                    fontWeight: mapMaxAgeHours === v ? 700 : undefined,
-                  }}>{fmtMapHours(v)}</span>
-                ))}
-              </div>
-            </div>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+            <input type="range" min="1" max="8760" step="1"
+              value={mapMaxAgeHours}
+              onChange={e => {
+                let v = parseInt(e.target.value, 10);
+                if (v >= 24) v = Math.round(v / 24) * 24;
+                setMapMaxAgeHours(Math.max(1, Math.min(8760, v)));
+              }}
+              style={{ flex:1, accentColor:'var(--accent-green)' }}
+            />
             <span style={{ fontFamily:'monospace', fontSize:'1rem', fontWeight:700,
-              color:'var(--accent-green)', minWidth:'42px', textAlign:'right', paddingTop:'2px' }}>
+              color:'var(--accent-green)', minWidth:'42px', textAlign:'right' }}>
               {fmtMapHours(mapMaxAgeHours)}
             </span>
           </div>

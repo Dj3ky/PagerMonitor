@@ -17,7 +17,7 @@ export function SiteProvider({ children }) {
         const s = {
           siteName:        (d.siteName        || DEFAULT.siteName).trim(),
           siteDescription:  d.siteDescription || DEFAULT.siteDescription,
-          newBadgeSeconds: Math.max(3, parseInt(d.newBadgeSeconds, 10) || DEFAULT.newBadgeSeconds),
+          newBadgeSeconds: Math.max(0, parseInt(d.newBadgeSeconds, 10) || 0),
           mapDotColor:     d.mapDotColor     || DEFAULT.mapDotColor,
           showMapButton:   d.showMapButton   !== false,
           mapMaxAgeDays:   Math.max(1/24, parseFloat(d.mapMaxAgeDays) || DEFAULT.mapMaxAgeDays),

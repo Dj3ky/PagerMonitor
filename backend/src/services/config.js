@@ -111,13 +111,13 @@ function getDedupConfig() {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEDUP_DEFAULTS };
   return {
     enabled:       typeof raw.enabled === 'boolean' ? raw.enabled : DEDUP_DEFAULTS.enabled,
-    windowSeconds: typeof raw.windowSeconds === 'number' && raw.windowSeconds > 0 ? raw.windowSeconds : DEDUP_DEFAULTS.windowSeconds,
+    windowSeconds: typeof raw.windowSeconds === 'number' && raw.windowSeconds >= 0 ? raw.windowSeconds : DEDUP_DEFAULTS.windowSeconds,
   };
 }
 function saveDedupConfig(cfg) {
   setSetting('dedup_config', {
     enabled:       cfg.enabled === false ? false : true,
-    windowSeconds: Math.max(5, Math.min(300, parseInt(cfg.windowSeconds,10)||30)),
+    windowSeconds: Math.max(0, Math.min(300, parseInt(cfg.windowSeconds,10)||0)),
   });
   logger.info('Dedup config saved');
 }
