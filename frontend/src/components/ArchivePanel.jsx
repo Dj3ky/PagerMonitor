@@ -105,7 +105,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
       </div>
 
       {/* Results */}
-      <div style={{ flex:1, overflowY:'auto' }}>
+      <div style={{ flex:1, overflowY:'auto', overscrollBehavior:'contain' }}>
         {results.length === 0 && !loading && (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center',
             justifyContent:'center', height:'100%', color:'var(--text-3)', gap:'0.5rem' }}>

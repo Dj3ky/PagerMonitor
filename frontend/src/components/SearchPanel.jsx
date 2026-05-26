@@ -17,7 +17,7 @@ export default function SearchPanel({ results, searching, onClear, highlightRule
           <X size={12} /> Back to feed
         </button>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
         {searching && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '8rem',
             color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.85rem' }}>Searching…</div>

@@ -115,7 +115,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   }
 
   return (
-    <div style={{ height:'100%', overflowY:'auto', display:'flex', flexDirection:'column' }}>
+    <div style={{ height:'100%', overflowY:'auto', overscrollBehavior:'contain', display:'flex', flexDirection:'column' }}>
       <FeedHeader />
       {messages.map((msg, i) => {
         const msgId = msg.id ?? 0;

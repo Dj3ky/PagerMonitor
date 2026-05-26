@@ -260,7 +260,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
           </div>
 
           {/* Tab content */}
-          <div style={{ flex:1, overflow:'hidden auto', padding:'1.25rem', position:'relative' }}>
+          <div style={{ flex:1, overflow:'hidden auto', overscrollBehavior:'contain', padding:'1.25rem', position:'relative' }}>
             <ErrorBoundary key={tab} name={currentTab.label}>
               <TabContent tab={tab} sdrStatus={sdrStatus} serverStatus={serverStatus}
                 onRulesChange={onRulesChange} onGroupsChange={onGroupsChange} />
