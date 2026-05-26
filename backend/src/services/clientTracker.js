@@ -41,6 +41,7 @@ function ensureTables() {
     ['sdr_running',      'INTEGER'],
     ['pending_command',  'TEXT'],
     ['live_config',      'TEXT'],
+    ['git_hash',         'TEXT'],
   ]) {
     if (!cols.includes(col)) {
       db.exec(`ALTER TABLE sdr_clients ADD COLUMN ${col} ${def}`);
@@ -85,16 +86,17 @@ function recordClientPing(clientId, ip, extra = {}) {
     const sdrRunning  = extra.sdrRunning != null ? (extra.sdrRunning ? 1 : 0) : null;
     const liveConfig  = extra.liveConfig ? JSON.stringify(extra.liveConfig) : null;
     getDb().prepare(`
-      INSERT INTO sdr_clients (id, last_seen, ip, freq, protocols, sdr_running, live_config)
-      VALUES (?, datetime('now'), ?, ?, ?, ?, ?)
+      INSERT INTO sdr_clients (id, last_seen, ip, freq, protocols, sdr_running, live_config, git_hash)
+      VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         last_seen   = datetime('now'),
         ip          = COALESCE(excluded.ip, ip),
         freq        = COALESCE(excluded.freq, freq),
         protocols   = COALESCE(excluded.protocols, protocols),
         sdr_running = COALESCE(excluded.sdr_running, sdr_running),
-        live_config = COALESCE(excluded.live_config, live_config)
-    `).run(clientId, ip || null, extra.freq || null, extra.protocols || null, sdrRunning, liveConfig);
+        live_config = COALESCE(excluded.live_config, live_config),
+        git_hash    = COALESCE(excluded.git_hash, git_hash)
+    `).run(clientId, ip || null, extra.freq || null, extra.protocols || null, sdrRunning, liveConfig, extra.gitHash || null);
   } catch (e) {
     logger.warn(`clientTracker.recordClientPing: ${e.message}`);
   }
@@ -126,6 +128,7 @@ function getClients() {
         sdrRunning:      r.sdr_running == null ? null : r.sdr_running === 1,
         pendingCommand:  r.pending_command || null,
         liveConfig:      r.live_config ? JSON.parse(r.live_config) : null,
+        gitHash:         r.git_hash || null,
       };
     });
   } catch (e) {

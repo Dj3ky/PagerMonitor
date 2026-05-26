@@ -190,6 +190,7 @@ router.get('/config', requireClientKey, (req, res) => {
     freq:       req.query.freq       || null,
     protocols:  req.query.protocols  || null,
     sdrRunning: req.query.sdrRunning === 'true' ? true : req.query.sdrRunning === 'false' ? false : null,
+    gitHash:    req.query.gitHash    || null,
     liveConfig,
   });
 

@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Activity, Settings2, ChevronDown, ChevronUp, Save, Download } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Activity, Settings2, ChevronDown, ChevronUp, Save, Download, GitCommit } from 'lucide-react';
+
+const GITHUB_REPO = 'Dj3ky/PagerMonitor';
+const GITHUB_API  = `https://api.github.com/repos/${GITHUB_REPO}/commits/main`;
 
 function FieldLabel({ text }) {
   const m = text.match(/^(.*?)(\s*\(-[a-zA-Z]+\))$/);
@@ -63,7 +66,7 @@ function Flash({ msg }) {
   }}>{msg.text}</div>;
 }
 
-function ClientCard({ client, configs, onRemove, onSaveConfig, onSendCommand, flash }) {
+function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSendCommand, flash }) {
   const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
   const existingCfg = configs.find(c => c.clientId === client.id);
@@ -114,6 +117,25 @@ function ClientCard({ client, configs, onRemove, onSaveConfig, onSendCommand, fl
         }}>
           {client.online ? '● ONLINE' : '○ OFFLINE'}
         </span>
+
+        {/* Update availability badge */}
+        {latestSha && client.gitHash && latestSha !== client.gitHash && (
+          <span title={`Client: ${client.gitHash.slice(0,7)} · GitHub: ${latestSha.slice(0,7)}`}
+            style={{ fontSize:'0.7rem', fontWeight:700, padding:'0.2rem 0.55rem', borderRadius:'0.75rem',
+              color:'var(--accent-amber)',
+              background:'color-mix(in srgb,var(--accent-amber) 15%,transparent)',
+              border:'1px solid color-mix(in srgb,var(--accent-amber) 35%,transparent)',
+              display:'flex', alignItems:'center', gap:'0.3rem', whiteSpace:'nowrap',
+          }}>
+            <GitCommit size={10}/> Update available
+          </span>
+        )}
+        {latestSha && client.gitHash && latestSha === client.gitHash && (
+          <span title={`Up to date · ${client.gitHash.slice(0,7)}`}
+            style={{ fontSize:'0.7rem', color:'var(--text-3)', display:'flex', alignItems:'center', gap:'0.3rem' }}>
+            <GitCommit size={10}/> Up to date
+          </span>
+        )}
 
         <button className="pm-btn" onClick={() => setExpanded(e => !e)} title="Remote config">
           <Settings2 size={12}/> Config {expanded ? <ChevronUp size={11}/> : <ChevronDown size={11}/>}
@@ -223,11 +245,12 @@ function ClientCard({ client, configs, onRemove, onSaveConfig, onSendCommand, fl
 }
 
 export default function SdrClients() {
-  const [clients, setClients]   = useState([]);
-  const [configs, setConfigs]   = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [msg, setMsg]           = useState(null);
-  const timerRef                = useRef(null);
+  const [clients, setClients]     = useState([]);
+  const [configs, setConfigs]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [msg, setMsg]             = useState(null);
+  const [latestSha, setLatestSha] = useState(null); // latest GitHub commit SHA
+  const timerRef                  = useRef(null);
 
   const flash = (type, text) => { setMsg({type,text}); setTimeout(()=>setMsg(null),3500); };
 
@@ -241,6 +264,14 @@ export default function SdrClients() {
       setLoading(false);
     }).catch(() => setLoading(false));
   };
+
+  // Fetch latest GitHub commit once on mount (no need to poll frequently)
+  useEffect(() => {
+    fetch(GITHUB_API)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.sha) setLatestSha(data.sha); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     load();
@@ -293,7 +324,7 @@ export default function SdrClients() {
       )}
 
       {!loading && clients.map(c => (
-        <ClientCard key={c.id} client={c} configs={configs}
+        <ClientCard key={c.id} client={c} configs={configs} latestSha={latestSha}
           onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} flash={flash} />
       ))}
 

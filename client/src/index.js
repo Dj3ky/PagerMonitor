@@ -1,17 +1,24 @@
 'use strict';
 
-const { spawn }       = require('child_process');
-const { PassThrough } = require('stream');
-const iconv           = require('iconv-lite');
-const http      = require('http');
-const https     = require('https');
-const path      = require('path');
-const fs        = require('fs');
+const { spawn, execSync } = require('child_process');
+const { PassThrough }     = require('stream');
+const iconv               = require('iconv-lite');
+const http  = require('http');
+const https = require('https');
+const path  = require('path');
+const fs    = require('fs');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const SERVER_URL = (process.env.SERVER_URL || 'http://192.168.1.100:3000').replace(/\/$/, '');
 const CLIENT_KEY = process.env.CLIENT_KEY  || '';
 const CLIENT_ID  = process.env.CLIENT_ID   || 'rpi-1';
+
+// ── Git version (reported to server so admin UI can show update availability) ─
+let CLIENT_GIT_HASH = null;
+try {
+  const repoDir = path.join(__dirname, '..');
+  CLIENT_GIT_HASH = execSync('git rev-parse HEAD', { cwd: repoDir, timeout: 3000 }).toString().trim();
+} catch (_) { /* not a git repo or git not installed — that's fine */ }
 
 /**
  * Multi-dongle support via DONGLES env var (JSON array).
@@ -195,7 +202,8 @@ async function pollConfig(pipelines) {
       quiet: mainCfg.quiet, inputFormat: mainCfg.inputFormat,
       pocsagSpecial: mainCfg.pocsagSpecial, charset: mainCfg.charset,
     };
-    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}&sdrRunning=${sdrRunning}&cfg=${encodeURIComponent(JSON.stringify(liveCfg))}`);
+    const hashParam = CLIENT_GIT_HASH ? `&gitHash=${CLIENT_GIT_HASH}` : '';
+    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}&sdrRunning=${sdrRunning}&cfg=${encodeURIComponent(JSON.stringify(liveCfg))}${hashParam}`);
     if (r.status !== 200 || !r.body) return;
 
     // Handle remote command (one-shot — server clears it after delivery)
