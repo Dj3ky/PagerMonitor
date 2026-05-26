@@ -140,7 +140,9 @@ router.post('/last-seen', requireAuth, (req, res) => {
   try {
     const id = parseInt(req.body.lastSeenId, 10);
     if (!id || isNaN(id)) return res.status(400).json({ error: 'lastSeenId required' });
-    setLastSeenId(req.session.userId, id);
+    // Only advance — never let a stale/out-of-order request regress the pointer
+    const current = getLastSeenId(req.session.userId);
+    if (id > current) setLastSeenId(req.session.userId, id);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

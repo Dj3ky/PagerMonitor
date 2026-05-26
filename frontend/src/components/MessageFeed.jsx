@@ -48,16 +48,27 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   }, []);
 
   // When messages change or lastSeenId loads, schedule marking as seen.
-  // Guard: wait until settingsLoaded so we always use the real configured duration,
-  // not the hard-coded default that is in place while the settings fetch is in flight.
+  // Guards:
+  //   1. Wait for settingsLoaded so we use the real configured duration, not the
+  //      hard-coded default that is in place while the settings fetch is in flight.
+  //   2. pendingMarkId is a HIGH-WATER MARK — it must never go backwards.
+  //      `messages` is a paginated slice so messages[0] is the newest on the
+  //      *current page*, not the global newest. If the user switches to an older
+  //      page, topId can be lower than what we already recorded. Without the
+  //      max() guard the timer would save that lower id to the server, causing
+  //      already-seen messages to reappear as NEW on the next visit.
   useEffect(() => {
-    if (!settingsLoaded) return;                       // ← wait for real newBadgeSeconds
+    if (!settingsLoaded) return;
     if (lastSeenId === null || messages.length === 0) return;
-    const topId = messages[0]?.id;
-    if (!topId || topId <= lastSeenId) return; // nothing new
+    const topId = messages[0]?.id ?? 0;
 
-    // Save the id we intend to mark — the actual save happens after the delay
-    pendingMarkId.current = topId;
+    // High-water mark: advance only, never regress
+    const highestNew = Math.max(pendingMarkId.current ?? 0, topId);
+    if (highestNew <= lastSeenId) {
+      clearTimeout(markSeenTimer.current);
+      return;
+    }
+    pendingMarkId.current = highestNew;
 
     clearTimeout(markSeenTimer.current);
     markSeenTimer.current = setTimeout(() => {
@@ -70,14 +81,15 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
     return () => clearTimeout(markSeenTimer.current);
   }, [messages, lastSeenId, newBadgeSeconds, settingsLoaded]);
 
-  // When tab regains focus, also mark as seen after a short delay
+  // When tab regains focus, restart the countdown with the same high-water mark
   useEffect(() => {
     const onFocus = () => {
-      if (!settingsLoaded) return;                     // ← wait for real newBadgeSeconds
+      if (!settingsLoaded) return;
       if (lastSeenId === null || messages.length === 0) return;
-      const topId = messages[0]?.id;
-      if (!topId || topId <= lastSeenId) return;
-      pendingMarkId.current = topId;
+      const topId = messages[0]?.id ?? 0;
+      const highestNew = Math.max(pendingMarkId.current ?? 0, topId);
+      if (highestNew <= lastSeenId) return;
+      pendingMarkId.current = highestNew;
       clearTimeout(markSeenTimer.current);
       markSeenTimer.current = setTimeout(() => {
         const id = pendingMarkId.current;
