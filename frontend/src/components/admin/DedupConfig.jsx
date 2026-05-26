@@ -8,12 +8,10 @@ function sanitise(raw) {
   if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
   return {
     enabled:       typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULTS.enabled,
-    windowSeconds: typeof raw.windowSeconds === 'number' && raw.windowSeconds >= 0
+    windowSeconds: typeof raw.windowSeconds === 'number' && raw.windowSeconds > 0
                      ? raw.windowSeconds : DEFAULTS.windowSeconds,
   };
 }
-
-const fmtSec = s => s === 0 ? 'Off' : s < 60 ? `${s}s` : `${s / 60}m`;
 
 export default function DedupConfig() {
   const [cfg, setCfg]       = useState(DEFAULTS);
@@ -59,28 +57,25 @@ export default function DedupConfig() {
           </div>
         </div>
 
-        <div style={{ marginBottom: '1rem', opacity: cfg.enabled ? 1 : 0.45, transition: 'opacity 0.2s' }}>
-          <label className="pm-label">Suppression window</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <input type="range" min="0" max="300" step="10" value={cfg.windowSeconds}
-              onChange={e => setCfg(c => ({ ...sanitise(c), windowSeconds: parseInt(e.target.value, 10) }))}
-              disabled={!cfg.enabled}
-              style={{ flex: 1, accentColor: 'var(--accent-green)' }} />
-            <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700,
-              color: cfg.windowSeconds === 0 ? 'var(--text-3)' : 'var(--accent-green)',
-              minWidth: '42px', textAlign: 'right' }}>
-              {fmtSec(cfg.windowSeconds)}
-            </span>
+        {cfg.enabled && (
+          <div style={{ marginBottom: '1rem' }}>
+            <label className="pm-label">Suppression window (seconds)</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <input type="range" min="5" max="300" step="5" value={cfg.windowSeconds}
+                onChange={e => setCfg(c => ({ ...sanitise(c), windowSeconds: parseInt(e.target.value) }))}
+                style={{ flex: 1, accentColor: 'var(--accent-green)' }} />
+              <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700, color: 'var(--accent-green)', minWidth: '40px' }}>
+                {cfg.windowSeconds}s
+              </span>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: '0.25rem' }}>
+              {cfg.windowSeconds < 10 ? 'Very short — catches rapid retransmits only'
+               : cfg.windowSeconds < 60 ? 'Short window — good for most networks'
+               : cfg.windowSeconds < 120 ? 'Medium window — recommended for noisy networks'
+               : 'Long window — use if same message is sent many minutes apart'}
+            </div>
           </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: '0.25rem' }}>
-            {cfg.windowSeconds === 0
-              ? 'Window = 0 — duplicates not suppressed'
-              : cfg.windowSeconds < 30  ? 'Very short — catches rapid retransmits only'
-              : cfg.windowSeconds < 60  ? 'Short window — good for most networks'
-              : cfg.windowSeconds < 120 ? 'Medium window — recommended for noisy networks'
-              : 'Long window — use if same message is sent many minutes apart'}
-          </div>
-        </div>
+        )}
 
         {msg && (
           <div style={{

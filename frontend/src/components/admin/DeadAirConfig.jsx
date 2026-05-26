@@ -7,9 +7,6 @@ const api  = (m,p,b) => fetch(`${BASE}${p}`,{method:m,headers:{'Content-Type':'a
 
 function Flash({msg}){ if(!msg)return null; const ok=msg.type==='ok'; return <div style={{padding:'0.4rem 0.75rem',borderRadius:'0.4rem',fontSize:'0.78rem',fontFamily:'monospace',marginBottom:'0.75rem',color:ok?'var(--accent-green)':'var(--accent-red)',background:`color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 10%,transparent)`,border:`1px solid color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 30%,transparent)`}}>{msg.text}</div>; }
 
-const fmtHours  = h => h < 24 ? `${h}h` : `${h / 24}d`;
-const descHours = h => h < 24 ? `${h} hour${h !== 1 ? 's' : ''}` : h === 24 ? '1 day' : `${h / 24} days`;
-
 export default function DeadAirConfig() {
   const [cfg, setCfg] = useState({ enabled: false, thresholdHours: 6 });
   const [saving, setSaving] = useState(false);
@@ -56,20 +53,16 @@ export default function DeadAirConfig() {
           <label className="pm-label">Alert threshold</label>
           <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
             <input type="range" min="1" max="168" step="1" value={hrs}
-              onChange={e => {
-                let v = parseInt(e.target.value, 10);
-                if (v >= 24) v = Math.round(v / 24) * 24;
-                setCfg(c => ({...c, thresholdHours: Math.max(1, Math.min(168, v))}));
-              }}
-              style={{flex:1, accentColor:'var(--accent-red)'}}
+              onChange={e=>setCfg(c=>({...c,thresholdHours:parseInt(e.target.value,10)}))}
+              style={{flex:1,accentColor:'var(--accent-red)'}}
               disabled={!cfg.enabled}/>
             <span style={{fontFamily:'monospace',fontSize:'1rem',fontWeight:700,
-              color:'var(--accent-red)',minWidth:'42px',textAlign:'right'}}>
-              {fmtHours(hrs)}
+              color:'var(--accent-red)',minWidth:'60px',textAlign:'right'}}>
+              {hrs >= 24 ? `${Math.round(hrs/24*10)/10}d` : `${hrs}h`}
             </span>
           </div>
-          <div style={{fontSize:'0.72rem',color:'var(--text-3)',marginTop:'0.4rem'}}>
-            {descHours(hrs)} of silence before alerting.
+          <div style={{fontSize:'0.72rem',color:'var(--text-3)',marginTop:'0.3rem'}}>
+            {hrs === 1 ? '1 hour' : hrs < 24 ? `${hrs} hours` : `${Math.round(hrs/24*10)/10} days`} of silence before alerting. Range: 1h – 7 days.
           </div>
         </div>
 

@@ -7,13 +7,6 @@ const getToken = () => localStorage.getItem('pm_token') || '';
 
 const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si' };
 
-const fmtMapHours  = h => h >= 8760 ? '1y' : h >= 24 ? `${h / 24}d` : `${h}h`;
-const descMapHours = h =>
-  h < 24     ? `${h} hour${h !== 1 ? 's' : ''}`
-  : h === 24  ? '1 day'
-  : h >= 8760 ? '1 year'
-  : `${h / 24} days`;
-
 async function fetchSettings() {
   const r = await fetch(`${BASE}/admin/site-settings`, { headers: { Authorization: `Bearer ${getToken()}` } });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -51,7 +44,7 @@ export default function SiteSettings() {
   const [badgeSeconds, setBadgeSeconds] = useState(DEFAULTS.newBadgeSeconds);
   const [mapDotColor, setMapDotColor]       = useState(DEFAULTS.mapDotColor);
   const [showMapButton, setShowMapButton]   = useState(DEFAULTS.showMapButton);
-  const [mapMaxAgeHours, setMapMaxAgeHours] = useState(DEFAULTS.mapMaxAgeDays * 24); // stored as hours internally
+  const [mapMaxAgeDays, setMapMaxAgeDays]   = useState(DEFAULTS.mapMaxAgeDays);
   const [geocodeCountry, setGeocodeCountry] = useState(DEFAULTS.geocodeCountry);
   const [publicMode, setPublicMode]         = useState(DEFAULTS.publicMode);
   const [savingMap, setSavingMap]       = useState(false);
@@ -78,7 +71,7 @@ export default function SiteSettings() {
         setBadgeSeconds(d.newBadgeSeconds ?? DEFAULTS.newBadgeSeconds);
         setMapDotColor(d.mapDotColor || DEFAULTS.mapDotColor);
         setShowMapButton(d.showMapButton !== false);
-        setMapMaxAgeHours(Math.round((d.mapMaxAgeDays ?? DEFAULTS.mapMaxAgeDays) * 24));
+        setMapMaxAgeDays(d.mapMaxAgeDays ?? DEFAULTS.mapMaxAgeDays);
         setGeocodeCountry(d.geocodeCountry || DEFAULTS.geocodeCountry);
         setPublicMode(!!d.publicMode);
       })
@@ -89,7 +82,7 @@ export default function SiteSettings() {
   const flashBadge = (type, text) => { setBadgeMsg({ type, text }); setTimeout(() => setBadgeMsg(null), 3500); };
   const flashMap   = (type, text) => { setMapMsg({ type, text });   setTimeout(() => setMapMsg(null),   3500); };
 
-  const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays: mapMaxAgeHours / 24, geocodeCountry, publicMode });
+  const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays, geocodeCountry, publicMode });
 
   // Save site name/description only
   const saveSite = async () => {
@@ -227,44 +220,33 @@ export default function SiteSettings() {
 
         <div style={{ marginBottom: '1rem' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'0.5rem' }}>
-            <input type="range" min="0" max="120" step="10" value={badgeSeconds}
+            <input type="range" min="3" max="120" step="1" value={badgeSeconds}
               onChange={e => setBadgeSeconds(parseInt(e.target.value, 10))}
               style={{ flex:1, accentColor:'var(--accent-green)' }} />
             <span style={{ fontFamily:'monospace', fontSize:'1.1rem', fontWeight:700,
-              color: badgeSeconds === 0 ? 'var(--text-3)' : 'var(--accent-green)',
-              minWidth:'46px', textAlign:'right' }}>
-              {badgeSeconds === 0 ? 'Off' : `${badgeSeconds}s`}
+              color:'var(--accent-green)', minWidth:'46px', textAlign:'right' }}>
+              {badgeSeconds}s
             </span>
           </div>
 
           {/* Visual preview of the badge */}
-          {badgeSeconds > 0 ? (
-            <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'0.5rem' }}>
-              <span style={{ fontSize:'0.8rem', color:'var(--text-3)' }}>Preview:</span>
-              <span style={{ fontSize:'0.65rem', fontWeight:800, color:'var(--accent-green)',
-                background:'color-mix(in srgb, var(--accent-green) 15%, transparent)',
-                padding:'0.15rem 0.5rem', borderRadius:'0.3rem', letterSpacing:'0.05em',
-                animation:'new-pulse 2s ease-in-out infinite' }}>
-                NEW
-              </span>
-              <span style={{ fontSize:'0.78rem', color:'var(--text-3)', fontFamily:'monospace' }}>
-                visible for {badgeSeconds} second{badgeSeconds !== 1 ? 's' : ''} after message arrives
-              </span>
-            </div>
-          ) : (
-            <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.5rem',
-              fontSize:'0.78rem', color:'var(--text-3)', fontFamily:'monospace' }}>
-              <span style={{ fontSize:'0.65rem', fontWeight:800, color:'var(--text-3)',
-                background:'var(--bg-3)', padding:'0.15rem 0.5rem', borderRadius:'0.3rem',
-                letterSpacing:'0.05em', opacity:0.4 }}>NEW</span>
-              badge disabled — messages are marked as seen immediately
-            </div>
-          )}
+          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'0.5rem' }}>
+            <span style={{ fontSize:'0.8rem', color:'var(--text-3)' }}>Preview:</span>
+            <span style={{ fontSize:'0.65rem', fontWeight:800, color:'var(--accent-green)',
+              background:'color-mix(in srgb, var(--accent-green) 15%, transparent)',
+              padding:'0.15rem 0.5rem', borderRadius:'0.3rem', letterSpacing:'0.05em',
+              animation:'new-pulse 2s ease-in-out infinite' }}>
+              NEW
+            </span>
+            <span style={{ fontSize:'0.78rem', color:'var(--text-3)', fontFamily:'monospace' }}>
+              visible for {badgeSeconds} second{badgeSeconds !== 1 ? 's' : ''} after message arrives
+            </span>
+          </div>
           <style>{`@keyframes new-pulse { 0%,100%{opacity:1} 50%{opacity:0.45} }`}</style>
 
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)' }}>
             How long the <span style={{ color:'var(--accent-green)', fontWeight:700 }}>NEW</span> badge
-            stays on a freshly received message. Set to Off to disable it entirely.
+            stays on a freshly received message in the feed. Range: 3–120 seconds.
           </div>
         </div>
 
@@ -329,25 +311,19 @@ export default function SiteSettings() {
         </div>
 
         <div>
-          <label className="pm-label">Show locations from last</label>
+          <label className="pm-label">Show locations from last (days)</label>
           <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-            <input type="range" min="1" max="8760" step="1"
-              value={mapMaxAgeHours}
-              onChange={e => {
-                let v = parseInt(e.target.value, 10);
-                if (v >= 24) v = Math.round(v / 24) * 24;
-                setMapMaxAgeHours(Math.max(1, Math.min(8760, v)));
-              }}
-              style={{ flex:1, accentColor:'var(--accent-green)' }}
-            />
+            <input type="range" min="1" max="365" step="1" value={mapMaxAgeDays}
+              onChange={e => setMapMaxAgeDays(parseInt(e.target.value, 10))}
+              style={{ flex:1, accentColor:'var(--accent-green)' }} />
             <span style={{ fontFamily:'monospace', fontSize:'1rem', fontWeight:700,
-              color:'var(--accent-green)', minWidth:'42px', textAlign:'right' }}>
-              {fmtMapHours(mapMaxAgeHours)}
+              color:'var(--accent-green)', minWidth:'60px', textAlign:'right' }}>
+              {mapMaxAgeDays === 365 ? '1 year' : `${mapMaxAgeDays}d`}
             </span>
           </div>
-          <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.4rem' }}>
-            Only show locations from the last {descMapHours(mapMaxAgeHours)} on the map.
-            Older locations are hidden but not deleted.
+          <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
+            Only show locations from the last {mapMaxAgeDays} day{mapMaxAgeDays !== 1 ? 's' : ''} on the map.
+            Older locations are hidden but not deleted. Range: 1–365 days.
           </div>
         </div>
 

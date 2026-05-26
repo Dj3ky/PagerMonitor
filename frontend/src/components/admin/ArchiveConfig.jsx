@@ -27,8 +27,6 @@ function fmtDate(ts) {
   return new Date(ts).toLocaleDateString('sl-SI', { day:'numeric', month:'numeric', year:'numeric' });
 }
 
-const fmtDays = d => d === 365 ? '1y' : `${d}d`;
-
 export default function ArchiveConfig() {
   const [cfg, setCfg]       = useState({ enabled: false, afterDays: 30 });
   const [stats, setStats]   = useState(null);
@@ -120,12 +118,12 @@ export default function ArchiveConfig() {
               disabled={!cfg.enabled}
               style={{ flex:1, accentColor:'var(--accent-blue)' }} />
             <span style={{ fontFamily:'monospace', fontSize:'1rem', fontWeight:700,
-              color:'var(--accent-blue)', minWidth:'42px', textAlign:'right' }}>
-              {fmtDays(cfg.afterDays)}
+              color:'var(--accent-blue)', minWidth:'50px', textAlign:'right' }}>
+              {cfg.afterDays}d
             </span>
           </div>
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
-            Messages older than {cfg.afterDays === 365 ? '1 year' : `${cfg.afterDays} day${cfg.afterDays !== 1 ? 's' : ''}`} are moved to archive.db.
+            Messages older than {cfg.afterDays} days are moved to archive.db. Range: 1–365 days.
           </div>
         </div>
 
