@@ -8,12 +8,13 @@ const getToken = () => localStorage.getItem('pm_token') || '';
 const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si' };
 
 // Snap points for the map age slider (hours). 1h–1y, 15 stops.
-const MAP_SNAP = [1, 2, 4, 6, 12, 24, 48, 72, 168, 336, 720, 1440, 2160, 4380, 8760];
+// 4320h = 180d (exactly), 8760h = 365d = 1y
+const MAP_SNAP = [1, 2, 4, 6, 12, 24, 48, 72, 168, 336, 720, 1440, 2160, 4320, 8760];
 const mapSnapIdx  = h => MAP_SNAP.reduce((best, v, i) => Math.abs(v - h) < Math.abs(MAP_SNAP[best] - h) ? i : best, 0);
 const fmtMapHours = h => h >= 8760 ? '1y' : h >= 24 ? `${h / 24}d` : `${h}h`;
 const descMapHours = h =>
-  h < 24    ? `${h} hour${h !== 1 ? 's' : ''}`
-  : h === 24 ? '1 day'
+  h < 24     ? `${h} hour${h !== 1 ? 's' : ''}`
+  : h === 24  ? '1 day'
   : h >= 8760 ? '1 year'
   : `${h / 24} days`;
 
@@ -322,24 +323,35 @@ export default function SiteSettings() {
 
         <div>
           <label className="pm-label">Show locations from last</label>
-          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-            <input type="range" min="0" max={MAP_SNAP.length - 1} step="1" value={mapSnapIdx(mapMaxAgeHours)}
-              onChange={e => setMapMaxAgeHours(MAP_SNAP[parseInt(e.target.value, 10)])}
-              style={{ flex:1, accentColor:'var(--accent-green)' }} />
+          <div style={{ display:'flex', alignItems:'flex-start', gap:'0.75rem' }}>
+            {/* Slider + aligned labels */}
+            <div style={{ flex: 1 }}>
+              <input
+                type="range" min="0" max={MAP_SNAP.length - 1} step="1"
+                value={mapSnapIdx(mapMaxAgeHours)}
+                onChange={e => setMapMaxAgeHours(MAP_SNAP[parseInt(e.target.value, 10)])}
+                style={{ width:'100%', accentColor:'var(--accent-green)', display:'block' }}
+              />
+              {/* Labels — margin matches browser track inset (~7px) so positions align */}
+              <div style={{ position:'relative', height:'14px', margin:'2px 7px 0', userSelect:'none' }}>
+                {MAP_SNAP.map((v, i) => (
+                  <span key={i} style={{
+                    position: 'absolute',
+                    left: `${(i / (MAP_SNAP.length - 1)) * 100}%`,
+                    transform: 'translateX(-50%)',
+                    fontSize: '0.6rem',
+                    fontFamily: 'monospace',
+                    whiteSpace: 'nowrap',
+                    color:      mapMaxAgeHours === v ? 'var(--accent-green)' : 'var(--text-3)',
+                    fontWeight: mapMaxAgeHours === v ? 700 : undefined,
+                  }}>{fmtMapHours(v)}</span>
+                ))}
+              </div>
+            </div>
             <span style={{ fontFamily:'monospace', fontSize:'1rem', fontWeight:700,
-              color:'var(--accent-green)', minWidth:'42px', textAlign:'right' }}>
+              color:'var(--accent-green)', minWidth:'42px', textAlign:'right', paddingTop:'2px' }}>
               {fmtMapHours(mapMaxAgeHours)}
             </span>
-          </div>
-          {/* Snap point labels */}
-          <div style={{ display:'flex', justifyContent:'space-between', marginTop:'0.2rem',
-            fontSize:'0.6rem', color:'var(--text-3)', fontFamily:'monospace', userSelect:'none' }}>
-            {MAP_SNAP.map((v, i) => (
-              <span key={i} style={{
-                color: mapMaxAgeHours === v ? 'var(--accent-green)' : undefined,
-                fontWeight: mapMaxAgeHours === v ? 700 : undefined,
-              }}>{fmtMapHours(v)}</span>
-            ))}
           </div>
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.4rem' }}>
             Only show locations from the last {descMapHours(mapMaxAgeHours)} on the map.

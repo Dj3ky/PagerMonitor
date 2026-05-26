@@ -42,6 +42,19 @@ RTL-SDR dongle → rtl_fm → multimon-ng → Node.js → Browser (WebSocket)
 - **Filter by capcode, alias, or group** with one click
 - **Pagination + load more** — browse the full history, not just the last 200
 
+### 🚫 Message filtering
+Define exactly which messages the system processes. Filtered messages are **completely dropped** — not saved to the database, not shown in any view, and no notifications are sent.
+
+| Mode | Behaviour |
+|---|---|
+| **Accept all** | Default — every received message is processed normally |
+| **Ignore capcodes** | Blacklist — drop messages from specific capcodes, accept everything else |
+| **Only capcodes** | Whitelist — accept only the listed capcodes, drop everything else |
+| **Only groups** | Accept only messages whose alias belongs to one of the selected groups |
+| **Only aliased** | Accept only capcodes that have an alias defined; optionally restrict to specific ones |
+
+Configure under **Admin → Messages → Feed Filter**. Changes take effect immediately with no restart required.
+
 ### 🗺️ Map view
 - Pins for messages with GPS coordinates extracted from message text
 - Three modes: **individual pins** · **clustered** · **heatmap**
@@ -110,7 +123,15 @@ Run **multiple RTL-SDR dongles in parallel** — each on its own frequency, prot
 - Backup & restore as a single `.pmbackup` file
 
 ### ⚙️ Admin panel
-Dead air detection · Live log viewer · System stats · Webhook management · Audit log · Site settings · Dedup · Statistics dashboard · **AI Geocode** (Groq / OpenAI / Ollama) · **One-click update** with live terminal output
+
+| Group | Tabs |
+|---|---|
+| **SDR** | SDR Control (start/stop/restart) · Dead Air detection · Live log viewer · SDR Clients dashboard · Client Key |
+| **Messages** | Database tools (purge, export) · Archive config · Statistics dashboard · Dedup · Highlight rules · Keyword alerts · **Feed Filter** |
+| **Notifications** | Services (Discord / Telegram / Gotify / Pushover / MQTT) · Webhooks · Email (SMTP) · User notification preferences |
+| **Aliases & Groups** | Group manager · Alias manager (with CSV import/export) |
+| **System** | System stats · **One-click update** · Backup & Restore · Audit log |
+| **Site** | Site settings · **AI Geocode** (Groq / OpenAI / Ollama) · User management |
 
 ---
 

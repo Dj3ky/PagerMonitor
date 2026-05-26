@@ -39,6 +39,20 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   const [lastSeenId, setLastSeenId] = useState(null); // null = not yet loaded
   const markSeenTimer = useRef(null);
   const pendingMarkId = useRef(null);
+  const scrollRef     = useRef(null);
+
+  // Dynamic overscroll: allow pull-to-refresh when at the very top (scrollTop===0),
+  // contain it when scrolled down so the header doesn't shift on bottom overscroll.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      el.style.overscrollBehaviorY = el.scrollTop > 0 ? 'contain' : 'auto';
+    };
+    update(); // set initial value
+    el.addEventListener('scroll', update, { passive: true });
+    return () => el.removeEventListener('scroll', update);
+  }, []);
 
   // Load user's last-seen from server on mount
   useEffect(() => {
@@ -47,7 +61,16 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
       .catch(() => setLastSeenId(0)); // if fetch fails, show nothing as new
   }, []);
 
-  // When messages change or lastSeenId loads, schedule marking as seen.
+  // Stable primitive: the ID of the top (newest) message on the current page.
+  // Using a primitive rather than the `messages` array reference means the
+  // badge timer only restarts when a genuinely new message arrives — NOT on
+  // every App re-render caused by the 10-second serverStatus poll (which
+  // calls allDisplay.slice() and produces a new array reference each time,
+  // previously resetting the countdown as fast as it ran).
+  const topMessageId = messages[0]?.id ?? 0;
+
+  // When a new message arrives (topMessageId advances) or lastSeenId loads,
+  // schedule marking as seen.
   // Guards:
   //   1. Wait for settingsLoaded so we use the real configured duration, not the
   //      hard-coded default that is in place while the settings fetch is in flight.
@@ -59,11 +82,10 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   //      already-seen messages to reappear as NEW on the next visit.
   useEffect(() => {
     if (!settingsLoaded) return;
-    if (lastSeenId === null || messages.length === 0) return;
-    const topId = messages[0]?.id ?? 0;
+    if (lastSeenId === null || topMessageId === 0) return;
 
     // High-water mark: advance only, never regress
-    const highestNew = Math.max(pendingMarkId.current ?? 0, topId);
+    const highestNew = Math.max(pendingMarkId.current ?? 0, topMessageId);
     if (highestNew <= lastSeenId) {
       clearTimeout(markSeenTimer.current);
       return;
@@ -79,15 +101,14 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
     }, newBadgeSeconds * 1000);
 
     return () => clearTimeout(markSeenTimer.current);
-  }, [messages, lastSeenId, newBadgeSeconds, settingsLoaded]);
+  }, [topMessageId, lastSeenId, newBadgeSeconds, settingsLoaded]);
 
   // When tab regains focus, restart the countdown with the same high-water mark
   useEffect(() => {
     const onFocus = () => {
       if (!settingsLoaded) return;
-      if (lastSeenId === null || messages.length === 0) return;
-      const topId = messages[0]?.id ?? 0;
-      const highestNew = Math.max(pendingMarkId.current ?? 0, topId);
+      if (lastSeenId === null || topMessageId === 0) return;
+      const highestNew = Math.max(pendingMarkId.current ?? 0, topMessageId);
       if (highestNew <= lastSeenId) return;
       pendingMarkId.current = highestNew;
       clearTimeout(markSeenTimer.current);
@@ -100,7 +121,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [messages, lastSeenId, newBadgeSeconds, settingsLoaded]);
+  }, [topMessageId, lastSeenId, newBadgeSeconds, settingsLoaded]);
 
   useEffect(() => () => clearTimeout(markSeenTimer.current), []);
 
@@ -115,7 +136,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   }
 
   return (
-    <div style={{ height:'100%', overflowY:'auto', overscrollBehavior:'contain', display:'flex', flexDirection:'column' }}>
+    <div ref={scrollRef} style={{ height:'100%', overflowY:'auto', display:'flex', flexDirection:'column' }}>
       <FeedHeader />
       {messages.map((msg, i) => {
         const msgId = msg.id ?? 0;
