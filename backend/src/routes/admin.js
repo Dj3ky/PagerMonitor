@@ -145,15 +145,14 @@ router.post('/messages/:id/regeocode', adminOnly, async (req, res) => {
     const cc = (_gs('site_settings', {}).geocodeCountry || 'si');
     const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
     const loc = parseLocation(row.message, cc);
-    if (!loc) return res.json({ ok: false, reason: 'No location candidates found' });
-    if (loc.type === 'coords') {
+    if (loc.lat != null && loc.lng != null) {
       getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(loc.lat, loc.lng, id);
       require('../services/websocket').broadcast({ type: 'message_location', id, lat: loc.lat, lng: loc.lng });
       addAuditLog(req.session?.username||'admin', 'message.regeocode', `id=${id} type=coords`);
       return res.json({ ok: true, lat: loc.lat, lng: loc.lng, query: loc.raw });
     }
     const result = await geocodeAddress(loc.candidates || [], cc, row.message);
-    if (!result) return res.json({ ok: false, reason: 'Nominatim returned no results', query: loc.candidates[0] });
+    if (!result) return res.json({ ok: false, reason: 'Nominatim returned no results', query: loc.candidates?.[0] });
     getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(result.lat, result.lng, id);
     require('../services/websocket').broadcast({ type: 'message_location', id, lat: result.lat, lng: result.lng });
     addAuditLog(req.session?.username||'admin', 'message.regeocode', `id=${id} q="${result.query}"`);

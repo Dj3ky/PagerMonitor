@@ -494,10 +494,10 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
       const { extractAddress, getConfig } = require('./aiGeocode');
       if (getConfig().provider !== 'none') {
         const extracted = await extractAddress(originalText);
-        if (extracted?.street) {
+        if (extracted && (extracted.street || extracted.settlement)) {
           const parts = [extracted.street, extracted.houseNumber].filter(Boolean).join(' ');
-          const loc   = extracted.settlement ? `${parts}, ${extracted.settlement}` : parts;
-          const aiResult = await _nominatim(`${loc}, ${country}`, countryCode);
+          const query = [parts, extracted.settlement, country].filter(Boolean).join(', ');
+          const aiResult = await _nominatim(query, countryCode);
           if (aiResult) return { ...aiResult, aiAssisted: true };
         }
       }
