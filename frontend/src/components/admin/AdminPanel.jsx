@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
-         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff } from 'lucide-react';
+         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2 } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
@@ -28,7 +28,8 @@ import UserNotifPrefs  from './UserNotifPrefs.jsx';
 import ArchiveConfig   from './ArchiveConfig.jsx';
 import AiGeocodeConfig from './AiGeocodeConfig.jsx';
 import UpdatePanel    from './UpdatePanel.jsx';
-import FeedFilter     from './FeedFilter.jsx';
+import FeedFilter          from './FeedFilter.jsx';
+import MsgNormalizations   from './MsgNormalizations.jsx';
 
 const TABS = [
   { group: 'SDR' },
@@ -46,6 +47,7 @@ const TABS = [
   { id:'highlights',  label:'Highlights',     icon:<Highlighter size={14}/> },
   { id:'keyword',     label:'Keyword Alerts', icon:<Bell size={14}/> },
   { id:'feedfilter',  label:'Feed Filter',    icon:<EyeOff size={14}/> },
+  { id:'msgnorm',     label:'Msg Normalize',  icon:<Wand2 size={14}/> },
 
   { group: 'Notifications' },
   { id:'notif',       label:'Services',       icon:<Bell size={14}/> },
@@ -95,6 +97,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'auditlog':    return <AuditLog />;
     case 'archive':     return <ArchiveConfig />;
     case 'feedfilter':  return <FeedFilter />;
+    case 'msgnorm':     return <MsgNormalizations />;
     case 'logs':        return <LogViewer />;
     default:            return null;
   }

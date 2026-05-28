@@ -19,7 +19,8 @@ const { getDb, getStats, getMessageStats,
 const { getConfig, updateConfig, testNotification } = require('../services/notifications');
 const { getSdrConfig, saveSdrConfig, getDedupConfig, saveDedupConfig,
         getNotifFilter, saveNotifFilter, getDongleConfigs, saveDongleConfigs,
-        getFeedFilter, saveFeedFilter } = require('../services/config');
+        getFeedFilter, saveFeedFilter,
+        getMessageNormalizations, saveMessageNormalizations } = require('../services/config');
 const { getClientCount } = require('../services/websocket');
 const { unregisterSource } = require('../services/deadair');
 const logger = require('../utils/logger');
@@ -217,6 +218,16 @@ router.get('/dedup', adminOnly, (_req, res) => res.json(getDedupConfig()));
 router.put('/dedup', adminOnly, (req, res) => {
   try { saveDedupConfig(req.body); addAuditLog(req.session?.username||'admin', 'dedup.config', `enabled=${req.body.enabled}`); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Message normalizations ────────────────────────────────────────────────────
+router.get('/message-normalizations', adminOnly, (_req, res) => res.json(getMessageNormalizations()));
+router.put('/message-normalizations', adminOnly, (req, res) => {
+  try {
+    saveMessageNormalizations(req.body);
+    addAuditLog(req.session?.username||'admin', 'msg_norm.save', `count=${Array.isArray(req.body)?req.body.length:0}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Groups ────────────────────────────────────────────────────────────────────

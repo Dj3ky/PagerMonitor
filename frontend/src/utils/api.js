@@ -79,7 +79,9 @@ function authDownload(path, filename) {
 export const adminExportAliasesCsv  = () => authDownload('/admin/aliases/export', 'aliases.csv');
 export const adminExportMessagesCsv = () => authDownload('/admin/db/export', `pagermonitor-${Date.now()}.csv`);
 
-export const adminFetchUpdateStatus = () => A('GET', '/admin/update/status');
+export const adminFetchUpdateStatus  = () => A('GET', '/admin/update/status');
+export const adminFetchMsgNorm       = () => A('GET', '/admin/message-normalizations');
+export const adminSaveMsgNorm        = rules => A('PUT', '/admin/message-normalizations', rules);
 
 export const adminImportAliasesCsv = (csvText) => {
   const t = getToken();

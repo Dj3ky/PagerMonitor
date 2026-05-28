@@ -10,7 +10,7 @@ const { recordMessage, registerSource, unregisterSource } = require('./deadair')
 const { sendUserEmailNotifications } = require('./emailNotifier');
 const { sendPushPerUser }    = require('./webpush');
 const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
-const { loadSdrConfigIntoEnv, getDedupConfig, getDongleConfigs, passesFeedFilter } = require('./config');
+const { loadSdrConfigIntoEnv, getDedupConfig, getDongleConfigs, passesFeedFilter, getMessageNormalizations } = require('./config');
 const logger = require('../utils/logger');
 
 // ── Regexes ───────────────────────────────────────────────────────────────────
@@ -364,7 +364,13 @@ function scheduleRestart() {
 }
 
 // ── Line parser ───────────────────────────────────────────────────────────────
-function cleanMessage(raw) { return raw.replace(EOT_RE, '').trim(); }
+function cleanMessage(raw) {
+  let msg = raw.replace(EOT_RE, '').trim();
+  for (const { pattern, replace } of getMessageNormalizations()) {
+    try { msg = msg.replace(new RegExp(pattern, 'g'), replace); } catch (_) {}
+  }
+  return msg;
+}
 
 // Thin wrapper so multi-dongle spawner can call the same handler
 function parseLine(line) {

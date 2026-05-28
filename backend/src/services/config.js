@@ -174,6 +174,21 @@ function passesFeedFilter(msg) {
   } catch (_) { return true; }
 }
 
+// ── Message normalizations ────────────────────────────────────────────────────
+function getMessageNormalizations() {
+  const raw = getSetting('msg_normalizations', null);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(r => r && typeof r.pattern === 'string' && typeof r.replace === 'string');
+}
+
+function saveMessageNormalizations(rules) {
+  const clean = (Array.isArray(rules) ? rules : [])
+    .filter(r => r && typeof r.pattern === 'string')
+    .map(r => ({ pattern: String(r.pattern), replace: String(r.replace ?? '') }));
+  setSetting('msg_normalizations', clean);
+  logger.info(`Message normalizations saved: ${clean.length} rules`);
+}
+
 module.exports = {
   getSdrConfig, saveSdrConfig, loadSdrConfigIntoEnv,
   getDongleConfigs, saveDongleConfigs,
@@ -181,4 +196,5 @@ module.exports = {
   getNotifFilter, saveNotifFilter,
   getDedupConfig, saveDedupConfig,
   getFeedFilter, saveFeedFilter, passesFeedFilter,
+  getMessageNormalizations, saveMessageNormalizations,
 };
