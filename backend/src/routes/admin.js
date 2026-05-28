@@ -508,9 +508,7 @@ const { getEmailConfig, saveEmailConfig, testEmail } = require('../services/emai
 
 router.get('/email/config', requireAdmin, (_req, res) => {
   try {
-    const cfg = getEmailConfig();
-    // Never send password over wire - mask it
-    res.json({ ...cfg, password: cfg.password ? '••••••••' : '' });
+    res.json(getEmailConfig());
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -518,8 +516,6 @@ router.put('/email/config', requireAdmin, (req, res) => {
   try {
     const existing = getEmailConfig();
     const cfg = { ...existing, ...req.body };
-    // If password is the masked placeholder, keep existing
-    if (cfg.password === '••••••••') cfg.password = existing.password;
     saveEmailConfig(cfg);
     addAuditLog(req.session?.username||'admin', 'email.config', `host=${cfg.host}`);
     res.json({ ok: true });

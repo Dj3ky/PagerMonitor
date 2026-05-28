@@ -21,11 +21,8 @@ function Flash({ msg }) {
 
 const DEFAULTS = { enabled:false, host:'', port:587, secure:false, user:'', password:'', from:'' };
 
-const PW_MASK = '••••••••';
-
 export default function EmailConfig() {
   const [cfg, setCfg]         = useState(DEFAULTS);
-  const [pwSaved, setPwSaved] = useState(false);
   const [saving, setSaving]   = useState(false);
   const [testing, setTesting] = useState(false);
   const [testTo, setTestTo]   = useState('');
@@ -35,21 +32,12 @@ export default function EmailConfig() {
   const flash = (type, text) => { setMsg({type,text}); setTimeout(() => setMsg(null), 4000); };
 
   useEffect(() => {
-    api('GET', '/admin/email/config').then(d => {
-      const isMasked = d.password === PW_MASK;
-      setPwSaved(isMasked);
-      setCfg({ ...DEFAULTS, ...d, password: isMasked ? '' : (d.password || '') });
-    }).catch(() => {});
+    api('GET', '/admin/email/config').then(d => setCfg({ ...DEFAULTS, ...d })).catch(() => {});
   }, []);
 
   const save = async () => {
     setSaving(true);
-    try {
-      const payload = { ...cfg };
-      if (!payload.password && pwSaved) payload.password = PW_MASK;
-      await api('PUT', '/admin/email/config', payload);
-      flash('ok', 'Email settings saved');
-    }
+    try { await api('PUT', '/admin/email/config', cfg); flash('ok', 'Email settings saved'); }
     catch (e) { flash('err', e.message); }
     finally { setSaving(false); }
   };
@@ -133,15 +121,14 @@ export default function EmailConfig() {
             <label className="pm-label">Password</label>
             <div style={{ position:'relative' }}>
               <input className="pm-input" type={showPw ? 'text' : 'password'}
-                value={cfg.password}
-                placeholder={pwSaved ? 'Password saved — type to change' : 'app password or SMTP password'}
-                onChange={e => { setPwSaved(false); setCfg(c => ({ ...c, password: e.target.value })); }}
-                style={{ paddingRight: cfg.password ? '2.2rem' : undefined }} />
-              {cfg.password && <button type="button" onClick={() => setShowPw(s => !s)}
+                value={cfg.password} placeholder="app password or SMTP password"
+                onChange={e => setCfg(c => ({ ...c, password: e.target.value }))}
+                style={{ paddingRight:'2.2rem' }} />
+              <button type="button" onClick={() => setShowPw(s => !s)}
                 style={{ position:'absolute', right:'0.4rem', top:'50%', transform:'translateY(-50%)',
                   background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.25rem' }}>
                 {showPw ? <EyeOff size={14}/> : <Eye size={14}/>}
-              </button>}
+              </button>
             </div>
           </div>
 
