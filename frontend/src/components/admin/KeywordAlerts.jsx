@@ -92,7 +92,7 @@ export default function KeywordAlerts() {
         </div>
         <div style={{marginBottom:'0.75rem'}}>
           <label className="pm-label">Pattern</label>
-          <input className="pm-input" value={form.pattern} onChange={e=>setForm(f=>({...f,pattern:e.target.value}))} placeholder="požar, nujna, urgent..."/>
+          <input className="pm-input" value={form.pattern} onChange={e=>setForm(f=>({...f,pattern:e.target.value}))} placeholder="Enter pattern…"/>
           <div style={{display:'flex',alignItems:'center',gap:'0.75rem',marginTop:'0.4rem'}}>
             <label style={{display:'flex',alignItems:'center',gap:'0.4rem',fontSize:'0.8rem',cursor:'pointer'}}>
               <input type="checkbox" checked={!!form.is_regex} onChange={e=>setForm(f=>({...f,is_regex:e.target.checked?1:0}))}/>

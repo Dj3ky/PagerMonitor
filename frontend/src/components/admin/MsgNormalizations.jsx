@@ -118,7 +118,7 @@ export default function MsgNormalizations() {
         </div>
         <input
           className="pm-input"
-          placeholder="e.g. SERA34 RED 1 10D01 CHEST PAIN NOT ALERT ; Flat/Unit: /247 GREENLEA LANE FRANKTON"
+          placeholder="Paste a message to test all rules…"
           value={testInput}
           onChange={e => setTestInput(e.target.value)}
           style={{ fontFamily: 'monospace', fontSize: '0.82rem', marginBottom: '0.5rem' }}
