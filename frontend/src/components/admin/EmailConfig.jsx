@@ -124,9 +124,9 @@ export default function EmailConfig() {
                 value={cfg.password} placeholder="app password or SMTP password"
                 onChange={e => setCfg(c => ({ ...c, password: e.target.value }))}
                 style={{ paddingRight:'2.2rem' }} />
-              <button onClick={() => setShowPw(s => !s)}
+              <button type="button" onClick={() => setShowPw(s => !s)}
                 style={{ position:'absolute', right:'0.4rem', top:'50%', transform:'translateY(-50%)',
-                  background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.1rem' }}>
+                  background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.25rem' }}>
                 {showPw ? <EyeOff size={14}/> : <Eye size={14}/>}
               </button>
             </div>

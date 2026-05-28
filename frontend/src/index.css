@@ -170,6 +170,7 @@
     width: 100%;
   }
   .pm-input::placeholder { color: var(--text-3); }
+  .pm-input[type="password"]::-ms-reveal { display: none; }
   .pm-input:focus {
     border-color: color-mix(in srgb, var(--accent-green) 50%, transparent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-green) 10%, transparent);
