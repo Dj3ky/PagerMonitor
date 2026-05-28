@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import MessageRow from './MessageRow.jsx';
 import { useSite } from '../context/SiteContext.jsx';
 import { fetchLastSeen, saveLastSeen } from '../utils/api.js';
+import { usePtrScroll } from '../hooks/usePtrScroll.js';
 
 const BADGE_COL_WIDTH = '130px';
 
@@ -39,46 +40,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   const [lastSeenId, setLastSeenId] = useState(null); // null = not yet loaded
   const markSeenTimer = useRef(null);
   const pendingMarkId = useRef(null);
-  const scrollRef     = useRef(null);
-
-  // Dynamic overscroll on the feed scroll container:
-  //   scrolled down        → 'contain'  — bottom overscroll stays in the feed
-  //   at top + touching    → 'auto'     — deliberate pull-to-refresh propagates
-  //                                       up through the body to the browser
-  //   at top + NOT touching→ 'contain'  — momentum that coasted to scrollTop=0
-  //                                       is absorbed here; without this the body
-  //                                       (overscroll-behavior-y: auto) would
-  //                                       propagate it to the browser even though
-  //                                       the user isn't asking for a refresh
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    let touching = false;
-
-    const update = () => {
-      if (el.scrollTop > 0) {
-        el.style.overscrollBehaviorY = 'contain';
-      } else {
-        el.style.overscrollBehaviorY = touching ? 'auto' : 'contain';
-      }
-    };
-
-    const onTouchStart  = () => { touching = true;  update(); };
-    const onTouchEnd    = () => { touching = false; };
-
-    update();
-    el.addEventListener('scroll',      update,       { passive: true });
-    el.addEventListener('touchstart',  onTouchStart, { passive: true });
-    el.addEventListener('touchend',    onTouchEnd,   { passive: true });
-    el.addEventListener('touchcancel', onTouchEnd,   { passive: true });
-
-    return () => {
-      el.removeEventListener('scroll',      update);
-      el.removeEventListener('touchstart',  onTouchStart);
-      el.removeEventListener('touchend',    onTouchEnd);
-      el.removeEventListener('touchcancel', onTouchEnd);
-    };
-  }, []);
+  const scrollRef     = usePtrScroll();
 
   // After WS connects or reconnects, scroll to top so newest messages are visible.
   // rAF defers until after React flushes, then history prepend keeps us at the top.

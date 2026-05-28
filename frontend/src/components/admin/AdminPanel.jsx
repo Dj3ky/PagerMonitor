@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { usePtrScroll } from '../../hooks/usePtrScroll.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
@@ -126,36 +127,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
   const [tab, setTab]               = useState(() => sessionStorage.getItem('pm_admin_tab') || 'sdr');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pickerRef                   = useRef(null);
-  const contentRef                  = useRef(null);
-
-  // Same touching-based overscroll as MessageFeed: contain when scrolled down
-  // (so bottom overscroll doesn't shift the header), auto only when at top AND
-  // actively touching (deliberate pull-to-refresh).
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    let touching = false;
-    const update = () => {
-      if (el.scrollTop > 0) {
-        el.style.overscrollBehaviorY = 'contain';
-      } else {
-        el.style.overscrollBehaviorY = touching ? 'auto' : 'contain';
-      }
-    };
-    const onTouchStart  = () => { touching = true;  update(); };
-    const onTouchEnd    = () => { touching = false; };
-    update();
-    el.addEventListener('scroll',      update,       { passive: true });
-    el.addEventListener('touchstart',  onTouchStart, { passive: true });
-    el.addEventListener('touchend',    onTouchEnd,   { passive: true });
-    el.addEventListener('touchcancel', onTouchEnd,   { passive: true });
-    return () => {
-      el.removeEventListener('scroll',      update);
-      el.removeEventListener('touchstart',  onTouchStart);
-      el.removeEventListener('touchend',    onTouchEnd);
-      el.removeEventListener('touchcancel', onTouchEnd);
-    };
-  }, []);
+  const contentRef                  = usePtrScroll();
 
   const actualTabs  = visibleTabs.filter(t => !t.group);
   const currentTab  = actualTabs.find(t => t.id === tab) || actualTabs[0];

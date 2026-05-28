@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { usePtrScroll } from '../hooks/usePtrScroll.js';
 import { Archive, Search, X, RefreshCw, Download } from 'lucide-react';
 import MessageRow from './MessageRow.jsx';
 import { useSite } from '../context/SiteContext.jsx';
@@ -14,6 +15,7 @@ function fmtDate(ts, locale) {
 
 export default function ArchivePanel({ highlightRules = [], groups = [] }) {
   const { locale } = useSite();
+  const scrollRef  = usePtrScroll();
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState([]);
   const [stats, setStats]     = useState(null);
@@ -107,7 +109,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
       </div>
 
       {/* Results */}
-      <div style={{ flex:1, overflowY:'auto', overscrollBehavior:'contain' }}>
+      <div ref={scrollRef} style={{ flex:1, overflowY:'auto' }}>
         {results.length === 0 && !loading && (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center',
             justifyContent:'center', height:'100%', color:'var(--text-3)', gap:'0.5rem' }}>

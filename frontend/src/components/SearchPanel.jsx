@@ -1,7 +1,9 @@
 import { X, SearchX } from 'lucide-react';
 import MessageRow from './MessageRow.jsx';
+import { usePtrScroll } from '../hooks/usePtrScroll.js';
 
 export default function SearchPanel({ results, searching, onClear, highlightRules = [], groups = [], onFilter, onMapClick, onDelete }) {
+  const scrollRef = usePtrScroll();
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -17,7 +19,7 @@ export default function SearchPanel({ results, searching, onClear, highlightRule
           <X size={12} /> Back to feed
         </button>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto' }}>
         {searching && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '8rem',
             color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.85rem' }}>Searching…</div>
