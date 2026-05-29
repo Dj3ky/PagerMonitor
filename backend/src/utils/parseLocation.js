@@ -8,6 +8,10 @@ const COUNTRY_NAMES = {
   us:'United States', ca:'Canada', au:'Australia', nz:'New Zealand',
 };
 
+// ── Labeled address patterns (e.g. "Flat/Unit: 247 GREENLEA LANE FRANKTON") ───
+// These explicit labels take priority over the generic number-window heuristics.
+const LABELED_ADDR_RE = /(?:Flat\/Unit|Unit\/Flat|Flat|Unit|Address|Location)\s*:\s*(.+)/i;
+
 // ── Coordinate patterns ───────────────────────────────────────────────────────
 const DECIMAL_RE = /(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/;
 const LAT_LON_RE = /LAT[=:]\s*(-?\d+\.?\d*)\s+LON[=:]\s*(-?\d+\.?\d*)/i;
@@ -428,7 +432,15 @@ function parseLocation(text, countryCode = 'si') {
     if (valid(lat, lng)) return { lat, lng };
   }
 
-  const country    = COUNTRY_NAMES[countryCode] || countryCode.toUpperCase();
+  const country = COUNTRY_NAMES[countryCode] || countryCode.toUpperCase();
+
+  // Labeled address prefix — extract directly, skipping heuristic parsing
+  const labeledMatch = LABELED_ADDR_RE.exec(text);
+  if (labeledMatch) {
+    const candidate = `${labeledMatch[1].trim()}, ${country}`;
+    return { lat: null, lng: null, candidates: [candidate] };
+  }
+
   const candidates = countryCode === 'si'
     ? siCandidates(text, country, countryCode)
     : legacyCandidates(text, country);
