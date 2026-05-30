@@ -71,7 +71,7 @@ router.get('/status', requireAuth, (_req, res) => {
 
   // Server's own git hash — used by status bar to show update availability
   let gitHash = null;
-  try { gitHash = execSync('git rev-parse HEAD', { cwd: ROOT_DIR, timeout: 3000 }).toString().trim(); } catch (_) {}
+  try { gitHash = execSync('git rev-parse HEAD', { cwd: ROOT_DIR, timeout: 3000, stdio: 'pipe' }).toString().trim(); } catch (_) {}
 
   res.json({ ok: true, version: require('../../package.json').version, mode: process.env.MODE||'single',
     sdrDisabled, sdrClients, gitHash,

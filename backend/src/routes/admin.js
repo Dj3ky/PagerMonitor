@@ -639,9 +639,9 @@ const UPDATE_SCRIPT = path.join(ROOT_DIR, 'update-web.sh');
 router.get('/update/status', adminOnly, (_req, res) => {
   let localHash = null, localDate = null, localCommits = null;
   try {
-    localHash    = execSync('git rev-parse --short HEAD',      { cwd: ROOT_DIR, timeout: 5000 }).toString().trim();
-    localDate    = execSync('git log -1 --format=%ci',         { cwd: ROOT_DIR, timeout: 5000 }).toString().trim();
-    localCommits = execSync('git rev-parse HEAD',              { cwd: ROOT_DIR, timeout: 5000 }).toString().trim();
+    localHash    = execSync('git rev-parse --short HEAD',      { cwd: ROOT_DIR, timeout: 5000, stdio: 'pipe' }).toString().trim();
+    localDate    = execSync('git log -1 --format=%ci',         { cwd: ROOT_DIR, timeout: 5000, stdio: 'pipe' }).toString().trim();
+    localCommits = execSync('git rev-parse HEAD',              { cwd: ROOT_DIR, timeout: 5000, stdio: 'pipe' }).toString().trim();
   } catch (_) {}
   res.json({ version, localHash, localDate, localCommits });
 });
