@@ -36,6 +36,7 @@ echo ""
 # ── 1. Pull latest code ───────────────────────────────────────────────────────
 if git -C "$PAGEMON_DIR" rev-parse --git-dir &>/dev/null; then
   echo "► Pulling latest code…"
+  git -C "$PAGEMON_DIR" checkout -- backend/package-lock.json frontend/package-lock.json 2>/dev/null || true
   git -C "$PAGEMON_DIR" pull --ff-only
   echo "  ✓ Done"
 else

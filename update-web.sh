@@ -88,6 +88,7 @@ echo ""
 # ── 1. Pull latest code ────────────────────────────────────────────────────────
 echo "► Pulling latest code from GitHub…"
 if git -C "$PAGEMON_DIR" rev-parse --git-dir &>/dev/null; then
+  git -C "$PAGEMON_DIR" checkout -- backend/package-lock.json frontend/package-lock.json 2>/dev/null || true
   git -C "$PAGEMON_DIR" pull --ff-only
   echo "  ✓ Done"
 else
