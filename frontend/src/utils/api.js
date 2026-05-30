@@ -94,7 +94,8 @@ export const adminImportAliasesCsv = (csvText) => {
 
 // Last-seen (per user, synced to server)
 export const fetchMap            = (limit = 500, maxAgeDays = 30) => req('GET', `/api/map?limit=${limit}&maxAgeDays=${maxAgeDays}`);
-export const saveMessageLocation = (id, lat, lng) => req('POST', `/api/messages/${id}/location`, { lat, lng });
+export const saveMessageLocation  = (id, lat, lng) => req('POST',   `/api/messages/${id}/location`, { lat, lng });
+export const clearMessageLocation = (id)           => req('DELETE', `/api/messages/${id}/location`);
 export const fetchLastSeen  = () => req('GET', '/api/last-seen', undefined, true);
 export const saveLastSeen   = (id) => req('POST', '/api/last-seen', { lastSeenId: id }, true);
 export const authLogout     = () => req('POST', '/auth/logout', undefined, true);

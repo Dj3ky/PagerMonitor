@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { fetchMap, saveMessageLocation } from '../utils/api.js';
+import { fetchMap, saveMessageLocation, clearMessageLocation } from '../utils/api.js';
 import { geocodeAddress, parseLocation } from '../utils/parseLocation.js';
 import { useSite } from '../context/SiteContext.jsx';
 
@@ -125,6 +125,24 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     });
   }
 
+  const deleteLocation = useCallback((id) => {
+    clearMessageLocation(id).catch(() => {});
+    const marker = markersRef.current[id];
+    if (marker) {
+      try { mapRef.current?.closePopup(); mapRef.current?.removeLayer(marker); } catch (_) {}
+      delete markersRef.current[id];
+    }
+    setMapMessages(prev => prev.filter(m => m.id !== id));
+    setTotal(t => Math.max(0, t - 1));
+    setSelected(s => s?.id === id ? null : s);
+    resetIdSetRef.current.delete(String(id));
+  }, []);
+
+  useEffect(() => {
+    window.__pmDeleteLocation = deleteLocation;
+    return () => { delete window.__pmDeleteLocation; };
+  }, [deleteLocation]);
+
   const addMarker = useCallback((msg) => {
     if (!window.L || !msg.lat || !msg.lng) return;
     const color = msg.alias_color || mapDotColor;
@@ -133,6 +151,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
       <strong style="color:${color}">${label}</strong><br/>
       <span style="color:#888;font-size:0.7rem">${msg.capcode} · ${fmtTime(msg.timestamp, locale, hour12)}</span><br/>
       <div style="margin-top:4px;word-break:break-word">${msg.message || '(no text)'}</div>
+      <button onclick="window.__pmDeleteLocation(${msg.id})" style="margin-top:6px;padding:2px 8px;font-size:0.7rem;font-family:monospace;cursor:pointer;border-radius:4px;border:1px solid #ff444466;background:transparent;color:#ff6666;">Delete location</button>
     </div>`;
 
     if (markersRef.current[msg.id]) {

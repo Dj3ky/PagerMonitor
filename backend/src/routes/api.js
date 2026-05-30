@@ -130,6 +130,17 @@ router.post('/messages/:id/location', requireAuth, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Clear geocoded coordinates from a message
+router.delete('/messages/:id/location', requireAuth, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'id required' });
+    getDb().prepare('UPDATE messages SET lat=NULL, lng=NULL WHERE id=?').run(id);
+    require('../services/websocket').broadcast({ type: 'message_location_clear', id });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Per-user last-seen tracking (requires auth token)
 router.get('/last-seen', requireAuth, (req, res) => {
   try { res.json({ lastSeenId: getLastSeenId(req.session.userId) }); }
