@@ -14,6 +14,8 @@ function getConfig() {
     openaiModel:  saved.openaiModel || 'gpt-4o-mini',
     ollamaUrl:    saved.ollamaUrl   || 'http://localhost:11434',
     ollamaModel:  saved.ollamaModel || 'llama3.2:1b',
+    geocoder:     saved.geocoder    || 'nominatim', // 'nominatim' | 'here'
+    hereKey:      process.env.HERE_API_KEY    || saved.hereKey    || '',
   };
 }
 
@@ -27,6 +29,9 @@ function saveConfig(incoming) {
   else                             cfg.groqKey   = existing.groqKey   || '';
   if (incoming.openaiKey?.trim()) cfg.openaiKey = incoming.openaiKey.trim();
   else                             cfg.openaiKey = existing.openaiKey || '';
+  if (incoming.hereKey?.trim())   cfg.hereKey   = incoming.hereKey.trim();
+  else                             cfg.hereKey   = existing.hereKey   || '';
+  if ('geocoder' in incoming)     cfg.geocoder  = incoming.geocoder  || 'nominatim';
   setSetting('ai_geocode', cfg);
 }
 
@@ -139,13 +144,15 @@ async function extractAddress(text, countryCode = 'si') {
 async function checkStatus() {
   const cfg = getConfig();
   const status = {
-    provider:     cfg.provider,
-    groqModel:    cfg.groqModel,
-    openaiModel:  cfg.openaiModel,
-    ollamaUrl:    cfg.ollamaUrl,
-    ollamaModel:  cfg.ollamaModel,
+    provider:       cfg.provider,
+    groqModel:      cfg.groqModel,
+    openaiModel:    cfg.openaiModel,
+    ollamaUrl:      cfg.ollamaUrl,
+    ollamaModel:    cfg.ollamaModel,
     groqKeySource:   process.env.GROQ_API_KEY   ? 'env' : (cfg.groqKey   ? 'db' : 'none'),
     openaiKeySource: process.env.OPENAI_API_KEY ? 'env' : (cfg.openaiKey ? 'db' : 'none'),
+    geocoder:        cfg.geocoder,
+    hereKeySource:   process.env.HERE_API_KEY   ? 'env' : (cfg.hereKey   ? 'db' : 'none'),
   };
 
   if (cfg.provider === 'groq') {
@@ -240,6 +247,26 @@ async function checkStatus() {
 
   } else {
     status.connected = false;
+  }
+
+  // HERE geocoder status (independent of AI provider)
+  if (cfg.geocoder === 'here') {
+    if (!cfg.hereKey) {
+      status.hereConnected = false;
+      status.hereError = 'No API key configured';
+    } else {
+      try {
+        const res = await fetch(
+          `https://geocode.search.hereapi.com/v1/geocode?q=test&limit=1&apiKey=${cfg.hereKey}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        status.hereConnected = res.ok;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          status.hereError = body?.title || `HTTP ${res.status} — check your API key`;
+        }
+      } catch (e) { status.hereConnected = false; status.hereError = e.message; }
+    }
   }
 
   return status;

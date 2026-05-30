@@ -449,11 +449,16 @@ function parseLocation(text, countryCode = 'si') {
   return { lat: null, lng: null };
 }
 
-// ── Rate-limited Nominatim geocoder ──────────────────────────────────────────
-// Nominatim policy: max 1 request/second. All requests share a single serial
-// queue so concurrent message bursts don't trigger 429s.
-const _geoCache = new Map();        // "query|cc" → result  (capped at 500 entries)
-let   _geoChain = Promise.resolve(); // serialises every HTTP request globally
+// ── Geocoder helpers ──────────────────────────────────────────────────────────
+const _geoCache = new Map();         // "prefix|query|cc" → result  (capped at 500 entries)
+let   _geoChain = Promise.resolve(); // serialises Nominatim requests (1 req/s policy)
+
+// ISO 2-letter → 3-letter codes required by HERE
+const HERE_CC = {
+  si:'SVN', de:'DEU', at:'AUT', it:'ITA', fr:'FRA', gb:'GBR', nl:'NLD',
+  be:'BEL', ch:'CHE', pl:'POL', cz:'CZE', sk:'SVK', hu:'HUN', hr:'HRV',
+  rs:'SRB', ba:'BIH', us:'USA', ca:'CAN', au:'AUS', nz:'NZL',
+};
 
 function _enqueue(work) {
   const slot = _geoChain.then(work);
@@ -464,7 +469,7 @@ function _enqueue(work) {
 
 // Internal helper — query Nominatim for one address string, rate-limited.
 async function _nominatim(query, countryCode) {
-  const key = `${query}|${countryCode}`;
+  const key = `nom|${query}|${countryCode}`;
   if (_geoCache.has(key)) return _geoCache.get(key);
 
   const result = await _enqueue(async () => {
@@ -493,6 +498,46 @@ async function _nominatim(query, countryCode) {
   return result;
 }
 
+// HERE Geocoding API — no rate limit, much better house-number coverage.
+async function _here(query, countryCode) {
+  const key = `here|${query}|${countryCode}`;
+  if (_geoCache.has(key)) return _geoCache.get(key);
+  try {
+    const { getConfig } = require('./aiGeocode');
+    const { hereKey } = getConfig();
+    if (!hereKey) return null;
+    const cc3 = HERE_CC[countryCode] || countryCode.toUpperCase();
+    const url  = `https://geocode.search.hereapi.com/v1/geocode` +
+      `?q=${encodeURIComponent(query)}&in=countryCode:${cc3}&limit=1&apiKey=${hereKey}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const item = data?.items?.[0];
+    const result = item?.position
+      ? { lat: item.position.lat, lng: item.position.lng, display: item.title, query }
+      : null;
+    if (result) {
+      _geoCache.set(key, result);
+      if (_geoCache.size > 500) _geoCache.delete(_geoCache.keys().next().value);
+    }
+    return result;
+  } catch { return null; }
+}
+
+// Dispatcher — uses HERE when configured, falls back to Nominatim.
+async function _geocode(query, countryCode) {
+  try {
+    const { getConfig } = require('./aiGeocode');
+    const cfg = getConfig();
+    if (cfg.geocoder === 'here' && cfg.hereKey) {
+      const result = await _here(query, countryCode);
+      if (result) return result;
+      // HERE failed — fall through to Nominatim
+    }
+  } catch { /* fall through */ }
+  return _nominatim(query, countryCode);
+}
+
 async function geocodeAddress(candidates, countryCode = 'si', originalText = null) {
   const country = COUNTRY_NAMES[countryCode] || countryCode;
 
@@ -509,7 +554,7 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
         if (extracted && (extracted.street || extracted.settlement)) {
           const parts = [extracted.street, extracted.houseNumber].filter(Boolean).join(' ');
           const query = [parts, extracted.settlement, country].filter(Boolean).join(', ');
-          const aiResult = await _nominatim(query, countryCode);
+          const aiResult = await _geocode(query, countryCode);
           if (aiResult) return { ...aiResult, aiAssisted: true };
         }
       }
@@ -522,7 +567,7 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
   const toTry   = queries.slice(0, 1).filter(q => q?.trim());
 
   for (const query of toTry) {
-    const result = await _nominatim(query, countryCode);
+    const result = await _geocode(query, countryCode);
     if (result) return result;
   }
 

@@ -19,7 +19,7 @@ const api  = async (m, p, b) => {
 const DEFAULTS = {
   provider:       'none',
   // Keys are never returned from the server — inputs always start empty.
-  // groqKeySaved / openaiKeySaved booleans come from the GET response.
+  // groqKeySaved / openaiKeySaved / hereKeySaved booleans come from the GET response.
   groqKey:        '',
   groqKeySaved:   false,
   groqKeySource:  'none',
@@ -30,6 +30,10 @@ const DEFAULTS = {
   openaiModel:    'gpt-4o-mini',
   ollamaUrl:      'http://localhost:11434',
   ollamaModel:    'llama3.2:1b',
+  geocoder:       'nominatim',
+  hereKey:        '',
+  hereKeySaved:   false,
+  hereKeySource:  'none',
 };
 
 // ── Small helpers ──────────────────────────────────────────────────────────────
@@ -234,7 +238,70 @@ export default function AiGeocodeConfig() {
 
       <Flash msg={msg} />
 
-      {/* ── Provider selection ─────────────────────────────────────────────── */}
+      {/* ── Geocoder backend ───────────────────────────────────────────────── */}
+      <div className="pm-card" style={{ marginBottom: '1rem' }}>
+        <div className="pm-section-title">Geocoder backend</div>
+        <p style={{ fontSize: '0.77rem', color: 'var(--text-3)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+          Converts extracted addresses into GPS coordinates.
+          HERE has significantly better house-number coverage than Nominatim, especially for NZ, AU, and other countries with sparse OSM data.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.85rem' }}>
+          <ProviderCard id="nominatim" label="Nominatim" desc="Free · No key · OpenStreetMap data"
+            active={cfg.geocoder === 'nominatim'} onClick={p => set('geocoder', p)} />
+          <ProviderCard id="here"      label="HERE"      desc="Free 250k/month · Best house numbers"
+            active={cfg.geocoder === 'here'}      onClick={p => set('geocoder', p)} />
+        </div>
+
+        {cfg.geocoder === 'here' && (
+          <>
+            <InfoCard>
+              <strong>Free tier:</strong> 250,000 requests/month — enough for ~8,000 geocodes/day with no cost.<br />
+              <strong>Setup:</strong> Create a free account at <ExtLink href="https://developer.here.com">developer.here.com</ExtLink>,
+              go to <em>Projects → REST → API Keys</em> and generate a key. No credit card required for the free tier.<br />
+              <strong>Tip:</strong> You can also set <code>HERE_API_KEY=…</code> in your <code>.env</code> file instead of entering it here.
+            </InfoCard>
+
+            <div style={{ height: '0.75rem' }} />
+
+            <label className="pm-label">
+              HERE API Key
+              <KeySourceBadge source={cfg.hereKeySource} />
+              {cfg.hereKeySaved && cfg.hereKeySource !== 'env' && (
+                <span style={{ fontSize: '0.65rem', color: 'var(--accent-green)',
+                  marginLeft: '0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                  <CheckCircle size={10} /> Key saved
+                </span>
+              )}
+            </label>
+            <input className="pm-input"
+              type="password"
+              autoComplete="new-password"
+              value={cfg.hereKey}
+              placeholder={
+                cfg.hereKeySource === 'env' ? 'Loaded from HERE_API_KEY env var' :
+                cfg.hereKeySaved            ? 'Enter new key to replace the saved one' :
+                                              'Paste your HERE API key…'
+              }
+              disabled={cfg.hereKeySource === 'env'}
+              onChange={e => set('hereKey', e.target.value)}
+              style={{ marginBottom: '0.5rem' }}
+            />
+
+            {/* HERE status */}
+            {status?.geocoder === 'here' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
+                fontSize: '0.72rem', marginTop: '0.25rem' }}>
+                {status.hereConnected
+                  ? <><CheckCircle size={12} style={{ color: 'var(--accent-green)' }} /><span style={{ color: 'var(--accent-green)' }}>HERE connected</span></>
+                  : <><XCircle size={12} style={{ color: 'var(--accent-red)' }} /><span style={{ color: 'var(--accent-red)' }}>{status.hereError || 'HERE not reachable'}</span></>
+                }
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── AI provider selection ───────────────────────────────────────────── */}
       <div className="pm-card" style={{ marginBottom: '1rem' }}>
         <div className="pm-section-title">Provider</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.85rem' }}>
@@ -489,11 +556,11 @@ export default function AiGeocodeConfig() {
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.3rem' }}>
             <span style={{ color: 'var(--accent-green)', fontWeight: 700, flexShrink: 0 }}>2.</span>
-            <span>Nominatim geocodes the AI-formed address → coordinates saved</span>
+            <span>{cfg.geocoder === 'here' ? 'HERE' : 'Nominatim'} geocodes the AI-formed address → coordinates saved</span>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
             <span style={{ color: 'var(--accent-amber)', fontWeight: 700, flexShrink: 0 }}>3.</span>
-            <span>If AI is unreachable or returns nothing → falls back to regex pipeline → Nominatim</span>
+            <span>If AI is unreachable or returns nothing → falls back to regex pipeline → {cfg.geocoder === 'here' ? 'HERE' : 'Nominatim'}</span>
           </div>
 
           {/* Disabled path */}

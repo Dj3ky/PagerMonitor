@@ -605,6 +605,9 @@ router.get('/ai-geocode/config', adminOnly, (_req, res) => {
       openaiModel:     cfg.openaiModel,
       ollamaUrl:       cfg.ollamaUrl,
       ollamaModel:     cfg.ollamaModel,
+      geocoder:        cfg.geocoder,
+      hereKeySaved:    !!cfg.hereKey,
+      hereKeySource:   process.env.HERE_API_KEY   ? 'env' : (cfg.hereKey   ? 'db' : 'none'),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
