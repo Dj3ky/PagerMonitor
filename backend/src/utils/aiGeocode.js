@@ -35,19 +35,28 @@ function saveConfig(incoming) {
 // save tokens and avoid sending unnecessary content to cloud providers.
 const MAX_MSG_CHARS = 350;
 
-const PROMPT = (text) => {
+const COUNTRY_NAMES = {
+  si:'Slovenia', de:'Germany', at:'Austria', it:'Italy', fr:'France',
+  gb:'United Kingdom', nl:'Netherlands', be:'Belgium', ch:'Switzerland',
+  pl:'Poland', cz:'Czech Republic', sk:'Slovakia', hu:'Hungary',
+  hr:'Croatia', rs:'Serbia', ba:'Bosnia and Herzegovina',
+  us:'United States', ca:'Canada', au:'Australia', nz:'New Zealand',
+};
+
+const PROMPT = (text, countryCode = 'si') => {
   const snippet = text.length > MAX_MSG_CHARS ? text.slice(0, MAX_MSG_CHARS) + '…' : text;
-  return `Extract the address from this Slovenian emergency pager message.
+  const country = COUNTRY_NAMES[countryCode] || countryCode.toUpperCase();
+  return `Extract the street address from this emergency pager message from ${country}.
 Return ONLY valid JSON with these exact keys: {"street":"...","houseNumber":"...","settlement":"..."}
-Use null for any missing field. settlement = city or village name only, never the street.
-Ignore incident description words (požar/fire, nesreča/accident, stiska/distress, dihalna/respiratory, intervencija, gasilci, etc.)
-Preserve Slovenian characters (š, č, ž, etc.) exactly.
+Use null for any missing field. settlement = city, town or village name only, never the street name.
+Ignore incident description words (fire, accident, rescue, emergency, alarm, dispatch, and equivalents in the local language).
+Preserve all special characters (accents, diacritics, etc.) exactly as they appear.
 
 Message: ${snippet}`;
 };
 
 // ── Groq ──────────────────────────────────────────────────────────────────────
-async function _fromGroq(text, cfg) {
+async function _fromGroq(text, cfg, countryCode) {
   if (!cfg.groqKey) return null;
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -56,7 +65,7 @@ async function _fromGroq(text, cfg) {
       signal: AbortSignal.timeout(8000),
       body: JSON.stringify({
         model: cfg.groqModel,
-        messages: [{ role: 'user', content: PROMPT(text) }],
+        messages: [{ role: 'user', content: PROMPT(text, countryCode) }],
         max_tokens: 120,
         temperature: 0,
         response_format: { type: 'json_object' },
@@ -72,7 +81,7 @@ async function _fromGroq(text, cfg) {
 }
 
 // ── OpenAI ────────────────────────────────────────────────────────────────────
-async function _fromOpenAI(text, cfg) {
+async function _fromOpenAI(text, cfg, countryCode) {
   if (!cfg.openaiKey) return null;
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -81,7 +90,7 @@ async function _fromOpenAI(text, cfg) {
       signal: AbortSignal.timeout(10000),
       body: JSON.stringify({
         model: cfg.openaiModel,
-        messages: [{ role: 'user', content: PROMPT(text) }],
+        messages: [{ role: 'user', content: PROMPT(text, countryCode) }],
         max_tokens: 120,
         temperature: 0,
         response_format: { type: 'json_object' },
@@ -97,7 +106,7 @@ async function _fromOpenAI(text, cfg) {
 }
 
 // ── Ollama ────────────────────────────────────────────────────────────────────
-async function _fromOllama(text, cfg) {
+async function _fromOllama(text, cfg, countryCode) {
   try {
     const res = await fetch(`${cfg.ollamaUrl}/api/generate`, {
       method: 'POST',
@@ -107,7 +116,7 @@ async function _fromOllama(text, cfg) {
         model:  cfg.ollamaModel,
         stream: false,
         format: 'json',
-        prompt: PROMPT(text),
+        prompt: PROMPT(text, countryCode),
       }),
     });
     if (!res.ok) { logger.warn(`AI geocode Ollama HTTP ${res.status}`); return null; }
@@ -119,11 +128,11 @@ async function _fromOllama(text, cfg) {
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
-async function extractAddress(text) {
+async function extractAddress(text, countryCode = 'si') {
   const cfg = getConfig();
-  if (cfg.provider === 'groq')   return _fromGroq(text, cfg);
-  if (cfg.provider === 'openai') return _fromOpenAI(text, cfg);
-  if (cfg.provider === 'ollama') return _fromOllama(text, cfg);
+  if (cfg.provider === 'groq')   return _fromGroq(text, cfg, countryCode);
+  if (cfg.provider === 'openai') return _fromOpenAI(text, cfg, countryCode);
+  if (cfg.provider === 'ollama') return _fromOllama(text, cfg, countryCode);
   return null;
 }
 
