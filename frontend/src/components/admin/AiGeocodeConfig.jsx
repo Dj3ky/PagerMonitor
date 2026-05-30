@@ -269,7 +269,7 @@ export default function AiGeocodeConfig() {
             <InfoCard>
               <strong>Free tier:</strong> 250,000 requests/month — enough for ~8,000 geocodes/day with no cost.<br />
               <strong>Setup:</strong> Create a free account at <ExtLink href="https://developer.here.com">developer.here.com</ExtLink>,
-              go to <em>Projects → REST → API Keys</em> and generate a key. No credit card required for the free tier.<br />
+              go to <em>Projects → REST → API Keys</em> and generate a key. <br />
               <strong>Tip:</strong> You can also set <code>HERE_API_KEY=…</code> in your <code>.env</code> file instead of entering it here.
             </InfoCard>
 
