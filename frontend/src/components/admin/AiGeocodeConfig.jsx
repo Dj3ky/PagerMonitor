@@ -174,7 +174,8 @@ export default function AiGeocodeConfig() {
   const [cfg,       setCfg]       = useState(DEFAULTS);
   const [status,    setStatus]    = useState(null);
   const [statusLoading, setStatusLoading] = useState(false);
-  const [saving,    setSaving]    = useState(false);
+  const [saving,        setSaving]        = useState(false);
+  const [savingGeocode, setSavingGeocode] = useState(false);
   const [testing,   setTesting]   = useState(false);
   const [testText,  setTestText]  = useState(null);
   const [testResult, setTestResult] = useState(null);
@@ -198,6 +199,17 @@ export default function AiGeocodeConfig() {
 
   useEffect(() => { loadConfig(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (cfg.provider !== 'none') loadStatus(); }, [cfg.provider]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveGeocode = async () => {
+    setSavingGeocode(true);
+    try {
+      await api('PUT', '/admin/ai-geocode/config', { geocoder: cfg.geocoder, hereKey: cfg.hereKey });
+      flash('ok', 'Geocoder settings saved');
+      loadConfig();
+      loadStatus();
+    } catch (e) { flash('err', e.message); }
+    finally { setSavingGeocode(false); }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -290,7 +302,7 @@ export default function AiGeocodeConfig() {
             {/* HERE status */}
             {status?.geocoder === 'here' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
-                fontSize: '0.72rem', marginTop: '0.25rem' }}>
+                fontSize: '0.72rem', marginTop: '0.25rem', marginBottom: '0.5rem' }}>
                 {status.hereConnected
                   ? <><CheckCircle size={12} style={{ color: 'var(--accent-green)' }} /><span style={{ color: 'var(--accent-green)' }}>HERE connected</span></>
                   : <><XCircle size={12} style={{ color: 'var(--accent-red)' }} /><span style={{ color: 'var(--accent-red)' }}>{status.hereError || 'HERE not reachable'}</span></>
@@ -299,6 +311,12 @@ export default function AiGeocodeConfig() {
             )}
           </>
         )}
+
+        <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-soft)' }}>
+          <button className="pm-btn pm-btn-primary" onClick={saveGeocode} disabled={savingGeocode}>
+            <Save size={13} /> {savingGeocode ? 'Saving…' : 'Save geocoder settings'}
+          </button>
+        </div>
       </div>
 
       {/* ── AI provider selection ───────────────────────────────────────────── */}
