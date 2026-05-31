@@ -110,7 +110,7 @@ router.get('/map', requireAuth, (req, res) => {
       LEFT JOIN aliases a ON a.capcode = m.capcode
       LEFT JOIN groups  g ON g.id = a.group_id
       WHERE m.lat IS NOT NULL AND m.lng IS NOT NULL
-        AND m.timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', datetime('now', '-' || ? || ' days'))
+        AND m.timestamp >= strftime('%Y-%m-%dT%H:%M:%S.000Z', datetime('now', '-' || ? || ' days'))
       ORDER BY m.id DESC LIMIT ?
     `).all(maxAgeDays, limit);
     res.json(rows);

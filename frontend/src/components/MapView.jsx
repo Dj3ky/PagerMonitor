@@ -240,8 +240,12 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
   // Watch live messages — geocode any with addresses
   useEffect(() => {
     if (!liveMessages?.length) return;
+    const cutoffMs = Date.now() - mapMaxAgeDays * 24 * 60 * 60 * 1000;
 
     liveMessages.forEach(msg => {
+      // Skip messages outside the age window so re-geocoded old messages
+      // don't bypass the mapMaxAgeDays filter via WebSocket
+      if (msg.timestamp && new Date(msg.timestamp).getTime() < cutoffMs) return;
 
       // Already has coords — just add to map if not already there
       if (msg.lat && msg.lng) {
@@ -291,7 +295,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
         .catch(() => {})
         .finally(() => setGeocoding(false));
     });
-  }, [liveMessages]);
+  }, [liveMessages, mapMaxAgeDays]);
 
   const flyTo = (msg) => {
     if (!msg?.lat || !msg?.lng || isNaN(msg.lat) || isNaN(msg.lng)) return;
