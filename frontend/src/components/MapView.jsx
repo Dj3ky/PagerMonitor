@@ -346,7 +346,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
               {msg.message || '(no text)'}
             </div>
             <div style={{ fontFamily:'monospace', fontSize:'0.65rem', color:'var(--text-3)', marginTop:'0.15rem' }}>
-              {msg.lat?.toFixed(5)}, {msg.lng?.toFixed(5)}
+              {msg.lat?.toFixed(6)}, {msg.lng?.toFixed(6)}
             </div>
           </div>
         ))}
