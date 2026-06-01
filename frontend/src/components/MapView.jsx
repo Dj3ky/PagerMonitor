@@ -109,11 +109,26 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     }
   }, [layerMode, mapReady, mapMessages]);
 
-  // When map tab becomes visible, invalidate Leaflet size
+  // When map tab becomes visible, invalidate Leaflet size and top-up any
+  // coordinates that were saved to DB after the initial fetch
   useEffect(() => {
-    if (visible && mapRef.current) {
-      mapRef.current.invalidateSize();
-    }
+    if (!visible || !mapRef.current) return;
+    mapRef.current.invalidateSize();
+    fetchMap(500, mapMaxAgeDays)
+      .then(rows => {
+        if (!Array.isArray(rows)) return;
+        rows.forEach(msg => {
+          if (!markersRef.current[msg.id]) {
+            setMapMessages(prev => {
+              if (prev.find(m => m.id === msg.id)) return prev;
+              setTotal(t => t + 1);
+              return [msg, ...prev];
+            });
+            addMarker(msg);
+          }
+        });
+      })
+      .catch(console.warn);
   }, [visible]);
 
   function makeIcon(color) {
@@ -289,7 +304,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
               .then(() => {
                 onLocationResolved?.(enriched.id, result.lat, result.lng);
               })
-              .catch(() => {});
+              .catch(e => console.warn('[MapView] saveMessageLocation failed:', e));
           }
         })
         .catch(() => {})
