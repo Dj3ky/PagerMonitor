@@ -253,6 +253,17 @@ function _migrate() {
     logger.info('Migration: created webhooks table');
   }
 
+  // User live locations (opt-in, only current position stored)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_locations (
+      user_id    INTEGER PRIMARY KEY,
+      username   TEXT    NOT NULL,
+      lat        REAL    NOT NULL,
+      lng        REAL    NOT NULL,
+      updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
   // Push subscriptions (PWA background notifications)
   db.exec(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -570,6 +581,27 @@ function deleteDbSession(token) {
 function loadActiveSessions() {
   return getDb().prepare('SELECT * FROM sessions WHERE expires > ?').all(Date.now());
 }
+function upsertUserLocation(userId, username, lat, lng) {
+  getDb().prepare(`
+    INSERT INTO user_locations (user_id, username, lat, lng, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, lat=excluded.lat, lng=excluded.lng, updated_at=excluded.updated_at
+  `).run(userId, username, lat, lng);
+}
+
+function getUserLocations(maxAgeMinutes = 5) {
+  return getDb().prepare(`
+    SELECT user_id, username, lat, lng, updated_at
+    FROM user_locations
+    WHERE updated_at >= datetime('now', ? || ' minutes')
+    ORDER BY updated_at DESC
+  `).all(`-${maxAgeMinutes}`);
+}
+
+function deleteUserLocation(userId) {
+  getDb().prepare('DELETE FROM user_locations WHERE user_id=?').run(userId);
+}
+
 function pruneExpiredSessions() {
   getDb().prepare('DELETE FROM sessions WHERE expires <= ?').run(Date.now());
 }
@@ -590,4 +622,5 @@ module.exports = {
   getStats,
   getMessageNotes, addMessageNote, deleteMessageNote, getNoteCounts,
   saveDbSession, deleteDbSession, loadActiveSessions, pruneExpiredSessions,
+  upsertUserLocation, getUserLocations, deleteUserLocation,
 };

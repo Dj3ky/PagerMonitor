@@ -110,3 +110,6 @@ export const authSetRole    = (id, role) => A('PUT',  `/auth/users/${id}/role`, 
 export const authResetPw    = (id, pw)   => A('POST', `/auth/users/${id}/reset-password`, { password:pw });
 export const authDeleteUser = (id)       => A('DELETE', `/auth/users/${id}`);
 export const authChangePw   = (old_, new_) => A('POST', '/auth/change-password', { oldPassword:old_, newPassword:new_ });
+export const postUserLocation   = (lat, lng) => req('POST',   '/api/user-location', { lat, lng });
+export const deleteUserLocation = ()         => req('DELETE', '/api/user-location');
+export const fetchUserLocations = ()         => A('GET', '/admin/user-locations');

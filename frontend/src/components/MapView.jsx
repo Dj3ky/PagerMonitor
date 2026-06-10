@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { fetchMap, saveMessageLocation, clearMessageLocation } from '../utils/api.js';
+import { ChevronLeft, ChevronRight, LocateFixed, Users, Loader } from 'lucide-react';
+import { fetchMap, saveMessageLocation, clearMessageLocation, postUserLocation, deleteUserLocation, fetchUserLocations } from '../utils/api.js';
 import { geocodeAddress, parseLocation } from '../utils/parseLocation.js';
 import { useSite } from '../context/SiteContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
 
 const TILE_URL  = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -33,6 +34,8 @@ function Flash({ msg }) {
 
 export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplete, onLocationResolved, visible, resetKey }) {
   const { mapDotColor = '#00ff9d', mapMaxAgeDays = 30, geocodeCountry = 'si', locale, hour12 } = useSite();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const mapRef         = useRef(null);
   const mapDivRef      = useRef(null);
@@ -51,6 +54,17 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
 
   const [mapReady, setMapReady] = useState(false);
   const pendingFlyRef = useRef(null);
+
+  // ── User live location sharing ─────────────────────────────────────────────
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [shareGeoState,   setShareGeoState]   = useState('idle'); // 'idle'|'asking'|'active'|'denied'
+  const myMarkerRef     = useRef(null);
+  const shareIntervalRef = useRef(null);
+
+  // ── Admin: show other users' locations ────────────────────────────────────
+  const [showUsers,    setShowUsers]    = useState(false);
+  const userMarkersRef = useRef({});
+  const usersIntervalRef = useRef(null);
   // Ref so the visible top-up effect always reads current fetch params without stale closure
   const fetchParamsRef = useRef({ mapMaxAgeDays, dateFrom: '', dateTo: '' });
 
@@ -119,6 +133,116 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
   useEffect(() => {
     fetchParamsRef.current = { mapMaxAgeDays, dateFrom, dateTo };
   }, [mapMaxAgeDays, dateFrom, dateTo]);
+
+  // ── Share my location ────────────────────────────────────────────────────────
+  const startSharing = useCallback(() => {
+    if (!navigator.geolocation) { setShareGeoState('denied'); return; }
+    setShareGeoState('asking');
+    const sendPos = (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      postUserLocation(lat, lng).catch(() => {});
+      // Update my own dot on the map
+      if (mapRef.current && window.L) {
+        const L = window.L;
+        if (myMarkerRef.current) {
+          myMarkerRef.current.setLatLng([lat, lng]);
+        } else {
+          myMarkerRef.current = L.marker([lat, lng], {
+            icon: L.divIcon({
+              className: '',
+              html: `<div style="width:14px;height:14px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 0 0 3px #3b82f688;"></div>`,
+              iconSize:[14,14], iconAnchor:[7,7],
+            }),
+            zIndexOffset: 1000,
+          }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem"><strong style="color:#3b82f6">You</strong><br/>${user?.username}</div>`)
+            .addTo(mapRef.current);
+        }
+      }
+      setShareGeoState('active');
+    };
+    // Get initial position
+    navigator.geolocation.getCurrentPosition(sendPos, () => setShareGeoState('denied'), { timeout: 10000 });
+    // Then update every 30s
+    shareIntervalRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(sendPos, () => {}, { timeout: 10000 });
+    }, 30_000);
+  }, [user, mapRef]);
+
+  const stopSharing = useCallback(() => {
+    clearInterval(shareIntervalRef.current);
+    deleteUserLocation().catch(() => {});
+    if (myMarkerRef.current) {
+      try { mapRef.current?.removeLayer(myMarkerRef.current); } catch (_) {}
+      myMarkerRef.current = null;
+    }
+    setSharingLocation(false);
+    setShareGeoState('idle');
+  }, []);
+
+  useEffect(() => {
+    if (sharingLocation) startSharing();
+    else if (shareGeoState !== 'idle') stopSharing();
+  }, [sharingLocation]);
+
+  // Stop sharing on unmount
+  useEffect(() => () => {
+    clearInterval(shareIntervalRef.current);
+    if (myMarkerRef.current) try { mapRef.current?.removeLayer(myMarkerRef.current); } catch (_) {}
+  }, []);
+
+  // ── Show users (admin) ────────────────────────────────────────────────────
+  const refreshUserMarkers = useCallback(() => {
+    if (!mapRef.current || !window.L) return;
+    const L = window.L;
+    fetchUserLocations().then(users => {
+      const seen = new Set();
+      users.forEach(u => {
+        if (u.user_id === user?.id) return; // skip self — shown by myMarker
+        seen.add(u.username);
+        const existing = userMarkersRef.current[u.username];
+        if (existing) {
+          existing.setLatLng([u.lat, u.lng]);
+        } else {
+          const color = '#f59e0b';
+          const marker = L.marker([u.lat, u.lng], {
+            icon: L.divIcon({
+              className: '',
+              html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+                <div style="background:${color};color:#000;font-family:monospace;font-size:0.6rem;font-weight:700;padding:1px 5px;border-radius:3px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4)">${u.username}</div>
+                <div style="width:10px;height:10px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 6px ${color}"></div>
+              </div>`,
+              iconSize:[60,28], iconAnchor:[30,28],
+            }),
+            zIndexOffset: 900,
+          }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem"><strong style="color:${color}">${u.username}</strong><br/><span style="color:#888;font-size:0.7rem">${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}</span><br/><span style="color:#888;font-size:0.65rem">${new Date(u.updated_at + 'Z').toLocaleTimeString()}</span></div>`)
+            .addTo(mapRef.current);
+          userMarkersRef.current[u.username] = marker;
+        }
+      });
+      // Remove stale markers
+      Object.keys(userMarkersRef.current).forEach(name => {
+        if (!seen.has(name)) {
+          try { mapRef.current?.removeLayer(userMarkersRef.current[name]); } catch (_) {}
+          delete userMarkersRef.current[name];
+        }
+      });
+    }).catch(() => {});
+  }, [user]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (showUsers) {
+      refreshUserMarkers();
+      usersIntervalRef.current = setInterval(refreshUserMarkers, 30_000);
+    } else {
+      clearInterval(usersIntervalRef.current);
+      Object.values(userMarkersRef.current).forEach(m => {
+        try { mapRef.current?.removeLayer(m); } catch (_) {}
+      });
+      userMarkersRef.current = {};
+    }
+    return () => clearInterval(usersIntervalRef.current);
+  }, [showUsers, isAdmin]);
 
   // When map tab becomes visible, top-up any coordinates saved after the last fetch
   useEffect(() => {
@@ -344,6 +468,52 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
           {geocoding && <span style={{ color:'var(--accent-amber)' }}>geocoding…</span>}
           {loading   && <span>loading…</span>}
         </div>
+      </div>
+
+      {/* Share my location */}
+      <div style={{ padding:'0.4rem 0.5rem', borderBottom:'1px solid var(--border)',
+        display:'flex', alignItems:'center', gap:'0.4rem', flexWrap:'wrap' }}>
+        {shareGeoState !== 'denied' ? (
+          <button
+            onClick={() => setSharingLocation(s => !s)}
+            style={{
+              display:'flex', alignItems:'center', gap:'0.3rem',
+              padding:'0.22rem 0.5rem', borderRadius:'0.35rem', fontSize:'0.72rem',
+              fontWeight:500, cursor:'pointer', transition:'all 0.15s', flex:1,
+              border: shareGeoState === 'active'
+                ? '1px solid color-mix(in srgb, #3b82f6 40%, transparent)'
+                : '1px solid var(--border)',
+              background: shareGeoState === 'active'
+                ? 'color-mix(in srgb, #3b82f6 12%, transparent)'
+                : 'var(--bg-3)',
+              color: shareGeoState === 'active' ? '#3b82f6' : 'var(--text-2)',
+            }}>
+            {shareGeoState === 'asking'
+              ? <><Loader size={11} style={{ animation:'spin 1s linear infinite' }}/> Locating…</>
+              : <><LocateFixed size={11}/> {shareGeoState === 'active' ? 'Sharing location' : 'Share my location'}</>}
+          </button>
+        ) : (
+          <span style={{ fontSize:'0.68rem', color:'var(--accent-amber)', fontFamily:'monospace' }}>Location blocked</span>
+        )}
+        {isAdmin && (
+          <button
+            onClick={() => setShowUsers(s => !s)}
+            title="Show online users on map"
+            style={{
+              display:'flex', alignItems:'center', gap:'0.3rem',
+              padding:'0.22rem 0.5rem', borderRadius:'0.35rem', fontSize:'0.72rem',
+              fontWeight:500, cursor:'pointer', transition:'all 0.15s',
+              border: showUsers
+                ? '1px solid color-mix(in srgb, var(--accent-amber) 40%, transparent)'
+                : '1px solid var(--border)',
+              background: showUsers
+                ? 'color-mix(in srgb, var(--accent-amber) 12%, transparent)'
+                : 'var(--bg-3)',
+              color: showUsers ? 'var(--accent-amber)' : 'var(--text-2)',
+            }}>
+            <Users size={11}/> Users
+          </button>
+        )}
       </div>
       {/* Date range picker */}
       <div style={{ padding:'0.4rem 0.5rem', borderBottom:'1px solid var(--border)',

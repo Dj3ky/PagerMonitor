@@ -7,7 +7,8 @@ const { execSync } = require('child_process');
 const ROOT_DIR = path.join(__dirname, '../../..');
 
 const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, deleteAlias,
-        getGroups, getHighlightRules, getLastSeenId, setLastSeenId } = require('../services/database');
+        getGroups, getHighlightRules, getLastSeenId, setLastSeenId,
+        upsertUserLocation, deleteUserLocation } = require('../services/database');
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
@@ -158,6 +159,22 @@ router.delete('/messages/:id/location', requireAuth, (req, res) => {
     require('../services/websocket').broadcast({ type: 'message_location_clear', id });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// User live location — opt-in, stores only current position
+router.post('/user-location', requireAuth, (req, res) => {
+  try {
+    const { lat, lng } = req.body;
+    if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng))
+      return res.status(400).json({ error: 'lat and lng required' });
+    upsertUserLocation(req.session.userId, req.session.username, lat, lng);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/user-location', requireAuth, (req, res) => {
+  try { deleteUserLocation(req.session.userId); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Per-user last-seen tracking (requires auth token)

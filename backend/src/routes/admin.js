@@ -14,7 +14,7 @@ const { getDb, getStats, getMessageStats,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
         getWebhooks, upsertWebhook, deleteWebhook,
         addAuditLog, getAuditLog,
-        deleteMessage,
+        deleteMessage, getUserLocations,
         getSetting: _gs, setSetting: _ss } = require('../services/database');
 const { getConfig, updateConfig, testNotification } = require('../services/notifications');
 const { getSdrConfig, saveSdrConfig, getDedupConfig, saveDedupConfig,
@@ -334,6 +334,12 @@ function parseCsvLine(line) {
   result.push(cur);
   return result;
 }
+
+// ── User live locations ────────────────────────────────────────────────────────
+router.get('/user-locations', adminOnly, (_req, res) => {
+  try { res.json(getUserLocations(10)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ── Site settings ─────────────────────────────────────────────────────────────
 router.get('/site-settings', adminOnly, (_req, res) => {
