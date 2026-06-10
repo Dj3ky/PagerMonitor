@@ -337,7 +337,7 @@ function parseCsvLine(line) {
 
 // ── User live locations ────────────────────────────────────────────────────────
 router.get('/user-locations', adminOnly, (_req, res) => {
-  try { res.json(getUserLocations(10)); }
+  try { res.json(getUserLocations(525600)); } // all stored (up to 1 year)
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 

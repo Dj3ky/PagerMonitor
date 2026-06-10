@@ -3,7 +3,7 @@ import { usePtrScroll } from '../../hooks/usePtrScroll.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
-         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2 } from 'lucide-react';
+         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
@@ -31,6 +31,7 @@ import AiGeocodeConfig from './AiGeocodeConfig.jsx';
 import UpdatePanel    from './UpdatePanel.jsx';
 import FeedFilter          from './FeedFilter.jsx';
 import MsgNormalizations   from './MsgNormalizations.jsx';
+import UserLocations       from './UserLocations.jsx';
 
 const TABS = [
   { group: 'SDR' },
@@ -70,6 +71,7 @@ const TABS = [
   { id:'site',        label:'Site Settings',  icon:<Settings2 size={14}/> },
   { id:'aigeocode',   label:'AI Geocode',     icon:<Brain size={14}/> },
   { id:'users',       label:'Users',          icon:<Users size={14}/> },
+  { id:'userlocations', label:'User Locations', icon:<MapPin size={14}/> },
 ];
 
 function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChange, onResetMap }) {
@@ -93,8 +95,9 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'site':        return <SiteSettings onResetMap={onResetMap} />;
     case 'client':      return <ClientSettings />;
     case 'sdrclients':  return <SdrClients />;
-    case 'users':       return <UsersPanel />;
-    case 'backup':      return <BackupRestore />;
+    case 'users':          return <UsersPanel />;
+    case 'userlocations':  return <UserLocations />;
+    case 'backup':         return <BackupRestore />;
     case 'auditlog':    return <AuditLog />;
     case 'archive':     return <ArchiveConfig />;
     case 'feedfilter':  return <FeedFilter />;
