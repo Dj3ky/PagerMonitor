@@ -126,12 +126,6 @@ export default function WeatherView({ visible, locationSharing }) {
         </div>
       </div>
 
-      {/* DEBUG — remove after fix confirmed */}
-      <div style={{ padding:'0.25rem 0.75rem', background:'#1a1a2e', fontSize:'0.68rem',
-        fontFamily:'monospace', color:'#7ef', flexShrink:0, borderBottom:'1px solid #333' }}>
-        state={geoState} | userPos={userPos ? `${userPos.lat.toFixed(5)},${userPos.lng.toFixed(5)}` : 'null'} | iframeSrc={iframeSrc ? iframeSrc.slice(0,80)+'…' : 'null'}
-      </div>
-
       {/* Windy iframe */}
       <div style={{ flex: 1, position: 'relative' }}>
         {visible && !iframeSrc ? (

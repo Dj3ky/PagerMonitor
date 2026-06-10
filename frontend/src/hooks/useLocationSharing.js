@@ -35,7 +35,7 @@ export function useLocationSharing(user) {
         sendPos(pos);
         clearInterval(intervalRef.current);
         intervalRef.current = setInterval(() => {
-          navigator.geolocation.getCurrentPosition(sendPos, () => {}, { timeout: 10000 });
+          navigator.geolocation.getCurrentPosition(sendPos, () => {}, { timeout: 10000, enableHighAccuracy: true });
         }, 30_000);
       },
       () => {
@@ -43,7 +43,7 @@ export function useLocationSharing(user) {
         localStorage.setItem(STORAGE_KEY, 'declined');
         setShowPrompt(false);
       },
-      { timeout: 10000 }
+      { timeout: 15000, enableHighAccuracy: true }
     );
   }, [sendPos]);
 
