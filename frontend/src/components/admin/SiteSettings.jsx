@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings2, Save, Clock, Download, RotateCcw } from 'lucide-react';
+import { Settings2, Save, Clock, Download, RotateCcw, CloudRain } from 'lucide-react';
 import { useSite } from '../../context/SiteContext.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const getToken = () => localStorage.getItem('pm_token') || '';
 
-const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si', locale: 'sl-SI', hour12: false };
+const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si', locale: 'sl-SI', hour12: false, weatherLat: '', weatherLon: '', weatherZoom: '' };
 
 const LOCALES = [
   { value: 'sl-SI', label: 'sl-SI — Slovenian' },
@@ -69,8 +69,13 @@ export default function SiteSettings({ onResetMap }) {
   const [locale, setLocale]                 = useState(DEFAULTS.locale);
   const [hour12, setHour12]                 = useState(DEFAULTS.hour12);
   const [publicMode, setPublicMode]         = useState(DEFAULTS.publicMode);
+  const [weatherLat,  setWeatherLat]  = useState(DEFAULTS.weatherLat);
+  const [weatherLon,  setWeatherLon]  = useState(DEFAULTS.weatherLon);
+  const [weatherZoom, setWeatherZoom] = useState(DEFAULTS.weatherZoom);
   const [savingMap, setSavingMap]       = useState(false);
   const [mapMsg, setMapMsg]             = useState(null);
+  const [savingWeather, setSavingWeather] = useState(false);
+  const [weatherMsg,    setWeatherMsg]    = useState(null);
 
   const [fetching,   setFetching]   = useState(false);
   const [fetchLog,   setFetchLog]   = useState([]);
@@ -98,15 +103,19 @@ export default function SiteSettings({ onResetMap }) {
         setLocale(d.locale || DEFAULTS.locale);
         setHour12(!!d.hour12);
         setPublicMode(!!d.publicMode);
+        setWeatherLat(d.weatherLat  || '');
+        setWeatherLon(d.weatherLon  || '');
+        setWeatherZoom(d.weatherZoom || '');
       })
       .catch(console.warn);
   }, []);
 
   const flashSite  = (type, text) => { setSiteMsg({ type, text });  setTimeout(() => setSiteMsg(null),  3500); };
   const flashBadge = (type, text) => { setBadgeMsg({ type, text }); setTimeout(() => setBadgeMsg(null), 3500); };
-  const flashMap   = (type, text) => { setMapMsg({ type, text });   setTimeout(() => setMapMsg(null),   3500); };
+  const flashMap     = (type, text) => { setMapMsg({ type, text });       setTimeout(() => setMapMsg(null),     3500); };
+  const flashWeather = (type, text) => { setWeatherMsg({ type, text });   setTimeout(() => setWeatherMsg(null), 3500); };
 
-  const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays: mapMaxAgeHours / 24, geocodeCountry, locale, hour12, publicMode });
+  const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays: mapMaxAgeHours / 24, geocodeCountry, locale, hour12, publicMode, weatherLat, weatherLon, weatherZoom });
 
   // Save site name/description only
   const saveSite = async () => {
@@ -128,6 +137,17 @@ export default function SiteSettings({ onResetMap }) {
       flashBadge('ok', `NEW badge duration set to ${badgeSeconds}s`);
     } catch (e) { flashBadge('err', e.message); }
     finally { setSavingBadge(false); }
+  };
+
+  // Save weather settings
+  const saveWeather = async () => {
+    setSavingWeather(true);
+    try {
+      await saveSettings(allSettings());
+      updateSite(allSettings());
+      flashWeather('ok', 'Weather settings saved');
+    } catch (e) { flashWeather('err', e.message); }
+    finally { setSavingWeather(false); }
   };
 
   // Save map settings
@@ -494,6 +514,43 @@ export default function SiteSettings({ onResetMap }) {
         </button>
 
       </div>{/* end map card */}
+
+      {/* ── Weather view settings ────────────────────────────── */}
+      <div className="pm-card" style={{ marginTop:'1rem' }}>
+        <div className="pm-section-title">
+          <CloudRain size={13} /> Weather view (Windy)
+        </div>
+        <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.6 }}>
+          Default center and zoom for the embedded Windy weather radar. Leave blank to use the app default (lat&nbsp;46.12, lon&nbsp;14.80, zoom&nbsp;7).
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.6rem', marginBottom:'1rem' }}>
+          <div>
+            <label className="pm-label">Latitude</label>
+            <input className="pm-input" value={weatherLat} placeholder="46.12"
+              onChange={e => setWeatherLat(e.target.value)}
+              style={{ fontFamily:'monospace' }} />
+          </div>
+          <div>
+            <label className="pm-label">Longitude</label>
+            <input className="pm-input" value={weatherLon} placeholder="14.80"
+              onChange={e => setWeatherLon(e.target.value)}
+              style={{ fontFamily:'monospace' }} />
+          </div>
+          <div>
+            <label className="pm-label">Zoom (1–18)</label>
+            <input className="pm-input" value={weatherZoom} placeholder="7" type="number" min="1" max="18"
+              onChange={e => setWeatherZoom(e.target.value)}
+              style={{ fontFamily:'monospace' }} />
+          </div>
+        </div>
+
+        <Flash msg={weatherMsg} />
+
+        <button className="pm-btn pm-btn-primary" onClick={saveWeather} disabled={savingWeather}>
+          <Save size={13}/> {savingWeather ? 'Saving…' : 'Save weather settings'}
+        </button>
+      </div>
 
       {/* ── Block 4: Public read-only mode ───────────────────── */}
       <div className="pm-card" style={{ marginTop:'1rem', borderColor: publicMode ? 'color-mix(in srgb, var(--accent-amber) 40%, var(--border))' : 'var(--border)' }}>

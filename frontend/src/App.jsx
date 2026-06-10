@@ -11,6 +11,7 @@ import FilterBar     from './components/FilterBar.jsx';
 import AdminPanel    from './components/admin/AdminPanel.jsx';
 import MapView       from './components/MapView.jsx';
 import ArchivePanel      from './components/ArchivePanel.jsx';
+import WeatherView       from './components/WeatherView.jsx';
 import PasswordResetPage from './components/PasswordResetPage.jsx';
 import UserProfile       from './components/UserProfile.jsx';
 import ErrorBoundary     from './components/ErrorBoundary.jsx';
@@ -266,6 +267,9 @@ export default function App() {
           </div>
           <div style={{ position:'absolute', inset:0, display: view === 'archive' ? 'flex' : 'none', flexDirection:'column' }}>
             <ArchivePanel highlightRules={highlightRules} groups={groups} />
+          </div>
+          <div style={{ position:'absolute', inset:0, display: view === 'weather' ? 'flex' : 'none', flexDirection:'column' }}>
+            <WeatherView visible={view === 'weather'} />
           </div>
           <div style={{ position:'absolute', inset:0, display: view === 'search' ? 'flex' : 'none', flexDirection:'column' }}>
             <SearchPanel results={searchResults} searching={searching}
