@@ -44,24 +44,21 @@ export default function WeatherView({ visible, locationSharing }) {
   const userPos  = locationSharing?.position ?? null;  // { lat, lng }
   const geoState = locationSharing?.state    ?? 'idle';
 
-  // Only build the Windy URL when we have a definitive state.
-  // Requiring BOTH geoState==='active' AND userPos truthy guards against the
-  // batching race where setState('active') fires before setPosition({lat,lng}).
   const [iframeSrc, setIframeSrc] = useState(null);
   useEffect(() => {
-    if (geoState === 'active' && userPos) {
-      // Real position available — center Windy on user's GPS coords
+    if (userPos) {
+      // Have a position (cached from last session, or live GPS) — load immediately
       const url = buildWindyUrl(userPos.lat, userPos.lng, 10, overlay, userPos.lat, userPos.lng);
       setIframeSrc(prev => prev === url ? prev : url);
     } else if (
       geoState === 'denied' ||
       (geoState === 'idle' && localStorage.getItem('pm_location_prompt') !== 'granted')
     ) {
-      // Location refused or never asked — use country center (dot will be there)
+      // No location and none expected — use country center
       const url = buildWindyUrl(countryCenter.lat, countryCenter.lon, countryCenter.zoom, overlay, null, null);
       setIframeSrc(prev => prev === url ? prev : url);
     } else {
-      // Still waiting for position (asking / idle+granted / active+noPos) — hold iframe
+      // First-ever grant: no cache yet, waiting for first GPS fix
       setIframeSrc(null);
     }
   }, [geoState, userPos, countryCenter, overlay]);
