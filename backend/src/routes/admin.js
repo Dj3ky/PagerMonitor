@@ -342,7 +342,7 @@ router.get('/site-settings', adminOnly, (_req, res) => {
 });
 router.put('/site-settings', adminOnly, (req, res) => {
   try {
-    const { siteName, siteDescription, newBadgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays, publicMode, geocodeCountry, locale, hour12, weatherLat, weatherLon, weatherZoom } = req.body;
+    const { siteName, siteDescription, newBadgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays, publicMode, geocodeCountry, locale, hour12 } = req.body;
     _ss('site_settings', {
       siteName: siteName || 'PagerMonitor', siteDescription: siteDescription || '',
       newBadgeSeconds: Math.max(0, Math.min(300, parseInt(newBadgeSeconds,10)||0)),
@@ -352,9 +352,6 @@ router.put('/site-settings', adminOnly, (req, res) => {
       geocodeCountry: /^[a-z]{2}$/.test(geocodeCountry) ? geocodeCountry : 'si',
       locale: /^[a-z]{2}-[A-Z]{2}$/.test(locale) ? locale : 'sl-SI',
       hour12: !!hour12,
-      weatherLat:  weatherLat  || '',
-      weatherLon:  weatherLon  || '',
-      weatherZoom: weatherZoom || '',
     });
     addAuditLog(req.session?.username||'admin', 'site.settings', `publicMode=${!!publicMode}`);
     res.json({ ok: true });

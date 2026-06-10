@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { fetchMap, saveMessageLocation, clearMessageLocation } from '../utils/api.js';
 import { geocodeAddress, parseLocation } from '../utils/parseLocation.js';
 import { useSite } from '../context/SiteContext.jsx';
+import { getCountryCenter } from '../utils/countryCenters.js';
 
 const TILE_URL  = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
@@ -57,7 +58,8 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
   useEffect(() => {
     if (mapRef.current || !mapDivRef.current || !window.L) return;
     const L   = window.L;
-    const map = L.map(mapDivRef.current, { center:[46.12, 14.80], zoom:9 });
+    const { lat: cLat, lon: cLon, zoom: cZoom } = getCountryCenter(geocodeCountry);
+    const map = L.map(mapDivRef.current, { center:[cLat, cLon], zoom:cZoom });
     L.tileLayer(TILE_URL, { attribution:TILE_ATTR, maxZoom:19 }).addTo(map);
 
     // Create cluster group (hidden by default)

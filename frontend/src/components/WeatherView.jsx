@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Wind, CloudRain, Thermometer, Cloud, Radar } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
+import { getCountryCenter } from '../utils/countryCenters.js';
 
 const LAYERS = [
   { id: 'radar',  label: 'Radar',  icon: <Radar size={13}/>,       desc: 'Precipitation radar' },
@@ -9,11 +10,6 @@ const LAYERS = [
   { id: 'temp',   label: 'Temp',   icon: <Thermometer size={13}/>, desc: 'Surface temperature' },
   { id: 'clouds', label: 'Clouds', icon: <Cloud size={13}/>,       desc: 'Cloud cover' },
 ];
-
-// Default map center (same as MapView default)
-const DEFAULT_LAT = 46.12;
-const DEFAULT_LON = 14.80;
-const DEFAULT_ZOOM = 7;
 
 function buildWindyUrl(lat, lon, zoom, overlay) {
   const params = new URLSearchParams({
@@ -37,13 +33,10 @@ function buildWindyUrl(lat, lon, zoom, overlay) {
 }
 
 export default function WeatherView({ visible }) {
-  const { weatherLat, weatherLon, weatherZoom } = useSite();
+  const { geocodeCountry } = useSite();
   const [overlay, setOverlay] = useState('radar');
 
-  const lat  = parseFloat(weatherLat)  || DEFAULT_LAT;
-  const lon  = parseFloat(weatherLon)  || DEFAULT_LON;
-  const zoom = parseInt(weatherZoom)   || DEFAULT_ZOOM;
-
+  const { lat, lon, zoom } = getCountryCenter(geocodeCountry);
   const src = useMemo(() => buildWindyUrl(lat, lon, zoom, overlay), [lat, lon, zoom, overlay]);
 
   return (
