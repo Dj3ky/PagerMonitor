@@ -142,6 +142,7 @@ export default function WeatherView({ visible, locationSharing }) {
             key={iframeSrc}
             src={iframeSrc}
             title="Windy weather radar"
+            allow="geolocation; fullscreen"
             style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
             allowFullScreen
           />
