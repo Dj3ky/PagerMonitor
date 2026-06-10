@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
@@ -38,32 +38,33 @@ export default function WeatherView({ visible, locationSharing }) {
   const { geocodeCountry } = useSite();
   const [overlay, setOverlay] = useState('radar');
 
-  const countryCenter = getCountryCenter(geocodeCountry);
+  const countryCenter = useMemo(() => getCountryCenter(geocodeCountry), [geocodeCountry]);
 
   // Use position from the shared hook if available
   const userPos  = locationSharing?.position ?? null;  // { lat, lng }
   const geoState = locationSharing?.state    ?? 'idle';
 
-  const centerLat  = userPos ? userPos.lat : countryCenter.lat;
-  const centerLon  = userPos ? userPos.lng : countryCenter.lon;
-  const centerZoom = userPos ? 10          : countryCenter.zoom;
-
-  // Only commit to a Windy URL once we have a definitive location state.
-  // While waiting (hook is auto-resuming a previously-granted permission),
-  // keep iframeSrc null so the iframe never loads with the country-center dot.
+  // Only build the Windy URL when we have a definitive state.
+  // Requiring BOTH geoState==='active' AND userPos truthy guards against the
+  // batching race where setState('active') fires before setPosition({lat,lng}).
   const [iframeSrc, setIframeSrc] = useState(null);
   useEffect(() => {
-    const pref = localStorage.getItem('pm_location_prompt');
-    if (geoState === 'asking' || (geoState === 'idle' && !userPos && pref === 'granted')) {
+    if (geoState === 'active' && userPos) {
+      // Real position available — center Windy on user's GPS coords
+      const url = buildWindyUrl(userPos.lat, userPos.lng, 10, overlay, userPos.lat, userPos.lng);
+      setIframeSrc(prev => prev === url ? prev : url);
+    } else if (
+      geoState === 'denied' ||
+      (geoState === 'idle' && localStorage.getItem('pm_location_prompt') !== 'granted')
+    ) {
+      // Location refused or never asked — use country center (dot will be there)
+      const url = buildWindyUrl(countryCenter.lat, countryCenter.lon, countryCenter.zoom, overlay, null, null);
+      setIframeSrc(prev => prev === url ? prev : url);
+    } else {
+      // Still waiting for position (asking / idle+granted / active+noPos) — hold iframe
       setIframeSrc(null);
-      return;
     }
-    const url = buildWindyUrl(
-      centerLat, centerLon, centerZoom, overlay,
-      userPos?.lat ?? null, userPos?.lng ?? null,
-    );
-    setIframeSrc(prev => prev === url ? prev : url);
-  }, [geoState, userPos, centerLat, centerLon, centerZoom, overlay]);
+  }, [geoState, userPos, countryCenter, overlay]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
