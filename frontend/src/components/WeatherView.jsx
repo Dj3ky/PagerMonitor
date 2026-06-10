@@ -119,7 +119,16 @@ export default function WeatherView({ visible, locationSharing }) {
 
       {/* Windy iframe */}
       <div style={{ flex: 1, position: 'relative' }}>
-        {visible && (
+        {visible && geoState === 'asking' ? (
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'center',
+            height:'100%', flexDirection:'column', gap:'0.75rem',
+            color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem' }}>
+            <div style={{ width:'24px', height:'24px', borderRadius:'50%',
+              border:'3px solid var(--bg-4)', borderTopColor:'var(--accent-green)',
+              animation:'spin 0.8s linear infinite' }} />
+            Waiting for location…
+          </div>
+        ) : visible ? (
           <iframe
             key={src}
             src={src}
@@ -127,7 +136,7 @@ export default function WeatherView({ visible, locationSharing }) {
             style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
             allowFullScreen
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
