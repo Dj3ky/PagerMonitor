@@ -5,7 +5,35 @@ import { useSite } from '../../context/SiteContext.jsx';
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const getToken = () => localStorage.getItem('pm_token') || '';
 
-const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si', locale: 'sl-SI', hour12: false, windyApiKey: '' };
+const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si', locale: 'sl-SI', hour12: false, timezone: 'Europe/Ljubljana', windyApiKey: '' };
+
+const TIMEZONES = [
+  { value: 'Europe/Ljubljana',  label: 'Europe/Ljubljana (CET/CEST)' },
+  { value: 'Europe/Zagreb',     label: 'Europe/Zagreb (CET/CEST)' },
+  { value: 'Europe/Belgrade',   label: 'Europe/Belgrade (CET/CEST)' },
+  { value: 'Europe/Budapest',   label: 'Europe/Budapest (CET/CEST)' },
+  { value: 'Europe/Vienna',     label: 'Europe/Vienna (CET/CEST)' },
+  { value: 'Europe/Berlin',     label: 'Europe/Berlin (CET/CEST)' },
+  { value: 'Europe/Paris',      label: 'Europe/Paris (CET/CEST)' },
+  { value: 'Europe/Rome',       label: 'Europe/Rome (CET/CEST)' },
+  { value: 'Europe/Prague',     label: 'Europe/Prague (CET/CEST)' },
+  { value: 'Europe/Warsaw',     label: 'Europe/Warsaw (CET/CEST)' },
+  { value: 'Europe/Bratislava', label: 'Europe/Bratislava (CET/CEST)' },
+  { value: 'Europe/Amsterdam',  label: 'Europe/Amsterdam (CET/CEST)' },
+  { value: 'Europe/Bucharest',  label: 'Europe/Bucharest (EET/EEST)' },
+  { value: 'Europe/Athens',     label: 'Europe/Athens (EET/EEST)' },
+  { value: 'Europe/Sofia',      label: 'Europe/Sofia (EET/EEST)' },
+  { value: 'Europe/Helsinki',   label: 'Europe/Helsinki (EET/EEST)' },
+  { value: 'Europe/London',     label: 'Europe/London (GMT/BST)' },
+  { value: 'Europe/Lisbon',     label: 'Europe/Lisbon (WET/WEST)' },
+  { value: 'UTC',               label: 'UTC' },
+  { value: 'America/New_York',  label: 'America/New_York (EST/EDT)' },
+  { value: 'America/Chicago',   label: 'America/Chicago (CST/CDT)' },
+  { value: 'America/Denver',    label: 'America/Denver (MST/MDT)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (PST/PDT)' },
+  { value: 'Australia/Sydney',  label: 'Australia/Sydney (AEST/AEDT)' },
+  { value: 'Asia/Tokyo',        label: 'Asia/Tokyo (JST)' },
+];
 
 const LOCALES = [
   { value: 'sl-SI', label: 'sl-SI — Slovenian' },
@@ -68,6 +96,7 @@ export default function SiteSettings({ onResetMap }) {
   const [geocodeCountry, setGeocodeCountry] = useState(DEFAULTS.geocodeCountry);
   const [locale, setLocale]                 = useState(DEFAULTS.locale);
   const [hour12, setHour12]                 = useState(DEFAULTS.hour12);
+  const [timezone, setTimezone]             = useState(DEFAULTS.timezone);
   const [publicMode, setPublicMode]         = useState(DEFAULTS.publicMode);
   const [windyApiKey, setWindyApiKey]       = useState(DEFAULTS.windyApiKey);
   const [savingMap,     setSavingMap]     = useState(false);
@@ -100,6 +129,7 @@ export default function SiteSettings({ onResetMap }) {
         setGeocodeCountry(d.geocodeCountry || DEFAULTS.geocodeCountry);
         setLocale(d.locale || DEFAULTS.locale);
         setHour12(!!d.hour12);
+        setTimezone(d.timezone || DEFAULTS.timezone);
         setPublicMode(!!d.publicMode);
         setWindyApiKey(d.windyApiKey || '');
       })
@@ -111,7 +141,7 @@ export default function SiteSettings({ onResetMap }) {
   const flashMap     = (type, text) => { setMapMsg({ type, text });     setTimeout(() => setMapMsg(null),     3500); };
   const flashWeather = (type, text) => { setWeatherMsg({ type, text }); setTimeout(() => setWeatherMsg(null), 3500); };
 
-  const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays: mapMaxAgeHours / 24, geocodeCountry, locale, hour12, publicMode, windyApiKey });
+  const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays: mapMaxAgeHours / 24, geocodeCountry, locale, hour12, timezone, publicMode, windyApiKey });
 
   // Save site name/description only
   const saveSite = async () => {
@@ -314,6 +344,20 @@ export default function SiteSettings({ onResetMap }) {
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
             Controls how dates and times are formatted across the app.
             Preview: {new Date().toLocaleString(locale, { hour12, day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }).replace(/\s/g, ' ').trim()}
+          </div>
+        </div>
+
+        <div style={{ marginBottom:'1rem' }}>
+          <label className="pm-label">Server timezone (used in notifications)</label>
+          <select className="pm-input" value={timezone} onChange={e => setTimezone(e.target.value)}
+            style={{ fontFamily:'monospace' }}>
+            {TIMEZONES.map(tz => (
+              <option key={tz.value} value={tz.value}>{tz.label}</option>
+            ))}
+          </select>
+          <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
+            Timezone used when formatting times in email and push notifications.
+            Current time: {new Date().toLocaleTimeString(locale, { timeZone: timezone, hour12, hour:'2-digit', minute:'2-digit', second:'2-digit' })}
           </div>
         </div>
 

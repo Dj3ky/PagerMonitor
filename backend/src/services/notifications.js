@@ -2,6 +2,7 @@
 
 const logger = require('../utils/logger');
 const { getNotifConfig, saveNotifConfig, getNotifFilter } = require('./config');
+const { formatTs } = require('../utils/time');
 const { sendMqtt, disconnectMqtt } = require('./mqtt');
 
 let config = null;
@@ -67,9 +68,7 @@ function buildParts(msg) {
   const mapsUrl   = hasCoords
     ? `https://www.google.com/maps?q=${msg.lat},${msg.lng}`
     : null;
-  const rawTs = msg.timestamp || '';
-  const d  = new Date((!rawTs.includes('T') && !rawTs.endsWith('Z')) ? rawTs.replace(' ', 'T') + 'Z' : rawTs);
-  const ts = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  const ts = formatTs(msg.timestamp);
   return { alias, group, hasCoords, mapsUrl, ts };
 }
 
