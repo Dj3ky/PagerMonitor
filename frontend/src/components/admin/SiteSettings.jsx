@@ -70,8 +70,10 @@ export default function SiteSettings({ onResetMap }) {
   const [hour12, setHour12]                 = useState(DEFAULTS.hour12);
   const [publicMode, setPublicMode]         = useState(DEFAULTS.publicMode);
   const [windyApiKey, setWindyApiKey]       = useState(DEFAULTS.windyApiKey);
-  const [savingMap, setSavingMap]       = useState(false);
-  const [mapMsg, setMapMsg]             = useState(null);
+  const [savingMap,     setSavingMap]     = useState(false);
+  const [mapMsg,        setMapMsg]        = useState(null);
+  const [savingWeather, setSavingWeather] = useState(false);
+  const [weatherMsg,    setWeatherMsg]    = useState(null);
 
   const [fetching,   setFetching]   = useState(false);
   const [fetchLog,   setFetchLog]   = useState([]);
@@ -106,7 +108,8 @@ export default function SiteSettings({ onResetMap }) {
 
   const flashSite  = (type, text) => { setSiteMsg({ type, text });  setTimeout(() => setSiteMsg(null),  3500); };
   const flashBadge = (type, text) => { setBadgeMsg({ type, text }); setTimeout(() => setBadgeMsg(null), 3500); };
-  const flashMap   = (type, text) => { setMapMsg({ type, text });   setTimeout(() => setMapMsg(null),   3500); };
+  const flashMap     = (type, text) => { setMapMsg({ type, text });     setTimeout(() => setMapMsg(null),     3500); };
+  const flashWeather = (type, text) => { setWeatherMsg({ type, text }); setTimeout(() => setWeatherMsg(null), 3500); };
 
   const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays: mapMaxAgeHours / 24, geocodeCountry, locale, hour12, publicMode, windyApiKey });
 
@@ -141,6 +144,17 @@ export default function SiteSettings({ onResetMap }) {
       flashMap('ok', 'Map settings saved');
     } catch (e) { flashMap('err', e.message); }
     finally { setSavingMap(false); }
+  };
+
+  // Save weather / Windy API key only
+  const saveWeather = async () => {
+    setSavingWeather(true);
+    try {
+      await saveSettings(allSettings());
+      updateSite(allSettings());
+      flashWeather('ok', windyApiKey ? 'API key saved — open Weather tab to verify' : 'Reverted to iframe embed');
+    } catch (e) { flashWeather('err', e.message); }
+    finally { setSavingWeather(false); }
   };
 
   const startFetch = async () => {
@@ -504,20 +518,36 @@ export default function SiteSettings({ onResetMap }) {
         </div>
         <div style={{ marginBottom:'1rem' }}>
           <label className="pm-label">Windy API key</label>
-          <input className="pm-input" value={windyApiKey}
-            onChange={e => setWindyApiKey(e.target.value.trim())}
-            placeholder="Leave empty to use embed (iframe) fallback"
-            style={{ fontFamily:'monospace' }} />
-          <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem', lineHeight:1.6 }}>
-            Optional. Get a free key at <a href="https://api.windy.com" target="_blank" rel="noopener noreferrer"
-              style={{ color:'var(--accent-blue)' }}>api.windy.com</a>.
-            With a key the weather map updates your position smoothly without reloading.
-            Without a key it falls back to an iframe embed.
+          <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.4rem' }}>
+            <input className="pm-input" value={windyApiKey}
+              onChange={e => setWindyApiKey(e.target.value.trim())}
+              placeholder="Leave empty to use iframe embed fallback"
+              style={{ fontFamily:'monospace', flex:1 }} />
+            <span style={{
+              fontSize:'0.68rem', fontFamily:'monospace', whiteSpace:'nowrap', flexShrink:0,
+              padding:'0.2rem 0.55rem', borderRadius:'0.35rem',
+              background: windyApiKey
+                ? 'color-mix(in srgb, var(--accent-green) 12%, transparent)'
+                : 'var(--bg-3)',
+              color:  windyApiKey ? 'var(--accent-green)' : 'var(--text-3)',
+              border: windyApiKey
+                ? '1px solid color-mix(in srgb, var(--accent-green) 30%, transparent)'
+                : '1px solid var(--border)',
+            }}>
+              {windyApiKey ? '✓ configured' : 'not set'}
+            </span>
+          </div>
+          <div style={{ fontSize:'0.72rem', color:'var(--text-3)', lineHeight:1.6 }}>
+            Optional. Get a free key at{' '}
+            <a href="https://api.windy.com" target="_blank" rel="noopener noreferrer"
+              style={{ color:'var(--accent-blue)' }}>api.windy.com</a>{' '}
+            → Map forecast API. With a key the map updates smoothly without reloading.
+            Without a key it uses an iframe embed.
           </div>
         </div>
-        <Flash msg={mapMsg} />
-        <button className="pm-btn pm-btn-primary" onClick={saveMap} disabled={savingMap}>
-          <Save size={13}/> {savingMap ? 'Saving…' : 'Save weather settings'}
+        <Flash msg={weatherMsg} />
+        <button className="pm-btn pm-btn-primary" onClick={saveWeather} disabled={savingWeather}>
+          <Save size={13}/> {savingWeather ? 'Saving…' : 'Save weather settings'}
         </button>
       </div>
 

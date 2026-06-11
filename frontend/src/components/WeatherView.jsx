@@ -95,42 +95,46 @@ function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing 
 
 // ── Windy JS API map — no iframe, smooth position updates ─────────────────────
 function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible }) {
-  const windyRef  = useRef(null); // windyAPI instance
-  const markerRef = useRef(null); // Leaflet marker for user position
-  const initRef   = useRef(false);
+  const windyRef     = useRef(null);  // windyAPI instance
+  const markerRef    = useRef(null);  // Leaflet marker for user position
+  const initRef      = useRef(false); // windyInit called?
+  const [scriptReady, setScriptReady] = useState(!!window.windyInit);
 
-  const initLat  = userPos?.lat ?? countryCenter.lat;
-  const initLon  = userPos?.lng ?? countryCenter.lon;
-  const initZoom = userPos ? 10  : countryCenter.zoom;
-
+  // Step 1 — load the Windy script (fire-and-forget, before tab is opened)
   useEffect(() => {
-    const doInit = () => {
-      if (initRef.current) return;
-      initRef.current = true;
-      window.windyInit(
-        { key: windyApiKey, verbose: false, lat: initLat, lon: initLon, zoom: initZoom },
-        (api) => {
-          windyRef.current = api;
-          api.store.set('overlay', overlay);
-        },
-      );
-    };
-
-    if (window.windyInit) {
-      doInit();
-    } else {
-      let s = document.getElementById('windy-api-script');
-      if (!s) {
-        s = document.createElement('script');
-        s.id = 'windy-api-script';
-        s.src = 'https://api.windy.com/assets/map-forecast/libBoot.js';
-        document.head.appendChild(s);
-      }
-      s.addEventListener('load', doInit);
-      return () => s.removeEventListener('load', doInit);
+    if (window.windyInit) { setScriptReady(true); return; }
+    let s = document.getElementById('windy-api-script');
+    if (!s) {
+      s = document.createElement('script');
+      s.id = 'windy-api-script';
+      s.src = 'https://api.windy.com/assets/map-forecast/libBoot.js';
+      document.head.appendChild(s);
     }
+    const onLoad = () => setScriptReady(true);
+    s.addEventListener('load', onLoad);
+    return () => s.removeEventListener('load', onLoad);
+  }, []);
+
+  // Step 2 — init only when the tab is visible AND the script is ready.
+  // windyInit needs the #windy div to have real dimensions; calling it inside a
+  // display:none parent causes Leaflet to size everything as 0×0.
+  useEffect(() => {
+    if (!visible || !scriptReady || initRef.current) return;
+    initRef.current = true;
+    const lat  = userPos?.lat ?? countryCenter.lat;
+    const lon  = userPos?.lng ?? countryCenter.lon;
+    const zoom = userPos ? 10  : countryCenter.zoom;
+    window.windyInit(
+      { key: windyApiKey, verbose: false, lat, lon, zoom },
+      (api) => {
+        windyRef.current = api;
+        api.store.set('overlay', overlay);
+      },
+    );
+  // Only re-run when the two readiness flags change; all other values are
+  // captured once intentionally (initial center is set once, updates via setView).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windyApiKey]);
+  }, [visible, scriptReady]);
 
   // Layer change — no reload needed
   useEffect(() => {
