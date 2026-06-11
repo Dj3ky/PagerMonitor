@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
@@ -10,6 +10,13 @@ const LAYERS = [
   { id: 'temp',   label: 'Temp',   icon: <Thermometer size={13}/>, desc: 'Surface temperature' },
   { id: 'clouds', label: 'Clouds', icon: <Cloud size={13}/>,       desc: 'Cloud cover' },
 ];
+
+function haversineKm(a, b) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lng - a.lng) * rad;
+  const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
+}
 
 function buildWindyUrl(lat, lon, zoom, overlay, userLat, userLon) {
   const params = new URLSearchParams({
@@ -45,20 +52,26 @@ export default function WeatherView({ visible, locationSharing }) {
   const geoState = locationSharing?.state    ?? 'idle';
 
   const [iframeSrc, setIframeSrc] = useState(null);
+  // Track which position the iframe was last loaded with to avoid reloading on GPS jitter
+  const loadedPosRef = useRef(null);
+
   useEffect(() => {
     if (userPos) {
-      // Have a position (cached from last session, or live GPS) — load immediately
-      const url = buildWindyUrl(userPos.lat, userPos.lng, 10, overlay, userPos.lat, userPos.lng);
-      setIframeSrc(prev => prev === url ? prev : url);
+      const prev = loadedPosRef.current;
+      // Only reload if we've never loaded, or moved more than ~500 m
+      const moved = !prev || haversineKm(prev, userPos) > 0.5;
+      if (moved) {
+        const url = buildWindyUrl(userPos.lat, userPos.lng, 10, overlay, userPos.lat, userPos.lng);
+        loadedPosRef.current = userPos;
+        setIframeSrc(url);
+      }
     } else if (
       geoState === 'denied' ||
       (geoState === 'idle' && localStorage.getItem('pm_location_prompt') !== 'granted')
     ) {
-      // No location and none expected — use country center
       const url = buildWindyUrl(countryCenter.lat, countryCenter.lon, countryCenter.zoom, overlay, null, null);
       setIframeSrc(prev => prev === url ? prev : url);
     } else {
-      // First-ever grant: no cache yet, waiting for first GPS fix
       setIframeSrc(null);
     }
   }, [geoState, userPos, countryCenter, overlay]);
