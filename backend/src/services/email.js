@@ -2,6 +2,7 @@
 
 const { getSetting, setSetting } = require('./database');
 const logger = require('../utils/logger');
+const { formatTs } = require('../utils/time');
 
 const EMAIL_DEFAULTS = {
   enabled:  false,
@@ -60,8 +61,7 @@ async function sendEmail({ to, subject, text, html }) {
 }
 
 async function testEmail(to) {
-  const d   = new Date();
-  const ts  = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  const ts  = formatTs(new Date().toISOString());
   const mapsUrl = 'https://www.google.com/maps?q=46.0569,14.5058';
 
   const html = `

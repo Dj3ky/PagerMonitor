@@ -27,9 +27,14 @@ const ARCHIVE_PATH = process.env.ARCHIVE_PATH ||
   path.join(path.dirname(path.resolve(DB_PATH)), 'archive.db');
 
 function localTs() {
-  const d = new Date();
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+  const tz = (getSetting('site_settings', {}).timezone) || 'Europe/Ljubljana';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}-${p.minute}-${p.second}`;
 }
 
 function fmtSize(bytes) {
