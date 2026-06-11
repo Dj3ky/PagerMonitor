@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader } from 'lucide-react';
+import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader, Gauge } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
 
@@ -12,12 +12,11 @@ const LAYERS = [
   { id: 'clouds', label: 'Clouds', icon: <Cloud size={13}/>,       desc: 'Cloud cover' },
 ];
 
-// JS API mode only supports a subset of overlay names — radar/rain don't exist in the API.
-// These are confirmed-valid API overlay names.
+// Windy API key only exposes these three overlays (confirmed via api.store.getAllowed).
 const API_LAYERS = [
-  { id: 'wind',   label: 'Wind',   icon: <Wind size={13}/>,        desc: 'Wind speed & direction' },
-  { id: 'temp',   label: 'Temp',   icon: <Thermometer size={13}/>, desc: 'Surface temperature' },
-  { id: 'clouds', label: 'Clouds', icon: <Cloud size={13}/>,       desc: 'Cloud cover' },
+  { id: 'wind',     label: 'Wind',     icon: <Wind size={13}/>,        desc: 'Wind speed & direction' },
+  { id: 'temp',     label: 'Temp',     icon: <Thermometer size={13}/>, desc: 'Surface temperature' },
+  { id: 'pressure', label: 'Pressure', icon: <Gauge size={13}/>,       desc: 'Surface pressure' },
 ];
 
 // Module-level refs — survive component remounts and cross-effect communication.
@@ -156,8 +155,8 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible, onInitF
     const lat  = userPos?.lat ?? countryCenter.lat;
     const lon  = userPos?.lng ?? countryCenter.lon;
     const zoom = userPos ? 10  : countryCenter.zoom;
-    // Only pass known-valid overlay names; 'wind' is the safe default
-    const API_VALID = new Set(['wind', 'temp', 'clouds', 'pressure', 'gust', 'waves', 'snow', 'thunder', 'cape']);
+    // Only pass overlays confirmed valid for this API key
+    const API_VALID = new Set(['wind', 'temp', 'pressure']);
     const apiOverlay = API_VALID.has(overlay) ? overlay : 'wind';
 
     let cancelled = false;
@@ -191,8 +190,6 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible, onInitF
           windyRef.current = api;
           setReady(true);
           try { api.store.set('overlay', apiOverlay); } catch (_) {}
-          // Log allowed overlays so we can extend API_LAYERS with precipitation
-          try { console.log('[Windy] allowed overlays:', api.store.getAllowed('overlay')); } catch (_) {}
         },
       );
       // windyInit returns a Promise — catch rejections (e.g. gl-particles WebGL failure)
@@ -210,7 +207,7 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible, onInitF
   useEffect(() => {
     const api = windyRef.current;
     if (!api) return;
-    const v = ['wind','temp','clouds','pressure','gust','waves','snow','thunder','cape'].includes(overlay) ? overlay : 'wind';
+    const v = ['wind', 'temp', 'pressure'].includes(overlay) ? overlay : 'wind';
     try { api.store.set('overlay', v); } catch (_) {}
   }, [overlay]);
 
@@ -287,7 +284,7 @@ function IframeEmbed({ visible, userPos, geoState, countryCenter, overlay }) {
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function WeatherView({ visible, locationSharing }) {
   const { geocodeCountry, windyApiKey, settingsLoaded } = useSite();
-  const [overlay, setOverlay]       = useState('wind');
+  const [overlay, setOverlay]       = useState('radar');
   // Persist API failure within the session — avoids re-trying (and blinking) on refresh.
   // sessionStorage clears on tab close so Windy gets another chance next session.
   const [apiInitFailed, setApiFail] = useState(
