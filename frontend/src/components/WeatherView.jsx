@@ -103,10 +103,11 @@ function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing 
 }
 
 // ── Windy JS API map — no iframe, smooth position updates ─────────────────────
-function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible }) {
-  const windyRef  = useRef(null);  // windyAPI instance
-  const markerRef = useRef(null);  // Leaflet marker for user position
-  const initRef   = useRef(false); // windyInit called?
+function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible, onInitFail }) {
+  const windyRef  = useRef(null);   // windyAPI instance
+  const markerRef = useRef(null);   // Leaflet marker for user position
+  const initRef   = useRef(false);  // windyInit called?
+  const [ready, setReady] = useState(false); // true once windyInit callback fires
 
   // Windy's libBoot.js AND its async GL modules (gl-particles etc.) all access
   // window.L expecting Leaflet 1.4.x (.Layer.extend() removed in 1.9.x).
@@ -165,16 +166,26 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible }) {
       // Safety: restore window.L if windyInit never calls back (e.g. API key error)
       const safetyTimer = setTimeout(() => { window.L = _reactL; }, 30_000);
 
-      window.windyInit(
+      const handleFail = () => {
+        clearTimeout(safetyTimer);
+        window.L = _reactL;
+        if (!cancelled) onInitFail?.();
+      };
+
+      const p = window.windyInit(
         { key: windyApiKey, verbose: false, lat, lon, zoom },
         (api) => {
           clearTimeout(safetyTimer);
           window.L = _reactL; // all Windy GL modules loaded — safe to restore
           if (cancelled) return;
           windyRef.current = api;
+          setReady(true);
           try { api.store.set('overlay', apiOverlay); } catch (_) {}
         },
       );
+      // windyInit returns a Promise — catch rejections (e.g. gl-particles WebGL failure)
+      // so they don't surface as unhandled and we can fall back to iframe
+      if (p && typeof p.catch === 'function') p.catch(handleFail);
     };
 
     tryInit();
@@ -212,7 +223,9 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible }) {
     if (visible) requestAnimationFrame(() => windyRef.current?.map?.invalidateSize());
   }, [visible]);
 
-  return <div id="windy" style={{ flex: 1, minHeight: 0 }} />;
+  // Keep the div in DOM (Leaflet measures it) but invisible until windyInit fires.
+  // This prevents the brief Windy logo blink before the fallback kicks in on failure.
+  return <div id="windy" style={{ flex: 1, minHeight: 0, visibility: ready ? 'visible' : 'hidden' }} />;
 }
 
 // ── Iframe embed fallback — used when no API key is configured ────────────────
@@ -261,13 +274,19 @@ function IframeEmbed({ visible, userPos, geoState, countryCenter, overlay }) {
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function WeatherView({ visible, locationSharing }) {
   const { geocodeCountry, windyApiKey, settingsLoaded } = useSite();
-  const [overlay, setOverlay] = useState('radar');
+  const [overlay, setOverlay]       = useState('radar');
+  // Persist API failure within the session — avoids re-trying (and blinking) on refresh.
+  // sessionStorage clears on tab close so Windy gets another chance next session.
+  const [apiInitFailed, setApiFail] = useState(
+    () => sessionStorage.getItem('pm_windy_api_failed') === '1'
+  );
 
   const countryCenter = useMemo(() => getCountryCenter(geocodeCountry), [geocodeCountry]);
   const userPos  = locationSharing?.position ?? null;
   const geoState = locationSharing?.state    ?? 'idle';
 
-  const useApi = settingsLoaded && !!windyApiKey;
+  // useApi: attempt the JS API only when we have a key and init hasn't failed yet
+  const useApi = settingsLoaded && !!windyApiKey && !apiInitFailed;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
@@ -281,6 +300,10 @@ export default function WeatherView({ visible, locationSharing }) {
           countryCenter={countryCenter}
           overlay={overlay}
           visible={visible}
+          onInitFail={() => {
+            sessionStorage.setItem('pm_windy_api_failed', '1');
+            setApiFail(true);
+          }}
         />
       ) : (
         <IframeEmbed
