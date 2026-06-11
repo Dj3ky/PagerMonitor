@@ -98,22 +98,39 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible }) {
   const windyRef  = useRef(null);  // windyAPI instance
   const markerRef = useRef(null);  // Leaflet marker for user position
   const initRef   = useRef(false); // windyInit called?
+  const l14Ref    = useRef(null);  // Leaflet 1.4.x instance (needed by Windy)
 
-  // Fetch the boot script early (before the tab is opened) so Windy is ready
-  // when the user navigates here. libBoot.js checks window.L *synchronously*
-  // during script execution, so we must hide our react-leaflet Leaflet BEFORE
-  // appending the tag, then restore it once the script has captured its own ref.
+  // Windy's libBoot.js requires Leaflet 1.4.x at window.L — it reads window.L
+  // synchronously (version check + Layer class access) when the script executes.
+  // Strategy: load Leaflet 1.4.0 first, capture it, then load libBoot.js while
+  // 1.4.x is still in window.L, then restore our react-leaflet 1.9.x.
   useEffect(() => {
-    if (document.getElementById('windy-api-script')) return;
-    const savedL = window.L;
-    window.L = undefined;
-    const s = document.createElement('script');
-    s.id  = 'windy-api-script';
-    s.src = 'https://api.windy.com/assets/map-forecast/libBoot.js';
-    const restore = () => { window.L = savedL; };
-    s.addEventListener('load',  restore);
-    s.addEventListener('error', restore);
-    document.head.appendChild(s);
+    if (document.getElementById('windy-api-script')) {
+      // Already loaded — l14Ref may have been set by a previous mount; if not,
+      // fall back to whatever L is in window (basic marker API is compatible).
+      if (!l14Ref.current) l14Ref.current = window.L;
+      return;
+    }
+
+    const savedL = window.L; // react-leaflet 1.9.x
+
+    const lf = document.createElement('script');
+    lf.id  = 'windy-leaflet14';
+    lf.src = 'https://unpkg.com/leaflet@1.4.0/dist/leaflet.js';
+    lf.addEventListener('load', () => {
+      l14Ref.current = window.L; // capture 1.4.x before anything restores it
+
+      // window.L is now 1.4.x — load libBoot.js immediately so it sees 1.4.x
+      const s = document.createElement('script');
+      s.id  = 'windy-api-script';
+      s.src = 'https://api.windy.com/assets/map-forecast/libBoot.js';
+      const restore = () => { window.L = savedL; };
+      s.addEventListener('load',  restore);
+      s.addEventListener('error', restore);
+      document.head.appendChild(s);
+    });
+    lf.addEventListener('error', () => { window.L = savedL; });
+    document.head.appendChild(lf);
   }, []);
 
   // Init when the tab becomes visible for the first time.
@@ -129,23 +146,18 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible }) {
 
     let cancelled = false;
     let timer;
+    let attempts = 0;
 
     const tryInit = () => {
       if (cancelled || initRef.current) return;
       if (typeof window.windyInit !== 'function') {
-        timer = setTimeout(tryInit, 100);
+        if (++attempts < 150) timer = setTimeout(tryInit, 100);
         return;
       }
       initRef.current = true;
-      // Belt-and-suspenders: hide our react-leaflet L in case windyInit also
-      // does a version check internally. The main fix is in the script-load
-      // effect above (clearing window.L before libBoot.js executes).
-      const savedL = window.L;
-      window.L = undefined;
       window.windyInit(
         { key: windyApiKey, verbose: false, lat, lon, zoom },
         (api) => {
-          window.L = savedL;
           if (cancelled) return;
           windyRef.current = api;
           api.store.set('overlay', overlay);
@@ -171,13 +183,16 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible }) {
     api.map.setView([userPos.lat, userPos.lng], api.map.getZoom());
     if (markerRef.current) {
       markerRef.current.setLatLng([userPos.lat, userPos.lng]);
-    } else if (window.L) {
-      const icon = window.L.divIcon({
-        className: '',
-        html: '<div style="width:14px;height:14px;background:#3b82f6;border:2.5px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(59,130,246,.7)"></div>',
-        iconSize: [14, 14], iconAnchor: [7, 7],
-      });
-      markerRef.current = window.L.marker([userPos.lat, userPos.lng], { icon }).addTo(api.map);
+    } else {
+      const L = l14Ref.current;
+      if (L) {
+        const icon = L.divIcon({
+          className: '',
+          html: '<div style="width:14px;height:14px;background:#3b82f6;border:2.5px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(59,130,246,.7)"></div>',
+          iconSize: [14, 14], iconAnchor: [7, 7],
+        });
+        markerRef.current = L.marker([userPos.lat, userPos.lng], { icon }).addTo(api.map);
+      }
     }
   }, [userPos]);
 
