@@ -3,6 +3,7 @@ import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader } from 
 import { useSite } from '../context/SiteContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
 
+// Iframe embed layers (radar is real-time data, works great in iframe mode)
 const LAYERS = [
   { id: 'radar',  label: 'Radar',  icon: <Radar size={13}/>,       desc: 'Precipitation radar' },
   { id: 'rain',   label: 'Rain',   icon: <CloudRain size={13}/>,   desc: 'Rain forecast' },
@@ -11,10 +12,13 @@ const LAYERS = [
   { id: 'clouds', label: 'Clouds', icon: <Cloud size={13}/>,       desc: 'Cloud cover' },
 ];
 
-// Windy JS API overlay names differ from iframe embed.
-// 'radar' and 'rain' are not valid API overlays; map to the closest equivalents.
-// Valid API overlays: wind, temp, clouds, pressure, gust, rainAccu, snowAccu, thunder, waves, cape
-const API_OVERLAY = { radar: 'rainAccu', rain: 'rainAccu', wind: 'wind', temp: 'temp', clouds: 'clouds' };
+// JS API mode only supports a subset of overlay names — radar/rain don't exist in the API.
+// These are confirmed-valid API overlay names.
+const API_LAYERS = [
+  { id: 'wind',   label: 'Wind',   icon: <Wind size={13}/>,        desc: 'Wind speed & direction' },
+  { id: 'temp',   label: 'Temp',   icon: <Thermometer size={13}/>, desc: 'Surface temperature' },
+  { id: 'clouds', label: 'Clouds', icon: <Cloud size={13}/>,       desc: 'Cloud cover' },
+];
 
 // Module-level refs — survive component remounts and cross-effect communication.
 // Captures are done once; cleared on page reload.
@@ -44,7 +48,7 @@ function buildWindyUrl(lat, lon, zoom, overlay, userLat, userLon) {
 }
 
 // Shared toolbar used by both API and iframe modes
-function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing }) {
+function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing, layers }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: '0.4rem',
@@ -52,7 +56,7 @@ function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing 
       background: 'var(--bg-1)', flexShrink: 0, flexWrap: 'wrap',
     }}>
       <span style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginRight: '0.2rem', whiteSpace: 'nowrap' }}>Layer:</span>
-      {LAYERS.map(l => (
+      {layers.map(l => (
         <button key={l.id} title={l.desc} onClick={() => onOverlayChange(l.id)}
           style={{
             display: 'flex', alignItems: 'center', gap: '0.3rem',
@@ -149,10 +153,12 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible, onInitF
   useEffect(() => {
     if (!visible || initRef.current) return;
 
-    const lat        = userPos?.lat ?? countryCenter.lat;
-    const lon        = userPos?.lng ?? countryCenter.lon;
-    const zoom       = userPos ? 10  : countryCenter.zoom;
-    const apiOverlay = API_OVERLAY[overlay] ?? 'wind';
+    const lat  = userPos?.lat ?? countryCenter.lat;
+    const lon  = userPos?.lng ?? countryCenter.lon;
+    const zoom = userPos ? 10  : countryCenter.zoom;
+    // Only pass known-valid overlay names; 'wind' is the safe default
+    const API_VALID = new Set(['wind', 'temp', 'clouds', 'pressure', 'gust', 'waves', 'snow', 'thunder', 'cape']);
+    const apiOverlay = API_VALID.has(overlay) ? overlay : 'wind';
 
     let cancelled = false;
     let timer;
@@ -185,6 +191,8 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible, onInitF
           windyRef.current = api;
           setReady(true);
           try { api.store.set('overlay', apiOverlay); } catch (_) {}
+          // Log allowed overlays so we can extend API_LAYERS with precipitation
+          try { console.log('[Windy] allowed overlays:', api.store.getAllowed('overlay')); } catch (_) {}
         },
       );
       // windyInit returns a Promise — catch rejections (e.g. gl-particles WebGL failure)
@@ -202,7 +210,8 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible, onInitF
   useEffect(() => {
     const api = windyRef.current;
     if (!api) return;
-    try { api.store.set('overlay', API_OVERLAY[overlay] ?? 'wind'); } catch (_) {}
+    const v = ['wind','temp','clouds','pressure','gust','waves','snow','thunder','cape'].includes(overlay) ? overlay : 'wind';
+    try { api.store.set('overlay', v); } catch (_) {}
   }, [overlay]);
 
   // Position update — smooth pan, no reload
@@ -295,7 +304,8 @@ export default function WeatherView({ visible, locationSharing }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
       <Toolbar overlay={overlay} onOverlayChange={setOverlay}
-        geoState={geoState} userPos={userPos} locationSharing={locationSharing} />
+        geoState={geoState} userPos={userPos} locationSharing={locationSharing}
+        layers={useApi ? API_LAYERS : LAYERS} />
 
       {useApi ? (
         <ApiMap
