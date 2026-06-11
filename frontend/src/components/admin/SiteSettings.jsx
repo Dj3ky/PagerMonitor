@@ -5,7 +5,7 @@ import { useSite } from '../../context/SiteContext.jsx';
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const getToken = () => localStorage.getItem('pm_token') || '';
 
-const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si', locale: 'sl-SI', hour12: false };
+const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si', locale: 'sl-SI', hour12: false, windyApiKey: '' };
 
 const LOCALES = [
   { value: 'sl-SI', label: 'sl-SI — Slovenian' },
@@ -69,6 +69,7 @@ export default function SiteSettings({ onResetMap }) {
   const [locale, setLocale]                 = useState(DEFAULTS.locale);
   const [hour12, setHour12]                 = useState(DEFAULTS.hour12);
   const [publicMode, setPublicMode]         = useState(DEFAULTS.publicMode);
+  const [windyApiKey, setWindyApiKey]       = useState(DEFAULTS.windyApiKey);
   const [savingMap, setSavingMap]       = useState(false);
   const [mapMsg, setMapMsg]             = useState(null);
 
@@ -98,6 +99,7 @@ export default function SiteSettings({ onResetMap }) {
         setLocale(d.locale || DEFAULTS.locale);
         setHour12(!!d.hour12);
         setPublicMode(!!d.publicMode);
+        setWindyApiKey(d.windyApiKey || '');
       })
       .catch(console.warn);
   }, []);
@@ -106,7 +108,7 @@ export default function SiteSettings({ onResetMap }) {
   const flashBadge = (type, text) => { setBadgeMsg({ type, text }); setTimeout(() => setBadgeMsg(null), 3500); };
   const flashMap   = (type, text) => { setMapMsg({ type, text });   setTimeout(() => setMapMsg(null),   3500); };
 
-  const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays: mapMaxAgeHours / 24, geocodeCountry, locale, hour12, publicMode });
+  const allSettings = () => ({ ...siteForm, newBadgeSeconds: badgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays: mapMaxAgeHours / 24, geocodeCountry, locale, hour12, publicMode, windyApiKey });
 
   // Save site name/description only
   const saveSite = async () => {
@@ -494,6 +496,30 @@ export default function SiteSettings({ onResetMap }) {
         </button>
 
       </div>{/* end map card */}
+
+      {/* ── Block: Windy API key ─────────────────────────────── */}
+      <div className="pm-card" style={{ marginTop:'1rem' }}>
+        <div className="pm-section-title">
+          <span>🌦</span> Weather map (Windy API)
+        </div>
+        <div style={{ marginBottom:'1rem' }}>
+          <label className="pm-label">Windy API key</label>
+          <input className="pm-input" value={windyApiKey}
+            onChange={e => setWindyApiKey(e.target.value.trim())}
+            placeholder="Leave empty to use embed (iframe) fallback"
+            style={{ fontFamily:'monospace' }} />
+          <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem', lineHeight:1.6 }}>
+            Optional. Get a free key at <a href="https://api.windy.com" target="_blank" rel="noopener noreferrer"
+              style={{ color:'var(--accent-blue)' }}>api.windy.com</a>.
+            With a key the weather map updates your position smoothly without reloading.
+            Without a key it falls back to an iframe embed.
+          </div>
+        </div>
+        <Flash msg={mapMsg} />
+        <button className="pm-btn pm-btn-primary" onClick={saveMap} disabled={savingMap}>
+          <Save size={13}/> {savingMap ? 'Saving…' : 'Save weather settings'}
+        </button>
+      </div>
 
       {/* ── Block 4: Public read-only mode ───────────────────── */}
       <div className="pm-card" style={{ marginTop:'1rem', borderColor: publicMode ? 'color-mix(in srgb, var(--accent-amber) 40%, var(--border))' : 'var(--border)' }}>
