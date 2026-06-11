@@ -276,8 +276,7 @@ function IframeEmbed({ visible, userPos, geoState, countryCenter, overlay }) {
   return (
     <iframe key={iframeSrc} src={iframeSrc} title="Windy weather radar"
       allow="geolocation; fullscreen"
-      style={{ flex:1, width:'100%', border:'none', display:'block' }}
-      allowFullScreen />
+      style={{ flex:1, width:'100%', border:'none', display:'block' }} />
   );
 }
 
