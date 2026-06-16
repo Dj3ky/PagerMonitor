@@ -279,6 +279,13 @@ router.put('/aliases/:capcode', (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+router.delete('/aliases', adminOnly, (req, res) => {
+  try {
+    const info = getDb().prepare('DELETE FROM aliases').run();
+    addAuditLog(req.session?.username||'admin', 'alias.delete_all', `count=${info.changes}`);
+    res.json({ ok: true, deleted: info.changes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 router.delete('/aliases/:capcode', (req, res) => {
   try {
     deleteAlias(req.params.capcode);
@@ -313,7 +320,7 @@ router.post('/aliases/import', express.text({ type: 'text/csv', limit: '1mb' }),
       const vals = parseCsvLine(line);
       const row  = {};
       cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
-      if (row.capcode) rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'' });
+      if (row.capcode) rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'', group_id: row.group_id||null });
       else skipped++;
     }
     bulkUpsertAliases(rows);

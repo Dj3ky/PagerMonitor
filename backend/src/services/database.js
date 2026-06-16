@@ -403,9 +403,9 @@ function upsertAlias(capcode, name, color, notes, group_id, row_color, row_sound
 }
 function deleteAlias(capcode) { getDb().prepare('DELETE FROM aliases WHERE capcode=?').run(normCapcode(capcode)); }
 function bulkUpsertAliases(rows) {
-  const stmt = getDb().prepare(`INSERT INTO aliases (capcode, name, color, notes) VALUES (?, ?, ?, ?)
-    ON CONFLICT(capcode) DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes`);
-  getDb().transaction(rows => { for (const r of rows) stmt.run(normCapcode(r.capcode), r.name, r.color || '#4ade80', r.notes || null); })(rows);
+  const stmt = getDb().prepare(`INSERT INTO aliases (capcode, name, color, notes, group_id) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(capcode) DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes, group_id=excluded.group_id`);
+  getDb().transaction(rows => { for (const r of rows) stmt.run(normCapcode(r.capcode), r.name, r.color || '#4ade80', r.notes || null, r.group_id || null); })(rows);
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────

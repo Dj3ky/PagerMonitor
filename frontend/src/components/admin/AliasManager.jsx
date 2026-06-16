@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { Tag, Trash2, Save, Pencil, X, Upload, Download } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
-import { adminFetchAliases, adminSaveAlias, adminDeleteAlias,
+import { adminFetchAliases, adminSaveAlias, adminDeleteAlias, adminDeleteAllAliases,
          adminFetchGroups, adminExportAliasesCsv, adminImportAliasesCsv } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 
@@ -63,6 +63,12 @@ export default function AliasManager() {
 
   const handleExport = () => adminExportAliasesCsv().catch(e => flash('err', e.message));
 
+  const handleDeleteAll = async () => {
+    if (!confirm(`Delete all ${aliases.length} aliases? This cannot be undone.`)) return;
+    try { const r = await adminDeleteAllAliases(); flash('ok', `Deleted ${r.deleted} aliases`); reload(); }
+    catch (e) { flash('err', e.message); }
+  };
+
   const handleImport = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -85,6 +91,7 @@ export default function AliasManager() {
         <div style={{ display:'flex', gap:'0.5rem' }}>
           <button className="pm-btn" onClick={handleExport} style={{ fontSize:'0.75rem' }}><Download size={12} /> Export CSV</button>
           <button className="pm-btn" onClick={() => fileRef.current?.click()} style={{ fontSize:'0.75rem' }}><Upload size={12} /> Import CSV</button>
+          {aliases.length > 0 && <button className="pm-btn" onClick={handleDeleteAll} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}><Trash2 size={12} /> Delete All</button>}
           <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={handleImport} />
         </div>
       </div>

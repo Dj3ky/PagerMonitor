@@ -62,6 +62,7 @@ export const adminSaveGroup       = (id, body) => id ? A('PUT', `/admin/groups/$
 export const adminDeleteGroup     = id   => A('DELETE', `/admin/groups/${id}`);
 export const adminSaveAlias       = (capcode, body) => A('PUT', `/admin/aliases/${capcode}`, body);
 export const adminDeleteAlias     = capcode => A('DELETE', `/admin/aliases/${capcode}`);
+export const adminDeleteAllAliases = () => A('DELETE', '/admin/aliases');
 
 // Blob downloads (need auth header)
 function authDownload(path, filename) {
