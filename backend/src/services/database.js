@@ -276,6 +276,17 @@ function _migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
   `);
+
+  // Strip leading zeros from numeric alias capcodes so they match decoder output.
+  // Decoders (multimon-ng) emit addresses as plain integers with no leading zeros.
+  const stripped = db.prepare(`
+    UPDATE aliases
+    SET capcode = CAST(CAST(capcode AS INTEGER) AS TEXT)
+    WHERE capcode LIKE '0%'
+      AND capcode != '0'
+      AND capcode NOT GLOB '*[^0-9]*'
+  `).run();
+  if (stripped.changes > 0) logger.info(`Migration: stripped leading zeros from ${stripped.changes} alias capcode(s)`);
 }
 
 function getDb() {
@@ -379,18 +390,22 @@ function getAliases() {
     FROM aliases a LEFT JOIN groups g ON g.id = a.group_id ORDER BY a.capcode
   `).all();
 }
+// Capcodes are plain integers from the decoder (no leading zeros). Strip leading zeros
+// from user-supplied values so aliases always match decoded messages.
+const normCapcode = c => /^\d+$/.test(c) ? String(parseInt(c, 10)) : c;
+
 function upsertAlias(capcode, name, color, notes, group_id, row_color, row_sound) {
   getDb().prepare(`
     INSERT INTO aliases (capcode, name, color, notes, group_id, row_color, row_sound) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(capcode) DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes,
       group_id=excluded.group_id, row_color=excluded.row_color, row_sound=excluded.row_sound
-  `).run(capcode, name, color || '#4ade80', notes || null, group_id || null, row_color || null, row_sound || null);
+  `).run(normCapcode(capcode), name, color || '#4ade80', notes || null, group_id || null, row_color || null, row_sound || null);
 }
-function deleteAlias(capcode) { getDb().prepare('DELETE FROM aliases WHERE capcode=?').run(capcode); }
+function deleteAlias(capcode) { getDb().prepare('DELETE FROM aliases WHERE capcode=?').run(normCapcode(capcode)); }
 function bulkUpsertAliases(rows) {
   const stmt = getDb().prepare(`INSERT INTO aliases (capcode, name, color, notes) VALUES (?, ?, ?, ?)
     ON CONFLICT(capcode) DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes`);
-  getDb().transaction(rows => { for (const r of rows) stmt.run(r.capcode, r.name, r.color || '#4ade80', r.notes || null); })(rows);
+  getDb().transaction(rows => { for (const r of rows) stmt.run(normCapcode(r.capcode), r.name, r.color || '#4ade80', r.notes || null); })(rows);
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────

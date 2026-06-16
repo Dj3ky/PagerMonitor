@@ -7,7 +7,8 @@
 function resolveAlias(capcode) {
   try {
     const { getDb } = require('../services/database');
-    const row = getDb().prepare('SELECT name FROM aliases WHERE capcode = ?').get(capcode);
+    const norm = /^\d+$/.test(capcode) ? String(parseInt(capcode, 10)) : capcode;
+    const row = getDb().prepare('SELECT name FROM aliases WHERE capcode = ?').get(norm);
     return row ? row.name : null;
   } catch (_) {
     return null;

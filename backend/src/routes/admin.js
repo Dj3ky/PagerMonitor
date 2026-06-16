@@ -304,19 +304,20 @@ router.get('/aliases/export', (_req, res) => {
 // Alias CSV import
 router.post('/aliases/import', express.text({ type: 'text/csv', limit: '1mb' }), (req, res) => {
   try {
-    const lines = req.body.replace(/\r/g, '').split('\n').filter(Boolean);
+    const lines = req.body.replace(/^﻿/, '').replace(/\r/g, '').split('\n').filter(Boolean);
     const header = lines[0].toLowerCase();
     if (!header.includes('capcode')) return res.status(400).json({ error: 'CSV must have capcode column' });
     const cols = header.split(',').map(c => c.replace(/"/g,'').trim());
-    const rows = [];
+    const rows = []; let skipped = 0;
     for (const line of lines.slice(1)) {
       const vals = parseCsvLine(line);
       const row  = {};
       cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
       if (row.capcode) rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'' });
+      else skipped++;
     }
     bulkUpsertAliases(rows);
-    res.json({ ok: true, imported: rows.length });
+    res.json({ ok: true, imported: rows.length, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

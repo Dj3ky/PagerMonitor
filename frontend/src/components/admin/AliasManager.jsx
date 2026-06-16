@@ -69,7 +69,8 @@ export default function AliasManager() {
     try {
       const text = await file.text();
       const r = await adminImportAliasesCsv(text);
-      flash('ok', `Imported ${r.imported ?? 0} aliases`);
+      const skipNote = r.skipped ? `, ${r.skipped} skipped (empty capcode)` : '';
+      flash('ok', `Imported ${r.imported ?? 0} aliases${skipNote}`);
       reload();
     } catch (e) { flash('err', e.message); }
     e.target.value = '';
