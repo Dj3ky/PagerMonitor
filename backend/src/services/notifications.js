@@ -107,10 +107,10 @@ async function sendTelegram(msg, cfg) {
   lines.push(`📟 *${escMd(msg.capcode)}*${alias ? ` — *${escMd(alias)}*` : ''}`);
   if (group) lines.push(`📁 ${escMd(group)}`);
   lines.push('');
-  lines.push(escMd(msg.message || '_(no text)_'));
+  lines.push(msg.message ? escMd(msg.message) : '_(no text)_');
   lines.push('');
-  lines.push(ts);
-  if (mapsUrl) lines.push(`📍 [Open in Google Maps](${mapsUrl})`);
+  lines.push(escMd(ts));
+  if (mapsUrl) lines.push(`📍 [${escMd('Open in Google Maps')}](${escMdLinkUrl(mapsUrl)})`);
 
   const res = await fetch(`https://api.telegram.org/bot${cfg.token}/sendMessage`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -127,6 +127,11 @@ async function sendTelegram(msg, cfg) {
 function escMd(text) {
   // Escape MarkdownV2 special chars
   return String(text || '').replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+}
+
+function escMdLinkUrl(text) {
+  // Inside MarkdownV2 link URLs, Telegram only requires escaping ")" and "\".
+  return String(text || '').replace(/[)\\]/g, '\\$&');
 }
 
 // ── Gotify ────────────────────────────────────────────────────────────────────
