@@ -111,7 +111,7 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
   return (
     <div className="pm-card" style={{ borderLeft:`3px solid ${client.online ? 'var(--accent-green)' : 'var(--border)'}`, marginBottom:'0.75rem' }}>
 
-      {/* Header row */}
+      {/* Identity row — icon, name, IP, actions */}
       <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', flexWrap:'wrap' }}>
         {client.online
           ? <Wifi size={16} style={{ color:'var(--accent-green)', flexShrink:0 }}/>
@@ -145,6 +145,21 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
           {client.ip && <div style={{ fontSize:'0.7rem', color:'var(--text-3)', fontFamily:'monospace' }}>{client.ip}</div>}
         </div>
 
+        <button className="pm-btn" onClick={() => setExpanded(e => !e)} title="Remote config">
+          <Settings2 size={12}/> Config {expanded ? <ChevronUp size={11}/> : <ChevronDown size={11}/>}
+        </button>
+        <button className="pm-btn" onClick={sendUpdate} disabled={updating}
+          title="Send remote update command — runs update.sh on the client"
+          style={{ color: client.pendingCommand === 'update' ? 'var(--accent-amber)' : undefined }}>
+          <Download size={12}/> {updating ? 'Queuing…' : client.pendingCommand === 'update' ? 'Update pending…' : 'Update'}
+        </button>
+        <button className="pm-btn pm-btn-danger" onClick={() => onRemove(client.id)} title="Remove">
+          <Trash2 size={12}/>
+        </button>
+      </div>
+
+      {/* Status row — badges on their own line */}
+      <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', flexWrap:'wrap', marginTop:'0.5rem' }}>
         <span style={{ fontSize:'0.72rem', fontWeight:700, padding:'0.2rem 0.6rem', borderRadius:'0.75rem',
           color: client.online ? 'var(--accent-green)' : 'var(--text-3)',
           background: client.online ? 'color-mix(in srgb,var(--accent-green) 15%,transparent)' : 'var(--bg-3)',
@@ -152,6 +167,24 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
         }}>
           {client.online ? '● ONLINE' : '○ OFFLINE'}
         </span>
+
+        {/* SDR dongle status badge — same pill style as the ONLINE/OFFLINE badge */}
+        {(() => {
+          const sdrOk = client.online && client.sdrRunning !== false;
+          const tip   = client.online
+            ? (sdrOk ? `${client.freq || ''}${client.protocols ? ` · ${client.protocols}` : ''} · dongle active`.trim()
+                     : 'Client online but SDR pipeline is not running')
+            : 'Client offline — last known SDR state unavailable';
+          return (
+            <span title={tip} style={{ fontSize:'0.72rem', fontWeight:700, padding:'0.2rem 0.6rem', borderRadius:'0.75rem',
+              color: sdrOk ? 'var(--accent-green)' : 'var(--text-3)',
+              background: sdrOk ? 'color-mix(in srgb,var(--accent-green) 15%,transparent)' : 'var(--bg-3)',
+              border:`1px solid ${sdrOk ? 'color-mix(in srgb,var(--accent-green) 30%,transparent)' : 'var(--border)'}`,
+            }}>
+              {sdrOk ? '● SDR ACTIVE' : '○ SDR OFFLINE'}
+            </span>
+          );
+        })()}
 
         {/* Update availability badge */}
         {latestSha && client.gitHash && latestSha !== client.gitHash && (
@@ -171,18 +204,6 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
             <GitCommit size={10}/> Up to date
           </span>
         )}
-
-        <button className="pm-btn" onClick={() => setExpanded(e => !e)} title="Remote config">
-          <Settings2 size={12}/> Config {expanded ? <ChevronUp size={11}/> : <ChevronDown size={11}/>}
-        </button>
-        <button className="pm-btn" onClick={sendUpdate} disabled={updating}
-          title="Send remote update command — runs update.sh on the client"
-          style={{ color: client.pendingCommand === 'update' ? 'var(--accent-amber)' : undefined }}>
-          <Download size={12}/> {updating ? 'Queuing…' : client.pendingCommand === 'update' ? 'Update pending…' : 'Update'}
-        </button>
-        <button className="pm-btn pm-btn-danger" onClick={() => onRemove(client.id)} title="Remove">
-          <Trash2 size={12}/>
-        </button>
       </div>
 
       {/* Stats grid */}
