@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { StickyNote, ChevronDown, ChevronRight, MapPin, Trash2, RefreshCw } from 'lucide-react';
+import { StickyNote, ChevronDown, ChevronRight, MapPin, Trash2, RefreshCw, Radio } from 'lucide-react';
 import MessageNotes from './MessageNotes.jsx';
 import { useSite } from '../context/SiteContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -73,6 +73,8 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
   const aliasColor = msg.alias_color || '#4ade80';
   const groupName  = msg.group_name  || msg.parent_group_name;
   const groupColor = msg.group_color || msg.parent_group_color || '#a855f7';
+  // Which remote SDR client this message came from — only set in multi-client setups
+  const clientLabel = msg.client_name || msg.client_id || null;
 
   // Row background color: alias takes priority over group, group over parent group
   const rowColor = msg.alias_row_color || msg.group_row_color || msg.parent_group_row_color || null;
@@ -117,6 +119,14 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             <div style={{ fontSize:'0.65rem', color:'var(--text-2)' }}>{fmtDate(msg.timestamp, locale)}</div>
             <div style={{ fontSize:'0.72rem', color:'var(--text-2)' }}>{fmtTime(msg.timestamp, locale, hour12)}</div>
           </div>
+          {/* Source client — only rendered when the message carries a client id (multi-client setups) */}
+          {clientLabel && (
+            <span title={`From client: ${clientLabel}`}
+              style={{ display:'flex', alignItems:'center', flexShrink:0, lineHeight:1,
+                color:'var(--accent-blue,#3b82f6)', opacity:0.85 }}>
+              <Radio size={12}/>
+            </span>
+          )}
           {/* Capcode */}
           <span onClick={e => { e.stopPropagation(); onFilter?.('capcode', msg.capcode); }}
             title="Click to filter"
@@ -192,6 +202,13 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
               <span style={{ fontSize:'0.62rem', color:'var(--text-2)' }}>{fmtDate(msg.timestamp, locale)} </span>
               <span style={{ fontSize:'0.7rem', color:'var(--text-2)' }}>{fmtTime(msg.timestamp, locale, hour12)}</span>
             </span>
+            {clientLabel && (
+              <span title={`From client: ${clientLabel}`}
+                style={{ display:'flex', alignItems:'center', flexShrink:0, lineHeight:1,
+                  color:'var(--accent-blue,#3b82f6)', opacity:0.85 }}>
+                <Radio size={11}/>
+              </span>
+            )}
             <span onClick={e => { e.stopPropagation(); onFilter?.('capcode', msg.capcode); }}
               style={{ fontFamily:'monospace', fontSize:'0.73rem', fontWeight:700,
                 color:'var(--accent-amber)', flexShrink:0, cursor:'pointer',
@@ -257,8 +274,9 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
               <Field label="Protocol"  v={`${msg.protocol} @ ${msg.baud ?? '?'}bps`} />
               <Field label="Function"  v={msg.funcbits?.toString() ?? '—'} mono />
               <Field label="Date/Time" v={`${fmtDate(msg.timestamp, locale)} ${fmtTime(msg.timestamp, locale, hour12)}`} mono />
-              {alias     && <Field label="Alias" v={alias} />}
-              {groupName && <Field label="Group" v={groupName} />}
+              {alias       && <Field label="Alias"  v={alias} />}
+              {groupName   && <Field label="Group"  v={groupName} />}
+              {clientLabel && <Field label="Source" v={clientLabel} mono={!msg.client_name} />}
               {(geoResult || (msg.lat && msg.lng)) && (
                 <Field label="Location" mono
                   v={geoResult

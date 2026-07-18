@@ -28,11 +28,13 @@ router.get('/history', requireAuth, (req, res) => {
           SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
                  g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
                  pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
+                 c.display_name as client_name,
                  (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
           FROM messages m
           LEFT JOIN aliases a  ON a.capcode = m.capcode
           LEFT JOIN groups  g  ON g.id = a.group_id
           LEFT JOIN groups  pg ON pg.id = g.parent_id
+          LEFT JOIN sdr_clients c ON c.id = m.client_id
           WHERE m.id < ?
           ORDER BY m.id DESC LIMIT ?
         `).all(before, fetchLimit)
@@ -40,11 +42,13 @@ router.get('/history', requireAuth, (req, res) => {
           SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
                  g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
                  pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
+                 c.display_name as client_name,
                  (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
           FROM messages m
           LEFT JOIN aliases a  ON a.capcode = m.capcode
           LEFT JOIN groups  g  ON g.id = a.group_id
           LEFT JOIN groups  pg ON pg.id = g.parent_id
+          LEFT JOIN sdr_clients c ON c.id = m.client_id
           ORDER BY m.id DESC LIMIT ?
         `).all(fetchLimit);
     res.json(rows.filter(r => passesFeedFilter(r)).slice(0, limit));

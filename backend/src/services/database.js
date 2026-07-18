@@ -47,7 +47,8 @@ function initDb() {
       message   TEXT,
       raw       TEXT,
       lat       REAL,
-      lng       REAL
+      lng       REAL,
+      client_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_messages_capcode   ON messages(capcode);
@@ -60,6 +61,23 @@ function initDb() {
       INSERT INTO messages_fts(rowid, message, capcode, alias)
       VALUES (new.id, new.message, new.capcode, new.alias);
     END;
+
+    -- Base columns only — clientTracker.ensureTables() migrates in the rest (display_name, etc.)
+    -- on first client contact. Created here too so messages.client_id can be joined even
+    -- before any remote client has ever connected.
+    CREATE TABLE IF NOT EXISTS sdr_clients (
+      id              TEXT    PRIMARY KEY,
+      first_seen      TEXT    NOT NULL DEFAULT (datetime('now')),
+      last_seen       TEXT    NOT NULL DEFAULT (datetime('now')),
+      message_count   INTEGER NOT NULL DEFAULT 0,
+      messages_today  INTEGER NOT NULL DEFAULT 0,
+      today_date      TEXT    NOT NULL DEFAULT (date('now')),
+      ip              TEXT,
+      freq            TEXT,
+      protocols       TEXT,
+      last_message    TEXT,
+      last_message_ts TEXT
+    );
 
     CREATE TABLE IF NOT EXISTS groups (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,6 +244,10 @@ function _migrate() {
     db.exec('ALTER TABLE messages ADD COLUMN lng REAL');
     logger.info('Migration: added lat/lng to messages');
   }
+  if (!msgColumns.includes('client_id')) {
+    db.exec('ALTER TABLE messages ADD COLUMN client_id TEXT');
+    logger.info('Migration: added client_id to messages');
+  }
 
   if (!tables.includes('keyword_alerts')) {
     db.exec(`CREATE TABLE IF NOT EXISTS keyword_alerts (
@@ -297,9 +319,9 @@ function getDb() {
 // ── Messages ──────────────────────────────────────────────────────────────────
 function insertMessage(msg) {
   const info = getDb().prepare(`
-    INSERT INTO messages (timestamp, capcode, alias, protocol, baud, funcbits, message, raw, lat, lng)
-    VALUES (@timestamp, @capcode, @alias, @protocol, @baud, @funcbits, @message, @raw, @lat, @lng)
-  `).run({ ...msg, lat: msg.lat ?? null, lng: msg.lng ?? null });
+    INSERT INTO messages (timestamp, capcode, alias, protocol, baud, funcbits, message, raw, lat, lng, client_id)
+    VALUES (@timestamp, @capcode, @alias, @protocol, @baud, @funcbits, @message, @raw, @lat, @lng, @client_id)
+  `).run({ ...msg, lat: msg.lat ?? null, lng: msg.lng ?? null, client_id: msg.client_id ?? null });
   return info.lastInsertRowid;
 }
 
@@ -308,11 +330,13 @@ function getHistory(limit = 200) {
     SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
            g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
            pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
+           c.display_name as client_name,
            (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
     FROM messages m
     LEFT JOIN aliases a  ON a.capcode = m.capcode
     LEFT JOIN groups  g  ON g.id = a.group_id
     LEFT JOIN groups  pg ON pg.id = g.parent_id
+    LEFT JOIN sdr_clients c ON c.id = m.client_id
     ORDER BY m.id DESC LIMIT ?
   `).all(limit);
 }
@@ -325,12 +349,14 @@ function searchMessages(query, limit = 100) {
     SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
            g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
            pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
+           c.display_name as client_name,
            (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
     FROM messages_fts f
     JOIN messages m ON m.id = f.rowid
     LEFT JOIN aliases a  ON a.capcode = m.capcode
     LEFT JOIN groups  g  ON g.id = a.group_id
     LEFT JOIN groups  pg ON pg.id = g.parent_id
+    LEFT JOIN sdr_clients c ON c.id = m.client_id
     WHERE messages_fts MATCH ?
     ORDER BY m.id DESC LIMIT ?
   `).all(ftsQuery, limit);
