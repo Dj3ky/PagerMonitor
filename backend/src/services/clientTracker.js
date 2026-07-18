@@ -42,6 +42,7 @@ function ensureTables() {
     ['pending_command',  'TEXT'],
     ['live_config',      'TEXT'],
     ['git_hash',         'TEXT'],
+    ['display_name',     'TEXT'],
   ]) {
     if (!cols.includes(col)) {
       db.exec(`ALTER TABLE sdr_clients ADD COLUMN ${col} ${def}`);
@@ -114,6 +115,7 @@ function getClients() {
       const lastMs = new Date(tsStr).getTime();
       return {
         id:              r.id,
+        displayName:     r.display_name || null,
         firstSeen:       r.first_seen,
         lastSeen:        r.last_seen,
         messageCount:    r.message_count,
@@ -144,6 +146,15 @@ function recordClientOffline(clientId) {
     getDb().prepare(`UPDATE sdr_clients SET last_seen = '1970-01-01 00:00:00' WHERE id = ?`).run(clientId);
   } catch (e) {
     logger.warn(`clientTracker.recordClientOffline: ${e.message}`);
+  }
+}
+
+function setDisplayName(id, name) {
+  try {
+    ensureTables();
+    getDb().prepare('UPDATE sdr_clients SET display_name = ? WHERE id = ?').run(name || null, id);
+  } catch (e) {
+    logger.warn(`clientTracker.setDisplayName: ${e.message}`);
   }
 }
 
@@ -235,7 +246,7 @@ function popPendingCommand(clientId) {
 
 module.exports = {
   recordClientMessage, recordClientPing, recordClientOffline,
-  getClients, resetClient,
+  getClients, resetClient, setDisplayName,
   getClientConfig, getAllClientConfigs, saveClientConfig,
   setPendingCommand, popPendingCommand,
 };

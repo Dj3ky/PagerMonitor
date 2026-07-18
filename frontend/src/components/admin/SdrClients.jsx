@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Activity, Settings2, ChevronDown, ChevronUp, Save, Download, GitCommit } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Activity, Settings2, ChevronDown, ChevronUp, Save, Download, GitCommit, Pencil, Check, X } from 'lucide-react';
 import { useSite } from '../../context/SiteContext.jsx';
 import { normTs } from '../../utils/time.js';
 
@@ -66,7 +66,7 @@ function Flash({ msg }) {
   }}>{msg.text}</div>;
 }
 
-function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSendCommand, flash }) {
+function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, flash }) {
   const { locale, hour12 } = useSite();
   const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
@@ -75,8 +75,19 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
   const [saving, setSaving] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [cfgMsg, setCfgMsg] = useState(null);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(client.displayName || '');
 
   const flashCfg = (type, text) => { setCfgMsg({type,text}); setTimeout(()=>setCfgMsg(null),4000); };
+
+  const startRename = () => { setNameDraft(client.displayName || ''); setRenaming(true); };
+  const cancelRename = () => setRenaming(false);
+  const saveRename = async () => {
+    try {
+      await onRename(client.id, nameDraft.trim());
+      setRenaming(false);
+    } catch (e) { flashCfg('err', e.message); }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -107,7 +118,30 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
           : <WifiOff size={16} style={{ color:'var(--text-3)', flexShrink:0 }}/>}
 
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontWeight:700, fontSize:'0.9rem', color:'var(--text-1)' }}>{client.id}</div>
+          {renaming ? (
+            <div style={{ display:'flex', alignItems:'center', gap:'0.35rem' }}>
+              <input className="pm-input" autoFocus value={nameDraft}
+                onChange={e => setNameDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename(); }}
+                placeholder={client.id}
+                style={{ fontSize:'0.85rem', padding:'0.2rem 0.5rem', height:'auto', maxWidth:'220px' }} />
+              <button className="pm-btn" onClick={saveRename} title="Save name"><Check size={12}/></button>
+              <button className="pm-btn" onClick={cancelRename} title="Cancel"><X size={12}/></button>
+            </div>
+          ) : (
+            <div style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
+              <div style={{ fontWeight:700, fontSize:'0.9rem', color:'var(--text-1)' }}>
+                {client.displayName || client.id}
+              </div>
+              {client.displayName && (
+                <span style={{ fontSize:'0.68rem', color:'var(--text-3)', fontFamily:'monospace' }}>({client.id})</span>
+              )}
+              <button className="pm-btn" onClick={startRename} title="Rename"
+                style={{ padding:'0.15rem 0.35rem' }}>
+                <Pencil size={11}/>
+              </button>
+            </div>
+          )}
           {client.ip && <div style={{ fontSize:'0.7rem', color:'var(--text-3)', fontFamily:'monospace' }}>{client.ip}</div>}
         </div>
 
@@ -294,6 +328,13 @@ export default function SdrClients() {
     return r;
   };
 
+  const rename = async (id, name) => {
+    const r = await api('PUT', `/admin/sdr-clients/${encodeURIComponent(id)}/name`, { name });
+    if (!r.ok) throw new Error(r.error || 'Rename failed');
+    load();
+    return r;
+  };
+
   const sendCommand = async (id, command) => {
     const r = await api('POST', `/admin/sdr-clients/${encodeURIComponent(id)}/command`, { command });
     if (!r.ok) throw new Error(r.error || 'Command failed');
@@ -326,7 +367,7 @@ export default function SdrClients() {
 
       {!loading && clients.map(c => (
         <ClientCard key={c.id} client={c} configs={configs} latestSha={latestSha}
-          onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} flash={flash} />
+          onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} onRename={rename} flash={flash} />
       ))}
 
       <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginTop:'0.75rem' }}>
