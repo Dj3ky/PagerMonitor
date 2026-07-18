@@ -64,7 +64,7 @@ router.get('/status', requireAuth, (_req, res) => {
   if (sdrDisabled) {
     try {
       sdrClients = require('../services/clientTracker').getClients().map(c => ({
-        id: c.id, online: c.online, freq: c.freq, protocols: c.protocols, silentSec: c.silentSec,
+        id: c.id, displayName: c.displayName || null, online: c.online, freq: c.freq, protocols: c.protocols, silentSec: c.silentSec,
         sdrRunning: c.sdrRunning, gitHash: c.gitHash || null,
       }));
     } catch (_) { sdrClients = []; }
