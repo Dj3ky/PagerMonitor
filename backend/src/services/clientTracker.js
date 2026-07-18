@@ -107,9 +107,9 @@ function recordClientPing(clientId, ip, extra = {}) {
 function getClients() {
   try {
     ensureTables();
-    const rows = getDb().prepare('SELECT * FROM sdr_clients ORDER BY last_seen DESC').all();
+    const rows = getDb().prepare('SELECT * FROM sdr_clients').all();
     const now  = Date.now();
-    return rows.map(r => {
+    const clients = rows.map(r => {
       // SQLite datetime('now') is UTC without 'Z' — append Z so JS parses as UTC
       const tsStr  = r.last_seen?.includes('T') ? r.last_seen : (r.last_seen || '').replace(' ', 'T') + 'Z';
       const lastMs = new Date(tsStr).getTime();
@@ -133,6 +133,13 @@ function getClients() {
         gitHash:         r.git_hash || null,
       };
     });
+    // Online clients first (stable), offline last. Within each group, sort by
+    // name rather than last_seen so the list doesn't reshuffle on every ping.
+    clients.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return (a.displayName || a.id).localeCompare(b.displayName || b.id);
+    });
+    return clients;
   } catch (e) {
     logger.warn(`clientTracker.getClients: ${e.message}`);
     return [];
