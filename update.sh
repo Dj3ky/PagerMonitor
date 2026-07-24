@@ -47,9 +47,13 @@ fi
 echo ""
 
 # ── 2. System packages ────────────────────────────────────────────────────────
+# DEBIAN_FRONTEND=noninteractive + force-confold: without these, a package with a
+# changed config file can block forever on a dpkg prompt when there's no controlling TTY
+# (e.g. triggered from the web admin panel or a non-interactive SSH session).
 echo "► Updating system packages…"
+export DEBIAN_FRONTEND=noninteractive
 $SUDO apt-get update -qq
-$SUDO apt-get upgrade -y
+$SUDO apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 echo "  ✓ Done"
 echo ""
 

@@ -11,6 +11,10 @@ export NO_COLOR=1
 export FORCE_COLOR=0
 export TERM=dumb
 
+# Spawned by the backend with no controlling TTY — without this, a package with a
+# changed config file blocks forever on a dpkg prompt that never reaches anyone.
+export DEBIAN_FRONTEND=noninteractive
+
 # ── Privilege helper ──────────────────────────────────────────────────────────
 if [ "$(id -u)" -eq 0 ]; then
   SUDO=""
@@ -29,7 +33,8 @@ grep -qE "^DISABLE_SDR=true" "$PAGEMON_DIR/backend/.env" 2>/dev/null && SDR_DISA
 _mmon_build() {
   local tag="$1"
   echo "  ► Building multimon-ng ${tag} from source…"
-  $SUDO apt-get install -y --no-install-recommends cmake build-essential libpulse-dev libx11-dev
+  $SUDO apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+    --no-install-recommends cmake build-essential libpulse-dev libx11-dev
   local tmp; tmp=$(mktemp -d)
   curl -sL "https://github.com/EliasOenal/multimon-ng/archive/refs/tags/${tag}.tar.gz" \
     | tar xz -C "$tmp"
@@ -99,7 +104,7 @@ fi
 echo ""
 echo "► Updating system packages…"
 $SUDO apt-get update -qq
-$SUDO apt-get upgrade -y
+$SUDO apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 echo "  ✓ Done"
 
 # ── 3. multimon-ng ────────────────────────────────────────────────────────────

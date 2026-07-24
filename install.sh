@@ -3,6 +3,7 @@
 # Run from the pagermonitor directory: cd ~/pagermonitor && bash install.sh
 
 set -e
+export DEBIAN_FRONTEND=noninteractive
 PAGEMON_DIR="$(cd "$(dirname "$0")" && pwd)"
 CURRENT_USER="$(whoami)"
 NODE_PATH="$(which node 2>/dev/null || echo '/usr/bin/node')"
@@ -29,7 +30,8 @@ fi
 _mmon_build() {
   local tag="$1"
   echo "  ► Building multimon-ng ${tag} from source…"
-  $SUDO apt-get install -y --no-install-recommends cmake build-essential libpulse-dev libx11-dev
+  $SUDO apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+    --no-install-recommends cmake build-essential libpulse-dev libx11-dev
   local tmp; tmp=$(mktemp -d)
   curl -sL "https://github.com/EliasOenal/multimon-ng/archive/refs/tags/${tag}.tar.gz" \
     | tar xz -C "$tmp"
@@ -63,7 +65,7 @@ check_multimon_ng() {
     echo "  ⚠ Cannot reach GitHub"
     if [ -z "$installed" ]; then
       echo "  → Falling back to: sudo apt-get install multimon-ng"
-      $SUDO apt-get install -y multimon-ng
+      $SUDO apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" multimon-ng
     else
       echo "  ✓ Using installed version $installed"
     fi
