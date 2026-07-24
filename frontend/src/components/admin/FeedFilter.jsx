@@ -12,14 +12,16 @@ const MODES = [
   { id: 'only_aliases',    label: 'Only aliased',        desc: 'Only process messages from capcodes that have an alias. Unaliased capcodes are dropped. Optionally restrict to specific aliases.' },
 ];
 
-const DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [] };
+const DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [], text_strings: [], text_regex: [] };
 
 function sanitise(raw) {
   if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
   return {
-    mode:      MODES.map(m => m.id).includes(raw.mode) ? raw.mode : 'show_all',
-    capcodes:  Array.isArray(raw.capcodes)  ? raw.capcodes  : [],
-    group_ids: Array.isArray(raw.group_ids) ? raw.group_ids.map(Number) : [],
+    mode:         MODES.map(m => m.id).includes(raw.mode) ? raw.mode : 'show_all',
+    capcodes:     Array.isArray(raw.capcodes)     ? raw.capcodes : [],
+    group_ids:    Array.isArray(raw.group_ids)    ? raw.group_ids.map(Number) : [],
+    text_strings: Array.isArray(raw.text_strings) ? raw.text_strings : [],
+    text_regex:   Array.isArray(raw.text_regex)   ? raw.text_regex : [],
   };
 }
 
@@ -55,7 +57,7 @@ export default function FeedFilter() {
   );
 
   const safe        = sanitise(filter);
-  const isFiltering = safe.mode !== 'show_all';
+  const isFiltering = safe.mode !== 'show_all' || safe.text_strings.length > 0 || safe.text_regex.length > 0;
 
   return (
     <div style={{ maxWidth: '640px' }}>
@@ -271,6 +273,44 @@ export default function FeedFilter() {
           }
         </div>
       )}
+
+      <div className="pm-card" style={{ marginBottom: '1rem' }}>
+        <div className="pm-section-title">Message content filters</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.7rem', lineHeight: 1.55 }}>
+          These filters run <strong>after</strong> the selected mode above. If a message body contains one of the strings
+          or matches one of the regex patterns below, it is dropped completely and never stored.
+        </div>
+
+        <div style={{ display: 'grid', gap: '0.85rem' }}>
+          <div>
+            <div className="pm-section-title" style={{ marginBottom: '0.35rem' }}>
+              Drop when message contains one of these strings
+            </div>
+            <textarea className="pm-input" rows={4}
+              value={safe.text_strings.join('\n')}
+              onChange={e => setFilter(f => ({ ...sanitise(f), text_strings: setListField(e.target.value) }))}
+              placeholder={'Test message\nRoutine alert\nSystem check'}
+              style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.8rem' }} />
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-3)', marginTop: '0.35rem' }}>
+              Plain string match, case-insensitive. {safe.text_strings.length} string filter(s) configured.
+            </div>
+          </div>
+
+          <div>
+            <div className="pm-section-title" style={{ marginBottom: '0.35rem' }}>
+              Drop when message matches one of these regex patterns
+            </div>
+            <textarea className="pm-input" rows={4}
+              value={safe.text_regex.join('\n')}
+              onChange={e => setFilter(f => ({ ...sanitise(f), text_regex: setListField(e.target.value) }))}
+              placeholder={'^TEST\\b\n\\bmaintenance\\b'}
+              style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.8rem' }} />
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-3)', marginTop: '0.35rem' }}>
+              Regex match, case-insensitive. Invalid regex patterns are ignored.
+            </div>
+          </div>
+        </div>
+      </div>
 
       <button className="pm-btn pm-btn-primary" onClick={save} disabled={saving}>
         <Save size={13} /> {saving ? 'Saving…' : 'Save filter'}

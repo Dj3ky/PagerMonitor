@@ -126,23 +126,27 @@ function saveDedupConfig(cfg) {
 // Controls which messages are broadcast to the live feed and returned in history.
 // mode: 'show_all' | 'ignore_capcodes' | 'only_capcodes' | 'only_groups' | 'only_aliases'
 const FEED_FILTER_MODES    = ['show_all', 'ignore_capcodes', 'only_capcodes', 'only_groups', 'only_aliases'];
-const FEED_FILTER_DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [] };
+const FEED_FILTER_DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [], text_strings: [], text_regex: [] };
 
 function getFeedFilter() {
   const raw = getSetting('feed_filter', null);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...FEED_FILTER_DEFAULTS };
   return {
-    mode:      FEED_FILTER_MODES.includes(raw.mode) ? raw.mode : 'show_all',
-    capcodes:  Array.isArray(raw.capcodes)  ? raw.capcodes.map(c => normCapcode(String(c)))  : [],
-    group_ids: Array.isArray(raw.group_ids) ? raw.group_ids.map(Number) : [],
+    mode:         FEED_FILTER_MODES.includes(raw.mode) ? raw.mode : 'show_all',
+    capcodes:     Array.isArray(raw.capcodes)     ? raw.capcodes.map(c => normCapcode(String(c))) : [],
+    group_ids:    Array.isArray(raw.group_ids)    ? raw.group_ids.map(Number)     : [],
+    text_strings: Array.isArray(raw.text_strings) ? raw.text_strings.map(String)  : [],
+    text_regex:   Array.isArray(raw.text_regex)   ? raw.text_regex.map(String)    : [],
   };
 }
 
 function saveFeedFilter(cfg) {
   setSetting('feed_filter', {
-    mode:      FEED_FILTER_MODES.includes(cfg.mode) ? cfg.mode : 'show_all',
-    capcodes:  Array.isArray(cfg.capcodes)  ? cfg.capcodes.map(c => normCapcode(String(c)))   : [],
-    group_ids: Array.isArray(cfg.group_ids) ? cfg.group_ids.map(Number)  : [],
+    mode:         FEED_FILTER_MODES.includes(cfg.mode) ? cfg.mode : 'show_all',
+    capcodes:     Array.isArray(cfg.capcodes)     ? cfg.capcodes.map(c => normCapcode(String(c))) : [],
+    group_ids:    Array.isArray(cfg.group_ids)    ? cfg.group_ids.map(Number)  : [],
+    text_strings: Array.isArray(cfg.text_strings) ? cfg.text_strings.map(v => String(v).trim()).filter(Boolean) : [],
+    text_regex:   Array.isArray(cfg.text_regex)   ? cfg.text_regex.map(v => String(v).trim()).filter(Boolean)   : [],
   });
   logger.info('Feed filter saved');
 }
@@ -152,24 +156,41 @@ function saveFeedFilter(cfg) {
 function passesFeedFilter(msg) {
   try {
     const filter = getFeedFilter();
-    if (!filter || filter.mode === 'show_all') return true;
+    if (!filter) return true;
 
     if (filter.mode === 'ignore_capcodes') {
-      return !filter.capcodes.includes(String(msg.capcode));
+      if (filter.capcodes.includes(String(msg.capcode))) return false;
     }
-    if (filter.mode === 'only_capcodes') {
-      return filter.capcodes.includes(String(msg.capcode));
+    else if (filter.mode === 'only_capcodes') {
+      if (!filter.capcodes.includes(String(msg.capcode))) return false;
     }
-    if (filter.mode === 'only_groups') {
-      return msg.group_id != null && filter.group_ids.includes(Number(msg.group_id));
+    else if (filter.mode === 'only_groups') {
+      if (!(msg.group_id != null && filter.group_ids.includes(Number(msg.group_id)))) return false;
     }
-    if (filter.mode === 'only_aliases') {
+    else if (filter.mode === 'only_aliases') {
       const hasAlias = !!(msg.alias_name || msg.alias);
       if (!hasAlias) return false;
       // If specific capcodes listed — require capcode to be in that list too
-      if (filter.capcodes.length > 0) return filter.capcodes.includes(String(msg.capcode));
-      return true;
+      if (filter.capcodes.length > 0 && !filter.capcodes.includes(String(msg.capcode))) return false;
     }
+
+    const text = String(msg.message || '');
+    if (!text) return true;
+
+    const lowerText = text.toLowerCase();
+    if (filter.text_strings.some(s => {
+      const needle = String(s ?? '').trim().toLowerCase();
+      return needle ? lowerText.includes(needle) : false;
+    })) return false;
+
+    for (const pattern of filter.text_regex) {
+      const source = String(pattern ?? '').trim();
+      if (!source) continue;
+      try {
+        if (new RegExp(source, 'i').test(text)) return false;
+      } catch (_) {}
+    }
+
     return true;
   } catch (_) { return true; }
 }
