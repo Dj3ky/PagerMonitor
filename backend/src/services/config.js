@@ -1,4 +1,4 @@
-const { getSetting, setSetting } = require('./database');
+const { getSetting, setSetting, normCapcode } = require('./database');
 const logger = require('../utils/logger');
 
 const SDR_KEYS = [
@@ -89,7 +89,7 @@ function getNotifFilter() {
   return {
     mode:      NOTIF_FILTER_MODES.includes(raw.mode) ? raw.mode : 'all',
     group_ids: Array.isArray(raw.group_ids) ? raw.group_ids.map(Number) : [],
-    capcodes:  Array.isArray(raw.capcodes)  ? raw.capcodes  : [],
+    capcodes:  Array.isArray(raw.capcodes)  ? raw.capcodes.map(c => normCapcode(String(c)))  : [],
     keywords:  Array.isArray(raw.keywords)  ? raw.keywords  : [],
   };
 }
@@ -97,7 +97,7 @@ function saveNotifFilter(cfg) {
   setSetting('notif_filter', {
     mode:      NOTIF_FILTER_MODES.includes(cfg.mode) ? cfg.mode : 'all',
     group_ids: Array.isArray(cfg.group_ids) ? cfg.group_ids.map(Number) : [],
-    capcodes:  Array.isArray(cfg.capcodes)  ? cfg.capcodes.map(String)  : [],
+    capcodes:  Array.isArray(cfg.capcodes)  ? cfg.capcodes.map(c => normCapcode(String(c)))  : [],
     keywords:  Array.isArray(cfg.keywords)  ? cfg.keywords.map(String)  : [],
   });
   logger.info('Notification filter saved');
@@ -133,7 +133,7 @@ function getFeedFilter() {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...FEED_FILTER_DEFAULTS };
   return {
     mode:      FEED_FILTER_MODES.includes(raw.mode) ? raw.mode : 'show_all',
-    capcodes:  Array.isArray(raw.capcodes)  ? raw.capcodes.map(String)  : [],
+    capcodes:  Array.isArray(raw.capcodes)  ? raw.capcodes.map(c => normCapcode(String(c)))  : [],
     group_ids: Array.isArray(raw.group_ids) ? raw.group_ids.map(Number) : [],
   };
 }
@@ -141,7 +141,7 @@ function getFeedFilter() {
 function saveFeedFilter(cfg) {
   setSetting('feed_filter', {
     mode:      FEED_FILTER_MODES.includes(cfg.mode) ? cfg.mode : 'show_all',
-    capcodes:  Array.isArray(cfg.capcodes)  ? cfg.capcodes.map(String)   : [],
+    capcodes:  Array.isArray(cfg.capcodes)  ? cfg.capcodes.map(c => normCapcode(String(c)))   : [],
     group_ids: Array.isArray(cfg.group_ids) ? cfg.group_ids.map(Number)  : [],
   });
   logger.info('Feed filter saved');

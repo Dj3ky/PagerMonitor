@@ -467,12 +467,12 @@ function getUserNotifPrefs(userId) {
     enabled:        !!row.enabled,
     mode:           row.mode,
     group_ids:      JSON.parse(row.group_ids      || '[]'),
-    capcodes:       JSON.parse(row.capcodes       || '[]'),
+    capcodes:       JSON.parse(row.capcodes       || '[]').map(normCapcode),
     keywords:       JSON.parse(row.keywords       || '[]'),
     push_enabled:   !!row.push_enabled,
     push_mode:      row.push_mode || 'all',
     push_group_ids: JSON.parse(row.push_group_ids || '[]'),
-    push_capcodes:  JSON.parse(row.push_capcodes  || '[]'),
+    push_capcodes:  JSON.parse(row.push_capcodes  || '[]').map(normCapcode),
     push_keywords:  JSON.parse(row.push_keywords  || '[]'),
   };
 }
@@ -492,11 +492,11 @@ function setUserNotifPrefs(userId, prefs) {
   `).run(userId,
     prefs.enabled ? 1 : 0, prefs.mode || 'all',
     JSON.stringify(prefs.group_ids      || []),
-    JSON.stringify(prefs.capcodes       || []),
+    JSON.stringify((prefs.capcodes      || []).map(normCapcode)),
     JSON.stringify(prefs.keywords       || []),
     prefs.push_enabled ? 1 : 0, prefs.push_mode || 'all',
     JSON.stringify(prefs.push_group_ids || []),
-    JSON.stringify(prefs.push_capcodes  || []),
+    JSON.stringify((prefs.push_capcodes || []).map(normCapcode)),
     JSON.stringify(prefs.push_keywords  || []),
   );
 }
@@ -660,7 +660,7 @@ module.exports = {
   getSetting, setSetting,
   getUsers, getUserByUsername, createUser, updateUserPassword, updateUserRole, updateUserEmail, deleteUser, touchUserLogin, countUsers,
   getLastSeenId, setLastSeenId,
-  getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs,
+  getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode,
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,
   getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
   getWebhooks, upsertWebhook, deleteWebhook,
