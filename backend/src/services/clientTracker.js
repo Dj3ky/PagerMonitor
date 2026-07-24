@@ -42,6 +42,7 @@ function ensureTables() {
     ['pending_command',  'TEXT'],
     ['live_config',      'TEXT'],
     ['git_hash',         'TEXT'],
+    ['display_name',     'TEXT'],
   ]) {
     if (!cols.includes(col)) {
       db.exec(`ALTER TABLE sdr_clients ADD COLUMN ${col} ${def}`);
@@ -106,14 +107,15 @@ function recordClientPing(clientId, ip, extra = {}) {
 function getClients() {
   try {
     ensureTables();
-    const rows = getDb().prepare('SELECT * FROM sdr_clients ORDER BY last_seen DESC').all();
+    const rows = getDb().prepare('SELECT * FROM sdr_clients').all();
     const now  = Date.now();
-    return rows.map(r => {
+    const clients = rows.map(r => {
       // SQLite datetime('now') is UTC without 'Z' — append Z so JS parses as UTC
       const tsStr  = r.last_seen?.includes('T') ? r.last_seen : (r.last_seen || '').replace(' ', 'T') + 'Z';
       const lastMs = new Date(tsStr).getTime();
       return {
         id:              r.id,
+        displayName:     r.display_name || null,
         firstSeen:       r.first_seen,
         lastSeen:        r.last_seen,
         messageCount:    r.message_count,
@@ -131,6 +133,13 @@ function getClients() {
         gitHash:         r.git_hash || null,
       };
     });
+    // Online clients first (stable), offline last. Within each group, sort by
+    // name rather than last_seen so the list doesn't reshuffle on every ping.
+    clients.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return (a.displayName || a.id).localeCompare(b.displayName || b.id);
+    });
+    return clients;
   } catch (e) {
     logger.warn(`clientTracker.getClients: ${e.message}`);
     return [];
@@ -144,6 +153,15 @@ function recordClientOffline(clientId) {
     getDb().prepare(`UPDATE sdr_clients SET last_seen = '1970-01-01 00:00:00' WHERE id = ?`).run(clientId);
   } catch (e) {
     logger.warn(`clientTracker.recordClientOffline: ${e.message}`);
+  }
+}
+
+function setDisplayName(id, name) {
+  try {
+    ensureTables();
+    getDb().prepare('UPDATE sdr_clients SET display_name = ? WHERE id = ?').run(name || null, id);
+  } catch (e) {
+    logger.warn(`clientTracker.setDisplayName: ${e.message}`);
   }
 }
 
@@ -235,7 +253,7 @@ function popPendingCommand(clientId) {
 
 module.exports = {
   recordClientMessage, recordClientPing, recordClientOffline,
-  getClients, resetClient,
+  getClients, resetClient, setDisplayName,
   getClientConfig, getAllClientConfigs, saveClientConfig,
   setPendingCommand, popPendingCommand,
 };

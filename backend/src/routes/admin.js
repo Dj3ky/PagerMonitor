@@ -487,10 +487,21 @@ router.get('/stats', adminOnly, (_req,res) => {
 });
 
 // ── SDR Clients dashboard ─────────────────────────────────────────────────────
-const { getClients, resetClient, getAllClientConfigs, saveClientConfig, setPendingCommand } = require('../services/clientTracker');
+const { getClients, resetClient, getAllClientConfigs, saveClientConfig, setPendingCommand, setDisplayName } = require('../services/clientTracker');
 
 router.get('/sdr-clients', adminOnly, (_req, res) => {
   try { res.json(getClients()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/sdr-clients/:id/name', adminOnly, (req, res) => {
+  try {
+    const id   = decodeURIComponent(req.params.id);
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 60) : '';
+    setDisplayName(id, name);
+    addAuditLog(req.session?.username || 'admin', 'client.rename', `id=${id} name=${name || '(cleared)'}`);
+    res.json({ ok: true });
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 

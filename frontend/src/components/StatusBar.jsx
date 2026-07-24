@@ -49,10 +49,11 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
           const anyOnline  = clients.some(c => c.online);
           // Build per-client tooltips, then merge them onto the text label too
           const clientTips = clients.map(c => {
+            const name  = c.displayName || c.id;
             const sdrOk = c.online && c.sdrRunning !== false;
-            if (!c.online) return `${c.id}${c.freq ? ` · ${c.freq}` : ''} · OFFLINE · ${fmtSilent(c.silentSec)}`;
-            if (sdrOk)     return `${c.id}${c.freq ? ` · ${c.freq}` : ''}${c.protocols ? ` · ${c.protocols}` : ''} · SDR ACTIVE`;
-            return `${c.id} · ONLINE · SDR not running`;
+            if (!c.online) return `${name}${c.freq ? ` · ${c.freq}` : ''} · OFFLINE · ${fmtSilent(c.silentSec)}`;
+            if (sdrOk)     return `${name}${c.freq ? ` · ${c.freq}` : ''}${c.protocols ? ` · ${c.protocols}` : ''} · SDR ACTIVE`;
+            return `${name} · ONLINE · SDR not running`;
           });
           const combinedTip = clientTips.join('\n');
           return (<>
