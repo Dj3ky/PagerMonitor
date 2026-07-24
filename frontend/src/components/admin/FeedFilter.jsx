@@ -306,7 +306,9 @@ export default function FeedFilter() {
               placeholder={'^TEST\\b\n\\bmaintenance\\b'}
               style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.8rem' }} />
             <div style={{ fontSize: '0.73rem', color: 'var(--text-3)', marginTop: '0.35rem' }}>
-              Regex match, case-insensitive. Invalid regex patterns are ignored.
+              Regex match, case-insensitive. Invalid regex patterns are ignored. Patterns prone to catastrophic
+              backtracking (e.g. nested repetition like <code>(a+)+</code>) or longer than 200 characters are
+              rejected on save.
             </div>
           </div>
         </div>

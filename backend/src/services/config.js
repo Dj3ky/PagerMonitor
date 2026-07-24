@@ -127,6 +127,14 @@ function saveDedupConfig(cfg) {
 // mode: 'show_all' | 'ignore_capcodes' | 'only_capcodes' | 'only_groups' | 'only_aliases'
 const FEED_FILTER_MODES    = ['show_all', 'ignore_capcodes', 'only_capcodes', 'only_groups', 'only_aliases'];
 const FEED_FILTER_DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [], text_strings: [], text_regex: [] };
+const MAX_TEXT_FILTERS     = 100; // text_strings/text_regex run on every incoming message — bound the list size
+
+// Rejects patterns shaped for catastrophic backtracking (e.g. `(a+)+`), since
+// text_regex patterns run synchronously on every incoming message.
+function isUnsafeRegexPattern(source) {
+  if (source.length > 200) return true;
+  return /\([^()]*[+*][^()]*\)\s*[+*]/.test(source) || /\([^()]*[+*][^()]*\)\s*\{\d+,/.test(source);
+}
 
 function getFeedFilter() {
   const raw = getSetting('feed_filter', null);
@@ -141,12 +149,23 @@ function getFeedFilter() {
 }
 
 function saveFeedFilter(cfg) {
+  const textStrings = Array.isArray(cfg.text_strings)
+    ? cfg.text_strings.map(v => String(v).trim()).filter(Boolean).slice(0, MAX_TEXT_FILTERS)
+    : [];
+  const textRegex = Array.isArray(cfg.text_regex)
+    ? cfg.text_regex.map(v => String(v).trim()).filter(Boolean).slice(0, MAX_TEXT_FILTERS)
+    : [];
+  const unsafePattern = textRegex.find(isUnsafeRegexPattern);
+  if (unsafePattern) {
+    throw new Error(`Regex pattern rejected (too long or prone to catastrophic backtracking): ${unsafePattern}`);
+  }
+
   setSetting('feed_filter', {
     mode:         FEED_FILTER_MODES.includes(cfg.mode) ? cfg.mode : 'show_all',
     capcodes:     Array.isArray(cfg.capcodes)     ? cfg.capcodes.map(c => normCapcode(String(c))) : [],
     group_ids:    Array.isArray(cfg.group_ids)    ? cfg.group_ids.map(Number)  : [],
-    text_strings: Array.isArray(cfg.text_strings) ? cfg.text_strings.map(v => String(v).trim()).filter(Boolean) : [],
-    text_regex:   Array.isArray(cfg.text_regex)   ? cfg.text_regex.map(v => String(v).trim()).filter(Boolean)   : [],
+    text_strings: textStrings,
+    text_regex:   textRegex,
   });
   logger.info('Feed filter saved');
 }
@@ -178,16 +197,23 @@ function passesFeedFilter(msg) {
     if (!text) return true;
 
     const lowerText = text.toLowerCase();
-    if (filter.text_strings.some(s => {
+    const matchedString = filter.text_strings.find(s => {
       const needle = String(s ?? '').trim().toLowerCase();
       return needle ? lowerText.includes(needle) : false;
-    })) return false;
+    });
+    if (matchedString) {
+      logger.info(`[feed-filter] dropped capcode=${msg.capcode} — matched text filter "${matchedString}"`);
+      return false;
+    }
 
     for (const pattern of filter.text_regex) {
       const source = String(pattern ?? '').trim();
       if (!source) continue;
       try {
-        if (new RegExp(source, 'i').test(text)) return false;
+        if (new RegExp(source, 'i').test(text)) {
+          logger.info(`[feed-filter] dropped capcode=${msg.capcode} — matched regex filter /${source}/i`);
+          return false;
+        }
       } catch (_) {}
     }
 
