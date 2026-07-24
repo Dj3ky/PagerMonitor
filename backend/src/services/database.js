@@ -249,6 +249,11 @@ function _migrate() {
     logger.info('Migration: added client_id to messages');
   }
 
+  // sdr_clients gets its full column set (display_name, etc.) here too — otherwise it's only
+  // migrated in on first remote-client contact, and queries joining on it (getHistory,
+  // searchMessages) would throw "no such column: display_name" on servers with no remote clients.
+  require('./clientTracker').ensureTables();
+
   if (!tables.includes('keyword_alerts')) {
     db.exec(`CREATE TABLE IF NOT EXISTS keyword_alerts (
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, pattern TEXT NOT NULL,
