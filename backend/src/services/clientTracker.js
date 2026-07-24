@@ -256,4 +256,5 @@ module.exports = {
   getClients, resetClient, setDisplayName,
   getClientConfig, getAllClientConfigs, saveClientConfig,
   setPendingCommand, popPendingCommand,
+  ensureTables,
 };
