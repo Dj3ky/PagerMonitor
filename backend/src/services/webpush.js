@@ -1,7 +1,7 @@
 'use strict';
 
 const logger = require('../utils/logger');
-const { getSetting, setSetting, getDb } = require('./database');
+const { getSetting, setSetting, getDb, normCapcode } = require('./database');
 
 let webpush = null;
 try { webpush = require('web-push'); } catch (_) {
@@ -81,8 +81,8 @@ function _matchesPushPrefs(msg, sub) {
     return msg.group_id != null && ids.includes(Number(msg.group_id));
   }
   if (mode === 'aliases' || mode === 'capcodes') {
-    const caps = JSON.parse(sub.push_capcodes || '[]');
-    return caps.includes(msg.capcode);
+    const caps = JSON.parse(sub.push_capcodes || '[]').map(normCapcode);
+    return caps.includes(normCapcode(String(msg.capcode)));
   }
   if (mode === 'keywords') {
     const kws  = JSON.parse(sub.push_keywords || '[]');

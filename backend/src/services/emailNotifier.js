@@ -5,7 +5,7 @@
  * Called after each message — checks each user's preferences and sends email if they match.
  */
 
-const { getAllUsersWithPrefs } = require('./database');
+const { getAllUsersWithPrefs, normCapcode } = require('./database');
 const { sendEmail, getEmailConfig } = require('./email');
 const { formatTs } = require('../utils/time');
 const logger = require('../utils/logger');
@@ -21,11 +21,11 @@ function messageMatchesPrefs(msg, prefs) {
 
   if (prefs.mode === 'aliases') {
     // aliases mode reuses capcodes array — stores selected capcodes from alias picker
-    return (prefs.capcodes || []).includes(msg.capcode);
+    return (prefs.capcodes || []).includes(normCapcode(String(msg.capcode)));
   }
 
   if (prefs.mode === 'capcodes') {
-    return (prefs.capcodes || []).includes(msg.capcode);
+    return (prefs.capcodes || []).includes(normCapcode(String(msg.capcode)));
   }
 
   if (prefs.mode === 'keywords') {

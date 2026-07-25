@@ -2,6 +2,7 @@
 
 const logger = require('../utils/logger');
 const { getNotifConfig, saveNotifConfig, getNotifFilter } = require('./config');
+const { normCapcode } = require('./database');
 const { formatTs } = require('../utils/time');
 const { sendMqtt, disconnectMqtt } = require('./mqtt');
 
@@ -50,7 +51,7 @@ function passesFilter(msg) {
       return msg.group_id != null && filter.group_ids.includes(Number(msg.group_id));
     }
     if (filter.mode === 'aliases' || filter.mode === 'capcodes') {
-      return filter.capcodes.includes(msg.capcode);
+      return filter.capcodes.includes(normCapcode(String(msg.capcode)));
     }
     if (filter.mode === 'keywords') {
       const text = (msg.message || '').toLowerCase();

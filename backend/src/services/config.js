@@ -177,11 +177,16 @@ function passesFeedFilter(msg) {
     const filter = getFeedFilter();
     if (!filter) return true;
 
+    // Decoders don't agree on zero-padding capcodes — filter.capcodes is normalized on
+    // save/load, so the message side must be normalized here too or padded live capcodes
+    // (e.g. "001234567") silently fail to match an entry saved as "1234567".
+    const msgCapcode = normCapcode(String(msg.capcode));
+
     if (filter.mode === 'ignore_capcodes') {
-      if (filter.capcodes.includes(String(msg.capcode))) return false;
+      if (filter.capcodes.includes(msgCapcode)) return false;
     }
     else if (filter.mode === 'only_capcodes') {
-      if (!filter.capcodes.includes(String(msg.capcode))) return false;
+      if (!filter.capcodes.includes(msgCapcode)) return false;
     }
     else if (filter.mode === 'only_groups') {
       if (!(msg.group_id != null && filter.group_ids.includes(Number(msg.group_id)))) return false;
@@ -190,7 +195,7 @@ function passesFeedFilter(msg) {
       const hasAlias = !!(msg.alias_name || msg.alias);
       if (!hasAlias) return false;
       // If specific capcodes listed — require capcode to be in that list too
-      if (filter.capcodes.length > 0 && !filter.capcodes.includes(String(msg.capcode))) return false;
+      if (filter.capcodes.length > 0 && !filter.capcodes.includes(msgCapcode)) return false;
     }
 
     const text = String(msg.message || '');
