@@ -4,6 +4,7 @@ import ActivityFeed from './ActivityFeed.jsx';
 import { adminFetchAliases, adminSaveAlias, adminDeleteAlias, adminDeleteAllAliases,
          adminFetchGroups, adminExportAliasesCsv, adminImportAliasesCsv } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const EMPTY = { capcode:'', name:'', color:'#00ff9d', notes:'', group_id:'', row_color:'', row_sound:'' };
 
@@ -20,6 +21,8 @@ function Flash({ msg }) {
 }
 
 export default function AliasManager() {
+  const { user } = useAuth();
+  const isPlatformAdmin = !!user?.isPlatformAdmin;
   const { data: aliasesRaw, loading, reload } = useAdminFetch(adminFetchAliases, []);
   const { data: groupsRaw } = useAdminFetch(adminFetchGroups, []);
 
@@ -211,7 +214,10 @@ export default function AliasManager() {
           ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem', padding:'2rem', textAlign:'center' }}>No aliases yet.</div>
           : (
             <div style={{ display:'grid', gap:'0.3rem' }}>
-              {aliases.map(a => (
+              {aliases.map(a => {
+                const isGlobal = a.org_id == null;
+                const locked   = isGlobal && !isPlatformAdmin;
+                return (
                 <div key={a.capcode} style={{
                   display:'flex', alignItems:'center', gap:'0.6rem',
                   background: editing===a.capcode ? 'color-mix(in srgb, var(--accent-amber) 8%, var(--bg-2))' : 'var(--bg-2)',
@@ -220,6 +226,12 @@ export default function AliasManager() {
                 }}>
                   <span style={{ fontFamily:'monospace', fontSize:'0.78rem', color:'var(--accent-amber)', minWidth:'75px' }}>{a.capcode}</span>
                   <span style={{ fontSize:'0.85rem', fontWeight:600, color:a.color||'var(--accent-green)', flex:1 }}>{a.name}</span>
+                  {isGlobal && (
+                    <span title="Shared default — visible to every organization" style={{ fontSize:'0.65rem', color:'var(--text-3)',
+                      background:'var(--bg-3)', border:'1px solid var(--border)', padding:'0.1rem 0.4rem', borderRadius:'0.75rem', flexShrink:0 }}>
+                      global
+                    </span>
+                  )}
                   {a.group_name && (
                     <span style={{ fontSize:'0.68rem', color:a.group_color||'var(--text-3)',
                       background:(a.group_color||'#888')+'22', padding:'0.1rem 0.4rem', borderRadius:'0.75rem', flexShrink:0 }}>
@@ -228,11 +240,13 @@ export default function AliasManager() {
                   )}
                   {a.notes && <span style={{ fontSize:'0.72rem', color:'var(--text-3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'120px' }}>{a.notes}</span>}
                   <div style={{ display:'flex', gap:'0.3rem', flexShrink:0 }}>
-                    <button onClick={() => startEdit(a)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.2rem' }}><Pencil size={13}/></button>
-                    <button onClick={() => handleDelete(a.capcode)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent-red)', padding:'0.2rem' }}><Trash2 size={13}/></button>
+                    <button onClick={() => startEdit(a)} disabled={locked} title={locked ? 'Only the platform admin can edit shared defaults' : undefined}
+                      style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--text-3)', padding:'0.2rem' }}><Pencil size={13}/></button>
+                    <button onClick={() => handleDelete(a.capcode)} disabled={locked} title={locked ? 'Only the platform admin can delete shared defaults' : undefined}
+                      style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--accent-red)', padding:'0.2rem' }}><Trash2 size={13}/></button>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
           )
       }

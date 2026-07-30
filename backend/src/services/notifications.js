@@ -6,8 +6,12 @@ const { normCapcode } = require('./database');
 const { formatTs } = require('../utils/time');
 const { sendMqtt, disconnectMqtt } = require('./mqtt');
 
-let config = null;
-function ensureConfig() { if (!config) config = getNotifConfig(); return config; }
+// Cached per-org — each org has its own Discord/Telegram/Gotify/etc destinations.
+const configCache = new Map(); // orgId → config
+function ensureConfig(orgId) {
+  if (!configCache.has(orgId)) configCache.set(orgId, getNotifConfig(orgId));
+  return configCache.get(orgId);
+}
 
 const NOTIF_DEFAULTS = {
   discord:   { enabled: false, url: '' },
@@ -27,9 +31,9 @@ function sanitiseConfig(raw) {
   return out;
 }
 
-function getConfig() { return sanitiseConfig(ensureConfig()); }
-function updateConfig(patch) {
-  const current = sanitiseConfig(ensureConfig());
+function getConfig(orgId) { return sanitiseConfig(ensureConfig(orgId)); }
+function updateConfig(orgId, patch) {
+  const current = sanitiseConfig(ensureConfig(orgId));
   const next = { ...current };
   for (const svc of ['discord', 'telegram', 'gotify', 'pushover', 'mqtt']) {
     if (patch[svc] && typeof patch[svc] === 'object') next[svc] = { ...current[svc], ...patch[svc] };
@@ -39,13 +43,13 @@ function updateConfig(patch) {
     const disabled = patch.mqtt.enabled === false;
     if (brokerChanged || disabled) disconnectMqtt();
   }
-  config = next;
-  saveNotifConfig(config);
+  configCache.set(orgId, next);
+  saveNotifConfig(orgId, next);
 }
 
-function passesFilter(msg) {
+function passesFilter(msg, orgId) {
   try {
-    const filter = getNotifFilter();
+    const filter = getNotifFilter(orgId);
     if (!filter || filter.mode === 'all') return true;
     if (filter.mode === 'groups') {
       return msg.group_id != null && filter.group_ids.includes(Number(msg.group_id));
@@ -190,9 +194,12 @@ async function sendPushover(msg, cfg) {
 }
 
 // ── Send all ──────────────────────────────────────────────────────────────────
-async function sendNotifications(msg) {
-  if (!passesFilter(msg)) return;
-  const c = sanitiseConfig(ensureConfig());
+// Called once per org per ingested message (see services/fanout.js) — each org has its
+// own destinations/filter, since the same shared message stream fans out differently
+// depending on who's watching.
+async function sendNotifications(msg, orgId) {
+  if (!passesFilter(msg, orgId)) return;
+  const c = sanitiseConfig(ensureConfig(orgId));
   const tasks = [];
   if (c.discord?.enabled  && c.discord?.url)                            tasks.push(sendDiscord(msg,   c.discord));
   if (c.telegram?.enabled && c.telegram?.token && c.telegram?.chatId)   tasks.push(sendTelegram(msg,  c.telegram));
@@ -202,8 +209,8 @@ async function sendNotifications(msg) {
   await Promise.allSettled(tasks);
 }
 
-async function testNotification(service) {
-  const c = sanitiseConfig(ensureConfig());
+async function testNotification(orgId, service) {
+  const c = sanitiseConfig(ensureConfig(orgId));
   const dummy = {
     capcode: '0000001', alias: 'Fire Station Alpha', alias_name: 'Fire Station Alpha',
     group_name: 'Fire Department',

@@ -1,6 +1,11 @@
 const { getSetting, setSetting, normCapcode } = require('./database');
 const logger = require('../utils/logger');
 
+// Org-scoped settings (feed filter, notification filter/destinations) live under a
+// composite key instead of a new column — keeps the flat settings(key,value) table
+// as-is, and every instance-wide setting (SDR, email, dedup, etc.) keeps its bare key.
+const orgKey = (orgId, base) => `org:${orgId}:${base}`;
+
 const SDR_KEYS = [
   'RTL_FM_FREQ','RTL_FM_MODULATION','RTL_FM_SAMPLE_RATE','RTL_FM_GAIN',
   'RTL_FM_DEVICE_INDEX','RTL_FM_PPM','RTL_FM_SQUELCH','RTL_FM_RESAMPLE_RATE',
@@ -61,8 +66,8 @@ const NOTIF_DEFAULTS = {
   gotify:   { enabled: false, url: '', token: '', priority: 5 },
 };
 
-function getNotifConfig() {
-  const stored = getSetting('notif_config', null);
+function getNotifConfig(orgId) {
+  const stored = getSetting(orgKey(orgId, 'notif_config'), null);
   if (!stored || typeof stored !== 'object') {
     return {
       discord:  { enabled: !!process.env.DISCORD_WEBHOOK_URL,  url: process.env.DISCORD_WEBHOOK_URL||'' },
@@ -75,7 +80,7 @@ function getNotifConfig() {
   }
   return stored;
 }
-function saveNotifConfig(cfg) { setSetting('notif_config', cfg); logger.info('Notification config saved'); }
+function saveNotifConfig(orgId, cfg) { setSetting(orgKey(orgId, 'notif_config'), cfg); logger.info(`Notification config saved (org=${orgId})`); }
 
 // ── Notification filter ───────────────────────────────────────────────────────
 // Applies to: Discord, Telegram, Gotify, Pushover, MQTT only.
@@ -83,8 +88,8 @@ function saveNotifConfig(cfg) { setSetting('notif_config', cfg); logger.info('No
 const NOTIF_FILTER_MODES = ['all', 'groups', 'aliases', 'capcodes', 'keywords'];
 const NOTIF_FILTER_DEFAULTS = { mode: 'all', group_ids: [], capcodes: [], keywords: [] };
 
-function getNotifFilter() {
-  const raw = getSetting('notif_filter', null);
+function getNotifFilter(orgId) {
+  const raw = getSetting(orgKey(orgId, 'notif_filter'), null);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...NOTIF_FILTER_DEFAULTS };
   return {
     mode:      NOTIF_FILTER_MODES.includes(raw.mode) ? raw.mode : 'all',
@@ -93,14 +98,14 @@ function getNotifFilter() {
     keywords:  Array.isArray(raw.keywords)  ? raw.keywords  : [],
   };
 }
-function saveNotifFilter(cfg) {
-  setSetting('notif_filter', {
+function saveNotifFilter(orgId, cfg) {
+  setSetting(orgKey(orgId, 'notif_filter'), {
     mode:      NOTIF_FILTER_MODES.includes(cfg.mode) ? cfg.mode : 'all',
     group_ids: Array.isArray(cfg.group_ids) ? cfg.group_ids.map(Number) : [],
     capcodes:  Array.isArray(cfg.capcodes)  ? cfg.capcodes.map(c => normCapcode(String(c)))  : [],
     keywords:  Array.isArray(cfg.keywords)  ? cfg.keywords.map(String)  : [],
   });
-  logger.info('Notification filter saved');
+  logger.info(`Notification filter saved (org=${orgId})`);
 }
 
 // ── Dedup ─────────────────────────────────────────────────────────────────────
@@ -136,8 +141,8 @@ function isUnsafeRegexPattern(source) {
   return /\([^()]*[+*][^()]*\)\s*[+*]/.test(source) || /\([^()]*[+*][^()]*\)\s*\{\d+,/.test(source);
 }
 
-function getFeedFilter() {
-  const raw = getSetting('feed_filter', null);
+function getFeedFilter(orgId) {
+  const raw = getSetting(orgKey(orgId, 'feed_filter'), null);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...FEED_FILTER_DEFAULTS };
   return {
     mode:         FEED_FILTER_MODES.includes(raw.mode) ? raw.mode : 'show_all',
@@ -148,7 +153,7 @@ function getFeedFilter() {
   };
 }
 
-function saveFeedFilter(cfg) {
+function saveFeedFilter(orgId, cfg) {
   const textStrings = Array.isArray(cfg.text_strings)
     ? cfg.text_strings.map(v => String(v).trim()).filter(Boolean).slice(0, MAX_TEXT_FILTERS)
     : [];
@@ -160,21 +165,23 @@ function saveFeedFilter(cfg) {
     throw new Error(`Regex pattern rejected (too long or prone to catastrophic backtracking): ${unsafePattern}`);
   }
 
-  setSetting('feed_filter', {
+  setSetting(orgKey(orgId, 'feed_filter'), {
     mode:         FEED_FILTER_MODES.includes(cfg.mode) ? cfg.mode : 'show_all',
     capcodes:     Array.isArray(cfg.capcodes)     ? cfg.capcodes.map(c => normCapcode(String(c))) : [],
     group_ids:    Array.isArray(cfg.group_ids)    ? cfg.group_ids.map(Number)  : [],
     text_strings: textStrings,
     text_regex:   textRegex,
   });
-  logger.info('Feed filter saved');
+  logger.info(`Feed filter saved (org=${orgId})`);
 }
 
-// Returns true if the message should be shown in the feed.
-// msg must have: capcode, alias_name/alias, group_id
-function passesFeedFilter(msg) {
+// Returns true if the message should be shown in the feed for the given org.
+// msg must have: capcode, alias_name/alias, group_id (resolved for that same org — see
+// database.js's ALIAS_GROUP_JOIN_SQL/getHistory for the org-aware alias/group resolution
+// this depends on).
+function passesFeedFilter(msg, orgId) {
   try {
-    const filter = getFeedFilter();
+    const filter = getFeedFilter(orgId);
     if (!filter) return true;
 
     // Decoders don't agree on zero-padding capcodes — filter.capcodes is normalized on

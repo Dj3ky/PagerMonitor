@@ -80,6 +80,7 @@ function authDownload(path, filename) {
 export const adminExportAliasesCsv  = () => authDownload('/admin/aliases/export', 'aliases.csv');
 export const adminExportMessagesCsv = () => authDownload('/admin/db/export', `pagermonitor-${Date.now()}.csv`);
 
+export const adminSetUserEmail       = (id, email) => A('PUT', `/admin/users/${id}/email`, { email });
 export const adminFetchUpdateStatus  = () => A('GET', '/admin/update/status');
 export const adminFetchMsgNorm       = () => A('GET', '/admin/message-normalizations');
 export const adminSaveMsgNorm        = rules => A('PUT', '/admin/message-normalizations', rules);
@@ -105,12 +106,22 @@ export const fetchLastSeen  = () => req('GET', '/api/last-seen', undefined, true
 export const saveLastSeen   = (id) => req('POST', '/api/last-seen', { lastSeenId: id }, true);
 export const authLogout     = () => req('POST', '/auth/logout', undefined, true);
 export const authMe         = () => req('GET',  '/auth/me',     undefined, true);
-export const authUsers      = () => A('GET',  '/auth/users');
+export const authUsers      = (orgId) => A('GET',  `/auth/users${orgId ? `?org_id=${orgId}` : ''}`);
 export const authRegister   = (u, p, r, e) => A('POST', '/auth/register', { username:u, password:p, role:r, email:e });
 export const authSetRole    = (id, role) => A('PUT',  `/auth/users/${id}/role`, { role });
+export const authSetUserOrg = (id, orgId) => A('PUT', `/auth/users/${id}/org`, { org_id: orgId });
 export const authResetPw    = (id, pw)   => A('POST', `/auth/users/${id}/reset-password`, { password:pw });
 export const authDeleteUser = (id)       => A('DELETE', `/auth/users/${id}`);
 export const authChangePw   = (old_, new_) => A('POST', '/auth/change-password', { oldPassword:old_, newPassword:new_ });
+export const authJoin       = (code, username, password, email) =>
+  req('POST', '/auth/join', { code, username, password, email });
+
+// ── Invites (org-admin) & Organizations (platform admin) ──────────────────────
+export const adminFetchInvites  = () => A('GET', '/admin/invites');
+export const adminCreateInvite  = (role, expiresInDays, maxUses) => A('POST', '/admin/invites', { role, expiresInDays, maxUses });
+export const adminRevokeInvite  = (id) => A('DELETE', `/admin/invites/${id}`);
+export const adminFetchOrgs     = () => A('GET', '/admin/organizations');
+export const adminCreateOrg     = (name) => A('POST', '/admin/organizations', { name });
 export const postUserLocation   = (lat, lng) => req('POST',   '/api/user-location', { lat, lng });
 export const deleteUserLocation = ()         => req('DELETE', '/api/user-location');
 export const fetchUserLocations = ()         => A('GET', '/admin/user-locations');

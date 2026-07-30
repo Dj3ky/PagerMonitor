@@ -8,7 +8,8 @@ const ROOT_DIR = path.join(__dirname, '../../..');
 
 const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, deleteAlias,
         getGroups, getHighlightRules, getLastSeenId, setLastSeenId,
-        upsertUserLocation, deleteUserLocation } = require('../services/database');
+        upsertUserLocation, deleteUserLocation,
+        ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL } = require('../services/database');
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
@@ -18,6 +19,7 @@ const { getFeedFilter, passesFeedFilter } = require('../services/config');
 router.get('/history', requireAuth, (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit || '200', 10), 1000);
   const before = parseInt(req.query.before || '0', 10); // load messages older than this id
+  const orgId  = req.session.orgId;
   try {
     const db   = require('../services/database').getDb();
     // Fetch a larger batch then filter so we return close to `limit` rows even with aggressive filters.
@@ -25,40 +27,32 @@ router.get('/history', requireAuth, (req, res) => {
     const fetchLimit = limit * 2;
     const rows = before > 0
       ? db.prepare(`
-          SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
-                 g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
-                 pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
+          SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
                  c.display_name as client_name, c.color as client_color,
                  (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
           FROM messages m
-          LEFT JOIN aliases a  ON a.capcode = m.capcode
-          LEFT JOIN groups  g  ON g.id = a.group_id
-          LEFT JOIN groups  pg ON pg.id = g.parent_id
+          ${ALIAS_GROUP_JOIN_SQL}
           LEFT JOIN sdr_clients c ON c.id = m.client_id
           WHERE m.id < ?
           ORDER BY m.id DESC LIMIT ?
-        `).all(before, fetchLimit)
+        `).all(orgId, before, fetchLimit)
       : db.prepare(`
-          SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
-                 g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
-                 pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
+          SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
                  c.display_name as client_name, c.color as client_color,
                  (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
           FROM messages m
-          LEFT JOIN aliases a  ON a.capcode = m.capcode
-          LEFT JOIN groups  g  ON g.id = a.group_id
-          LEFT JOIN groups  pg ON pg.id = g.parent_id
+          ${ALIAS_GROUP_JOIN_SQL}
           LEFT JOIN sdr_clients c ON c.id = m.client_id
           ORDER BY m.id DESC LIMIT ?
-        `).all(fetchLimit);
-    res.json(rows.filter(r => passesFeedFilter(r)).slice(0, limit));
+        `).all(orgId, fetchLimit);
+    res.json(rows.filter(r => passesFeedFilter(r, orgId)).slice(0, limit));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/search', requireAuth, (req, res) => {
   const q = (req.query.q||'').trim();
   if (!q) return res.status(400).json({ error: 'q required' });
-  try { res.json(searchMessages(q, Math.min(parseInt(req.query.limit||'100',10), 500))); }
+  try { res.json(searchMessages(req.session.orgId, q, Math.min(parseInt(req.query.limit||'100',10), 500))); }
   catch (e) { res.status(500).json({ error: 'Search failed' }); }
 });
 
@@ -85,21 +79,21 @@ router.get('/status', requireAuth, (_req, res) => {
     freeMem: os.freemem(), totalMem: os.totalmem(), sdr: getStatus(), stats: getStats() });
 });
 
-router.get('/aliases', requireAuth, (_req, res) => res.json(getAliases()));
+router.get('/aliases', requireAuth, (req, res) => res.json(getAliases(req.session.orgId)));
 router.put('/aliases/:capcode', requireEditor, (req, res) => {
   const { name, color, notes, group_id } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
-  upsertAlias(req.params.capcode, name, color, notes, group_id);
+  upsertAlias(req.session.orgId, req.session.isPlatformAdmin, req.params.capcode, name, color, notes, group_id);
   res.json({ ok: true });
 });
-router.delete('/aliases/:capcode', requireEditor, (req, res) => { deleteAlias(req.params.capcode); res.json({ ok: true }); });
+router.delete('/aliases/:capcode', requireEditor, (req, res) => { deleteAlias(req.session.orgId, req.session.isPlatformAdmin, req.params.capcode); res.json({ ok: true }); });
 
-router.get('/groups', requireAuth, (_req, res) => { try { res.json(getGroups()); } catch (e) { res.status(500).json({ error: e.message }); } });
-router.get('/rules',  requireAuth, (_req, res) => { try { res.json(getHighlightRules()); } catch (e) { res.status(500).json({ error: e.message }); } });
+router.get('/groups', requireAuth, (req, res) => { try { res.json(getGroups(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); } });
+router.get('/rules',  requireAuth, (req, res) => { try { res.json(getHighlightRules(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); } });
 
 // Feed filter — exposed so clients know when a filter is active (mode only, no sensitive data)
-router.get('/feed-filter', requireAuth, (_req, res) => {
-  try { res.json(getFeedFilter()); } catch (e) { res.status(500).json({ error: e.message }); }
+router.get('/feed-filter', requireAuth, (req, res) => {
+  try { res.json(getFeedFilter(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Messages with coordinates for the map view
@@ -109,33 +103,38 @@ router.get('/map', requireAuth, (req, res) => {
     const fromDate   = req.query.fromDate; // YYYY-MM-DD
     const toDate     = req.query.toDate;   // YYYY-MM-DD
     const maxAgeDays = parseFloat(req.query.maxAgeDays || '30');
+    const orgId      = req.session.orgId;
 
+    // Org-specific alias/group wins, falling back to the global/shared default (same
+    // resolution as getHistory — see database.js's ALIAS_GROUP_JOIN_SQL).
     let rows;
     if (fromDate && toDate) {
       // SUBSTR(timestamp,1,10) gives YYYY-MM-DD regardless of full timestamp format
       rows = getDb().prepare(`
         SELECT m.id, m.timestamp, m.capcode, m.message, m.protocol, m.lat, m.lng,
-               a.name as alias_name, a.color as alias_color,
+               COALESCE(a.name, ag.name)   as alias_name, COALESCE(a.color, ag.color) as alias_color,
                g.name as group_name, g.color as group_color
         FROM messages m
-        LEFT JOIN aliases a ON a.capcode = m.capcode
-        LEFT JOIN groups  g ON g.id = a.group_id
+        LEFT JOIN aliases a  ON a.capcode = m.capcode AND a.org_id = ?
+        LEFT JOIN aliases ag ON ag.capcode = m.capcode AND ag.org_id IS NULL
+        LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id)
         WHERE m.lat IS NOT NULL AND m.lng IS NOT NULL
           AND SUBSTR(m.timestamp, 1, 10) >= ? AND SUBSTR(m.timestamp, 1, 10) <= ?
         ORDER BY m.id DESC LIMIT ?
-      `).all(fromDate, toDate, limit);
+      `).all(orgId, fromDate, toDate, limit);
     } else {
       rows = getDb().prepare(`
         SELECT m.id, m.timestamp, m.capcode, m.message, m.protocol, m.lat, m.lng,
-               a.name as alias_name, a.color as alias_color,
+               COALESCE(a.name, ag.name)   as alias_name, COALESCE(a.color, ag.color) as alias_color,
                g.name as group_name, g.color as group_color
         FROM messages m
-        LEFT JOIN aliases a ON a.capcode = m.capcode
-        LEFT JOIN groups  g ON g.id = a.group_id
+        LEFT JOIN aliases a  ON a.capcode = m.capcode AND a.org_id = ?
+        LEFT JOIN aliases ag ON ag.capcode = m.capcode AND ag.org_id IS NULL
+        LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id)
         WHERE m.lat IS NOT NULL AND m.lng IS NOT NULL
           AND m.timestamp >= strftime('%Y-%m-%dT%H:%M:%S.000Z', datetime('now', '-' || ? || ' days'))
         ORDER BY m.id DESC LIMIT ?
-      `).all(maxAgeDays, limit);
+      `).all(orgId, maxAgeDays, limit);
     }
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -200,30 +199,29 @@ router.post('/last-seen', requireAuth, (req, res) => {
 
 // ── Archive ───────────────────────────────────────────────────────────────────
 
-// Build a capcode→group_id map from current aliases (used when feed filter is 'only_groups')
-function buildGroupMap() {
+// Build a capcode→group_id map from current org+global aliases (used when feed filter is 'only_groups')
+function buildGroupMap(orgId) {
   try {
     return Object.fromEntries(
       getDb().prepare(`
-        SELECT a.capcode, g.id as group_id, pg.id as parent_group_id
+        SELECT a.capcode, COALESCE(a.group_id, ag.group_id) as group_id
         FROM aliases a
-        LEFT JOIN groups g  ON g.id = a.group_id
-        LEFT JOIN groups pg ON pg.id = g.parent_id
-        WHERE a.group_id IS NOT NULL
-      `).all().map(r => [r.capcode, r.group_id])
+        LEFT JOIN aliases ag ON ag.capcode = a.capcode AND ag.org_id IS NULL
+        WHERE (a.org_id = ? OR a.org_id IS NULL) AND COALESCE(a.group_id, ag.group_id) IS NOT NULL
+      `).all(orgId).map(r => [r.capcode, r.group_id])
     );
   } catch (_) { return {}; }
 }
 
 // Enrich archive rows with group_id for filter compatibility, then apply feed filter
-function filterArchiveRows(rows) {
-  const filter = getFeedFilter();
+function filterArchiveRows(rows, orgId) {
+  const filter = getFeedFilter(orgId);
   if (!filter || filter.mode === 'show_all') return rows;
   // For 'only_groups' mode archive rows need a live group lookup (not stored in archive)
-  const groupMap = filter.mode === 'only_groups' ? buildGroupMap() : null;
+  const groupMap = filter.mode === 'only_groups' ? buildGroupMap(orgId) : null;
   return rows.filter(r => {
     const enriched = groupMap ? { ...r, group_id: groupMap[r.capcode] ?? null } : r;
-    return passesFeedFilter(enriched);
+    return passesFeedFilter(enriched, orgId);
   });
 }
 
@@ -233,7 +231,7 @@ router.get('/archive', requireAuth, (req, res) => {
     const q     = (req.query.q || '').trim();
     const limit = Math.min(parseInt(req.query.limit || '200', 10), 1000);
     const rows  = q ? searchArchive(q, limit * 2) : getArchiveHistory(limit * 2);
-    res.json(filterArchiveRows(rows).slice(0, limit));
+    res.json(filterArchiveRows(rows, req.session.orgId).slice(0, limit));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -281,7 +279,7 @@ router.get('/archive/export', requireAuth, (req, res) => {
   try {
     const { getArchiveHistory, searchArchive } = require('../services/archive');
     const q    = (req.query.q || '').trim();
-    const rows = filterArchiveRows(q ? searchArchive(q, 10000) : getArchiveHistory(10000));
+    const rows = filterArchiveRows(q ? searchArchive(q, 10000) : getArchiveHistory(10000), req.session.orgId);
 
     const escape = v => v == null ? '' : `"${String(v).replace(/"/g, '""')}"`;
     const header = ['id','timestamp','capcode','alias','protocol','baud','funcbits','message','lat','lng'];

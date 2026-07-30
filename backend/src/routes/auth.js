@@ -1,9 +1,21 @@
 const express = require('express');
 const router  = express.Router();
-const { register, login, destroySession, requireAuth, requireAdmin,
+const { register, login, destroySession, requireAuth, requireAdmin, requirePlatformAdmin,
         changePassword, adminSetPassword } = require('../services/auth');
-const { getUsers, countUsers, deleteUser, updateUserRole, updateUserEmail, addAuditLog } = require('../services/database');
+const {
+  getUsers, getUserById, countUsers, deleteUser, updateUserRole, updateUserEmail, setUserOrg,
+  getInviteByCode, consumeInvite, addAuditLog,
+} = require('../services/database');
 const logger = require('../utils/logger');
+
+// A caller may manage a target user if they're platform admin (any user, any org) or
+// the target belongs to their own org. Org-admins can never reach another org's users
+// even by guessing an id.
+function ownsUser(req, targetId) {
+  if (req.session.isPlatformAdmin) return true;
+  const target = getUserById(targetId);
+  return !!target && target.org_id === req.session.orgId;
+}
 
 // POST /auth/login
 router.post('/login', async (req, res) => {
@@ -18,6 +30,34 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// POST /auth/join — consume an invite code, create the user in the invite's org/role, log in.
+// Public (no auth) — mirrors /auth/login's response shape so the frontend reuses its existing
+// post-login flow. A future self-service /auth/signup (creates a fresh org instead of joining
+// an existing one) would share this same "create user + create session" tail.
+router.post('/join', async (req, res) => {
+  try {
+    const { code, username, password, email } = req.body;
+    if (!code) return res.status(400).json({ error: 'Invite code required' });
+    const invite = getInviteByCode(code);
+    if (!invite) return res.status(400).json({ error: 'Invalid invite code' });
+    if (invite.revoked) return res.status(400).json({ error: 'This invite has been revoked' });
+    if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
+      return res.status(400).json({ error: 'This invite has expired' });
+    }
+    if (invite.max_uses > 0 && invite.use_count >= invite.max_uses) {
+      return res.status(400).json({ error: 'This invite has reached its usage limit' });
+    }
+
+    const id = await register(username, password, invite.role, invite.org_id);
+    if (email) updateUserEmail(id, email);
+    consumeInvite(code, id); // atomic re-check + increment, guards the max_uses race
+    addAuditLog(username, 'user.join_via_invite', `invite_id=${invite.id}`, invite.org_id);
+
+    const result = await login(username, password);
+    res.json(result);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 // POST /auth/logout
 router.post('/logout', requireAuth, (req, res) => {
   const token = (req.headers['authorization'] || '').replace('Bearer ', '');
@@ -27,9 +67,12 @@ router.post('/logout', requireAuth, (req, res) => {
 
 // GET /auth/me
 router.get('/me', requireAuth, (req, res) => {
-  const { getUsers } = require('../services/database');
-  const u = getUsers().find(x => x.id === req.session.userId);
-  res.json({ id: req.session.userId, username: req.session.username, role: req.session.role, email: u?.email || '' });
+  const u = req.session.userId ? getUserById(req.session.userId) : null;
+  res.json({
+    id: req.session.userId, username: req.session.username, role: req.session.role,
+    orgId: req.session.orgId, isPlatformAdmin: !!req.session.isPlatformAdmin,
+    email: u?.email || '',
+  });
 });
 
 // POST /auth/change-password  (own password)
@@ -41,30 +84,48 @@ router.post('/change-password', requireAuth, async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// ── Admin-only user management ─────────────────────────────────────────────
-// POST /auth/register  (admin creates users)
+// ── Admin-only user management (org-scoped, unless caller is platform admin) ──
+// POST /auth/register  (admin creates users into their own org; platform admin may target any org)
 router.post('/register', requireAdmin, async (req, res) => {
   try {
-    const { username, password, role, email } = req.body;
+    const { username, password, role, email, org_id } = req.body;
     const validRoles = ['admin', 'editor', 'viewer'];
     const assignRole = validRoles.includes(role) ? role : 'viewer';
-    const id = await register(username, password, assignRole);
+    const targetOrgId = (req.session.isPlatformAdmin && org_id != null) ? parseInt(org_id) : req.session.orgId;
+    const id = await register(username, password, assignRole, targetOrgId);
     if (email) updateUserEmail(id, email);
-    addAuditLog(req.session?.username||'admin', 'user.create', `username=${username} role=${assignRole}`);
+    addAuditLog(req.session?.username||'admin', 'user.create', `username=${username} role=${assignRole}`, req.session.orgId);
     res.json({ ok: true, id });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// GET /auth/users
-router.get('/users', requireAdmin, (_req, res) => {
-  res.json(getUsers());
+// GET /auth/users — org-admin sees their own org; platform admin sees all (or ?org_id= to filter)
+router.get('/users', requireAdmin, (req, res) => {
+  const orgId = req.session.isPlatformAdmin
+    ? (req.query.org_id ? parseInt(req.query.org_id) : null)
+    : req.session.orgId;
+  res.json(getUsers(orgId));
 });
 
 // PUT /auth/users/:id/role
 router.put('/users/:id/role', requireAdmin, (req, res) => {
   try {
-    updateUserRole(parseInt(req.params.id), req.body.role);
-    addAuditLog(req.session.username, 'user.role_change', `id=${req.params.id} role=${req.body.role}`);
+    const id = parseInt(req.params.id);
+    if (!ownsUser(req, id)) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
+    updateUserRole(id, req.body.role);
+    addAuditLog(req.session.username, 'user.role_change', `id=${id} role=${req.body.role}`, req.session.orgId);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// PUT /auth/users/:id/org — platform admin only: reassign a user to a different organization
+router.put('/users/:id/org', requirePlatformAdmin, (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const orgId = parseInt(req.body.org_id);
+    if (!orgId) return res.status(400).json({ error: 'org_id required' });
+    setUserOrg(id, orgId);
+    addAuditLog(req.session.username, 'user.org_reassign', `id=${id} org_id=${orgId}`);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -72,8 +133,10 @@ router.put('/users/:id/role', requireAdmin, (req, res) => {
 // POST /auth/users/:id/reset-password
 router.post('/users/:id/reset-password', requireAdmin, async (req, res) => {
   try {
-    await adminSetPassword(parseInt(req.params.id), req.body.password);
-    addAuditLog(req.session.username, 'user.password_reset', `id=${req.params.id}`);
+    const id = parseInt(req.params.id);
+    if (!ownsUser(req, id)) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
+    await adminSetPassword(id, req.body.password);
+    addAuditLog(req.session.username, 'user.password_reset', `id=${id}`, req.session.orgId);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -83,10 +146,10 @@ router.delete('/users/:id', requireAdmin, (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (id === req.session.userId) return res.status(400).json({ error: 'Cannot delete yourself' });
-    const users = getUsers();
-    const target = users.find(u => u.id === id);
+    if (!ownsUser(req, id)) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
+    const target = getUserById(id);
     deleteUser(id);
-    addAuditLog(req.session.username, 'user.delete', `id=${id} username=${target?.username || '?'}`);
+    addAuditLog(req.session.username, 'user.delete', `id=${id} username=${target?.username || '?'}`, req.session.orgId);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -99,7 +162,6 @@ router.get('/setup', (_req, res) => {
 // PUT /auth/me/email — user updates their own email
 router.put('/me/email', requireAuth, (req, res) => {
   try {
-    const { updateUserEmail } = require('../services/database');
     updateUserEmail(req.session.userId, req.body.email);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }

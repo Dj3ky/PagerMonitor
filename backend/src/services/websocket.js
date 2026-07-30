@@ -1,21 +1,46 @@
 const { WebSocketServer, WebSocket } = require('ws');
+const { parse } = require('url');
 const logger = require('../utils/logger');
 
 let wss;
 let clientCount = 0;
 
-// Lazy reference to sdr service to avoid circular require at module load time
+// Lazy references to avoid circular require at module load time
 function getSdrStatus() {
   try { return require('./sdr').getStatus(); } catch (_) { return null; }
+}
+function resolveConnectionOrg(token) {
+  const { validateSession, getPublicOrgId } = require('./auth');
+  const { getSetting } = require('./database');
+  if (token) {
+    const s = validateSession(token);
+    if (s) return { orgId: s.orgId, isPlatformAdmin: !!s.isPlatformAdmin };
+  }
+  // No (valid) token — allow only if the instance is in public mode, mirroring the
+  // req.publicAccess GET-only exception in services/auth.js's requireAuth.
+  const publicMode = !!getSetting('site_settings', {}).publicMode;
+  if (publicMode) return { orgId: getPublicOrgId(), isPlatformAdmin: false };
+  return null;
 }
 
 function initWebSocket(server) {
   wss = new WebSocketServer({ server, path: '/ws' });
 
   wss.on('connection', (ws, req) => {
+    // Browsers can't set custom headers on a WebSocket handshake, so the bearer token
+    // travels as a query param instead: wss://host/ws?token=<token>.
+    const { query } = parse(req.url, true);
+    const conn = resolveConnectionOrg(query.token);
+    if (!conn) {
+      try { ws.close(4001, 'Not authenticated'); } catch (_) {}
+      return;
+    }
+    ws.orgId = conn.orgId;
+    ws.isPlatformAdmin = conn.isPlatformAdmin;
+
     clientCount++;
     const ip = req.socket.remoteAddress;
-    logger.debug(`WS client connected: ${ip} (total: ${clientCount})`);
+    logger.debug(`WS client connected: ${ip} org=${ws.orgId} (total: ${clientCount})`);
 
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
@@ -46,11 +71,24 @@ function initWebSocket(server) {
   logger.info('WebSocket server initialised on /ws');
 }
 
+// Instance-wide signals with no per-org content (sdr status, log lines, server shutdown,
+// map-locations-cleared, location updates on an existing message) — every connection gets these.
 function broadcast(payload) {
   if (!wss) return;
   const data = JSON.stringify(payload);
   wss.clients.forEach((ws) => {
     if (ws.readyState === WebSocket.OPEN) safeSend(ws, null, data);
+  });
+}
+
+// Message content is org-specific (each org resolves aliases/groups and applies its own
+// feed filter differently over the same shared ingest event — see services/fanout.js) —
+// only that org's connections receive it.
+function broadcastToOrg(orgId, payload) {
+  if (!wss) return;
+  const data = JSON.stringify(payload);
+  wss.clients.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN && ws.orgId === orgId) safeSend(ws, null, data);
   });
 }
 
@@ -70,4 +108,4 @@ function closeWebSocket() {
   wss.close();
 }
 
-module.exports = { initWebSocket, broadcast, getClientCount, closeWebSocket };
+module.exports = { initWebSocket, broadcast, broadcastToOrg, getClientCount, closeWebSocket };

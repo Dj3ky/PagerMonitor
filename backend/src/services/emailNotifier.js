@@ -81,12 +81,15 @@ function buildEmailBody(msg) {
   return { text: textParts.join('\n'), html };
 }
 
-async function sendUserEmailNotifications(msg) {
+// Called once per org per ingested message (see services/fanout.js) — only that org's
+// members are eligible, since a user's alert preferences only make sense against the
+// org whose feed/aliases they're actually looking at.
+async function sendUserEmailNotifications(msg, orgId) {
   const cfg = getEmailConfig();
   if (!cfg.enabled || !cfg.host) return;
 
   let users;
-  try { users = getAllUsersWithPrefs(); } catch { return; }
+  try { users = getAllUsersWithPrefs(orgId); } catch { return; }
 
   const eligible = users.filter(u => u.email && messageMatchesPrefs(msg, u.prefs));
   if (!eligible.length) return;

@@ -18,7 +18,7 @@ const { promisify } = require('util');
 const { spawn } = require('child_process');
 const pipelineAsync = promisify(pipeline);
 
-const { requireAdmin }  = require('../services/auth');
+const { requirePlatformAdmin }  = require('../services/auth');
 const { getDb, getSetting, addAuditLog } = require('../services/database');
 const logger = require('../utils/logger');
 
@@ -68,7 +68,7 @@ function dbStats(filePath) {
 }
 
 // ── GET /admin/backup/status ───────────────────────────────────────────────────
-router.get('/status', requireAdmin, (_req, res) => {
+router.get('/status', requirePlatformAdmin, (_req, res) => {
   // Checkpoint WAL so the main file is up to date before reading stats
   try { getDb().pragma('wal_checkpoint(PASSIVE)'); } catch (_) {}
 
@@ -83,7 +83,7 @@ router.get('/status', requireAdmin, (_req, res) => {
 // ── GET /admin/backup/download?db=main|archive|all ────────────────────────────
 // Downloads a safe SQLite backup copy. Uses better-sqlite3 .backup() for
 // consistency — safe to run while the DB is in use.
-router.get('/download', requireAdmin, async (req, res) => {
+router.get('/download', requirePlatformAdmin, async (req, res) => {
   const which = req.query.db || 'all';
   const tmpDir = os.tmpdir();
   const ts = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/.test(req.query.ts) ? req.query.ts : localTs();
@@ -153,7 +153,7 @@ router.get('/download', requireAdmin, async (req, res) => {
 // ── POST /admin/backup/restore ─────────────────────────────────────────────────
 // Accepts a .pmbackup JSON file (from the download above), restores both DBs.
 // Server must be restarted after restore for changes to take effect.
-router.post('/restore', requireAdmin, async (req, res) => {
+router.post('/restore', requirePlatformAdmin, async (req, res) => {
   try {
     const bundle = req.body;
     if (!bundle || !bundle.version || !bundle.main) return res.status(400).json({ error: 'Invalid backup file — missing required fields' });
@@ -246,7 +246,7 @@ router.post('/restore', requireAdmin, async (req, res) => {
 // Restarts the server the same way the update panel does:
 //   1. systemctl restart (detached) — works when running as a systemd service
 //   2. SIGTERM fallback after 2s   — works under Docker (restart: unless-stopped) / PM2
-router.post('/restart', requireAdmin, (req, res) => {
+router.post('/restart', requirePlatformAdmin, (req, res) => {
   addAuditLog(req.session.username, 'server.restart', 'manual restart via admin panel');
   logger.warn(`Server restart requested by ${req.session.username}`);
   res.json({ ok: true, message: 'Restarting server…' });

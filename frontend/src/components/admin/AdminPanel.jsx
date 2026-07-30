@@ -32,29 +32,32 @@ import UpdatePanel    from './UpdatePanel.jsx';
 import FeedFilter          from './FeedFilter.jsx';
 import MsgNormalizations   from './MsgNormalizations.jsx';
 import UserLocations       from './UserLocations.jsx';
+import Organizations       from './Organizations.jsx';
 
+// platformOnly tabs are instance-wide infrastructure (shared by every org) — gated to
+// the platform admin, distinct from the org-admin `role==='admin'` used elsewhere.
 const TABS = [
   { group: 'SDR' },
-  { id:'sdr',         label:'SDR Control',    icon:<Cpu size={14}/>,        sdrOnly: true },
-  { id:'logs',        label:'Live Logs',      icon:<Terminal size={14}/>,   sdrOnly: true },
-  { id:'sdrclients',  label:'SDR Clients',    icon:<Activity size={14}/>,   serverOnly: true },
-  { id:'client',      label:'Client Key',     icon:<Wifi size={14}/>,       serverOnly: true },
-  { id:'deadair',     label:'Dead Air',       icon:<Radio size={14}/> },
+  { id:'sdr',         label:'SDR Control',    icon:<Cpu size={14}/>,        sdrOnly: true,    platformOnly: true },
+  { id:'logs',        label:'Live Logs',      icon:<Terminal size={14}/>,   sdrOnly: true,    platformOnly: true },
+  { id:'sdrclients',  label:'SDR Clients',    icon:<Activity size={14}/>,   serverOnly: true, platformOnly: true },
+  { id:'client',      label:'Client Key',     icon:<Wifi size={14}/>,       serverOnly: true, platformOnly: true },
+  { id:'deadair',     label:'Dead Air',       icon:<Radio size={14}/>,      platformOnly: true },
 
   { group: 'Messages' },
-  { id:'db',          label:'Database',       icon:<Database size={14}/> },
-  { id:'archive',     label:'Archive',        icon:<Archive size={14}/> },
-  { id:'stats',       label:'Statistics',     icon:<BarChart2 size={14}/> },
-  { id:'dedup',       label:'Dedup',          icon:<Copy size={14}/> },
+  { id:'db',          label:'Database',       icon:<Database size={14}/>,   platformOnly: true },
+  { id:'archive',     label:'Archive',        icon:<Archive size={14}/>,    platformOnly: true },
+  { id:'stats',       label:'Statistics',     icon:<BarChart2 size={14}/>,  platformOnly: true },
+  { id:'dedup',       label:'Dedup',          icon:<Copy size={14}/>,       platformOnly: true },
   { id:'highlights',  label:'Highlights',     icon:<Highlighter size={14}/> },
   { id:'keyword',     label:'Keyword Alerts', icon:<Bell size={14}/> },
   { id:'feedfilter',  label:'Feed Filter',    icon:<EyeOff size={14}/> },
-  { id:'msgnorm',     label:'Msg Normalize',  icon:<Wand2 size={14}/> },
+  { id:'msgnorm',     label:'Msg Normalize',  icon:<Wand2 size={14}/>,      platformOnly: true },
 
   { group: 'Notifications' },
   { id:'notif',       label:'Services',       icon:<Bell size={14}/> },
   { id:'webhooks',    label:'Webhooks',       icon:<Link size={14}/> },
-  { id:'email',       label:'Email (SMTP)',   icon:<Mail size={14}/> },
+  { id:'email',       label:'Email (SMTP)',   icon:<Mail size={14}/>,       platformOnly: true },
   { id:'usernotif',   label:'User preferences', icon:<Bell size={14}/> },
 
   { group: 'Aliases & Groups' },
@@ -62,16 +65,19 @@ const TABS = [
   { id:'aliases',     label:'Aliases',        icon:<Tag size={14}/> },
 
   { group: 'System' },
-  { id:'system',      label:'System',          icon:<Server size={14}/> },
-  { id:'update',      label:'Update',          icon:<RefreshCw size={14}/> },
-  { id:'backup',      label:'Backup & Restore', icon:<HardDrive size={14}/> },
-  { id:'auditlog',    label:'Audit Log',        icon:<ClipboardList size={14}/> },
+  { id:'system',      label:'System',          icon:<Server size={14}/>,     platformOnly: true },
+  { id:'update',      label:'Update',          icon:<RefreshCw size={14}/>,  platformOnly: true },
+  { id:'backup',      label:'Backup & Restore', icon:<HardDrive size={14}/>, platformOnly: true },
+  { id:'auditlog',    label:'Audit Log',        icon:<ClipboardList size={14}/>, platformOnly: true },
 
   { group: 'Site' },
-  { id:'site',        label:'Site Settings',  icon:<Settings2 size={14}/> },
-  { id:'aigeocode',   label:'AI Geocode',     icon:<Brain size={14}/> },
+  { id:'site',        label:'Site Settings',  icon:<Settings2 size={14}/>,  platformOnly: true },
+  { id:'aigeocode',   label:'AI Geocode',     icon:<Brain size={14}/>,      platformOnly: true },
   { id:'users',       label:'Users',          icon:<Users size={14}/> },
   { id:'userlocations', label:'User Locations', icon:<MapPin size={14}/> },
+
+  { group: 'Platform' },
+  { id:'organizations', label:'Organizations', icon:<Server size={14}/>,   platformOnly: true },
 ];
 
 function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChange, onResetMap }) {
@@ -103,6 +109,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'feedfilter':  return <FeedFilter />;
     case 'msgnorm':     return <MsgNormalizations />;
     case 'logs':        return <LogViewer />;
+    case 'organizations': return <Organizations />;
     default:            return null;
   }
 }
@@ -111,6 +118,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
   const { user } = useAuth();
   const sdrDisabled = serverStatus?.sdrDisabled === true;
   const isEditor    = user?.role === 'editor';
+  const isPlatformAdmin = !!user?.isPlatformAdmin;
 
   // Editor-allowed tab IDs
   const EDITOR_TABS = new Set(['groups','aliases','highlights','keyword']);
@@ -120,6 +128,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
     if (t.group) return true;
     if (t.sdrOnly    && sdrDisabled)  return false;
     if (t.serverOnly && !sdrDisabled) return false;
+    if (t.platformOnly && !isPlatformAdmin) return false;
     if (isEditor && !EDITOR_TABS.has(t.id)) return false;
     return true;
   }).filter((t, i, arr) => {

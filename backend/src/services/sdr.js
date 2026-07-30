@@ -1,16 +1,12 @@
 const { spawn }  = require('child_process');
 const { PassThrough } = require('stream');
 const iconv      = require('iconv-lite');
-const { insertMessage, getKeywordAlerts, getSetting } = require('./database');
+const { insertMessage, getSetting } = require('./database');
 const { broadcast }          = require('./websocket');
-const { resolveAlias }       = require('../utils/aliases');
-const { sendNotifications }  = require('./notifications');
-const { sendWebhooks }       = require('./webhooks');
+const { broadcastAll, notifyAll } = require('./fanout');
 const { recordMessage, registerSource, unregisterSource } = require('./deadair');
-const { sendUserEmailNotifications } = require('./emailNotifier');
-const { sendPushPerUser }    = require('./webpush');
 const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
-const { loadSdrConfigIntoEnv, getDedupConfig, getDongleConfigs, passesFeedFilter, getMessageNormalizations } = require('./config');
+const { loadSdrConfigIntoEnv, getDedupConfig, getDongleConfigs, getMessageNormalizations } = require('./config');
 const logger = require('../utils/logger');
 
 // ── Regexes ───────────────────────────────────────────────────────────────────
@@ -430,96 +426,36 @@ function handleLine(line, sourceId = 'sdr') {
     return;
   }
 
-  const aliasName  = resolveAlias(parsed.capcode);
-
-  let aliasColor = null, aliasRowColor = null, aliasRowSound = null;
-  let groupId = null, groupName = null, groupColor = null, groupRowColor = null, groupRowSound = null;
-  let parentGroupName = null, parentGroupColor = null, parentGroupRowColor = null, parentGroupRowSound = null;
-  try {
-    const { getDb } = require('./database');
-    const row = getDb().prepare(`
-      SELECT a.name, a.color, a.row_color as arc, a.row_sound as ars,
-             g.id as gid, g.name as gname, g.color as gcolor, g.row_color as grc, g.row_sound as grs,
-             pg.name as pgname, pg.color as pgcolor, pg.row_color as pgrc, pg.row_sound as pgrs
-      FROM aliases a
-      LEFT JOIN groups g  ON g.id = a.group_id
-      LEFT JOIN groups pg ON pg.id = g.parent_id
-      WHERE a.capcode = ?
-    `).get(parsed.capcode);
-    if (row) {
-      aliasColor = row.color; aliasRowColor = row.arc; aliasRowSound = row.ars;
-      groupId = row.gid; groupName = row.gname; groupColor = row.gcolor; groupRowColor = row.grc; groupRowSound = row.grs;
-      parentGroupName = row.pgname; parentGroupColor = row.pgcolor; parentGroupRowColor = row.pgrc; parentGroupRowSound = row.pgrs;
-    }
-  } catch (_) {}
-
   const timestamp = new Date().toISOString();
   const geocodeCountry = (getSetting('site_settings', {}).geocodeCountry || 'si');
   const location = parseLocation(parsed.message, geocodeCountry);
   const { lat, lng } = location;
-  const msg = {
-    timestamp, raw: line, ...parsed,
-    lat, lng,
-    alias:                    aliasName,
-    alias_name:               aliasName,
-    alias_color:              aliasColor,
-    alias_row_color:          aliasRowColor,
-    alias_row_sound:          aliasRowSound,
-    group_id:                 groupId,
-    group_name:               groupName,
-    group_color:              groupColor,
-    group_row_color:          groupRowColor,
-    group_row_sound:          groupRowSound,
-    parent_group_name:        parentGroupName,
-    parent_group_color:       parentGroupColor,
-    parent_group_row_color:   parentGroupRowColor,
-    parent_group_row_sound:   parentGroupRowSound,
-  };
-  // Feed filter — drop the message entirely (not saved to DB, no notifications)
-  if (!passesFeedFilter(msg)) {
-    logger.debug(`[feed-filter] dropped ${msg.capcode}`);
-    return;
-  }
+  // Raw, alias-agnostic — alias/group naming is resolved per-org at broadcast/read
+  // time (an alias can differ per org, or be a global shared default; see services/fanout.js).
+  const rawMsg = { timestamp, raw: line, ...parsed, lat, lng, alias: null };
 
-  const id      = insertMessage(msg);
-  const payload = { type: 'message', id, ...msg };
+  const id     = insertMessage(rawMsg);
+  const perOrg = broadcastAll(rawMsg, id); // resolves alias/group + applies each org's feed filter
 
-  broadcast(payload);
   recordMessage(sourceId);
   sdrStatus.lastMessage = timestamp;
 
-  // Keyword alerts
-  try {
-    const alerts  = getKeywordAlerts().filter(a => a.enabled);
-    const matched = alerts.filter(a => {
-      try {
-        const re = a.is_regex
-          ? new RegExp(a.pattern, 'i')
-          : new RegExp(a.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-        return re.test(msg.message || '') || re.test(msg.capcode || '');
-      } catch { return false; }
-    });
-    if (matched.length) broadcast({ ...payload, type: 'keyword_alert', matchedAlerts: matched });
-  } catch (_) {}
-
-  // Geocode address first if no explicit coords, so notifications include a map link
+  // Geocode address first if no explicit coords, so notifications include a map link.
+  // Runs once for the shared raw message, not per-org — location isn't org-specific.
   ;(async () => {
-    let notifyPayload = payload;
+    let coordsPatch = null;
     if (!lat) {
       const result = await geocodeAddress(location.candidates || [], geocodeCountry, parsed.message).catch(() => null);
       if (result) {
         try { require('./database').getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(result.lat, result.lng, id); } catch (_) {}
         broadcast({ type: 'message_location', id, lat: result.lat, lng: result.lng });
-        notifyPayload = { ...payload, lat: result.lat, lng: result.lng };
+        coordsPatch = { lat: result.lat, lng: result.lng };
       }
     }
-    sendNotifications(notifyPayload).catch(e => logger.warn(`Notification: ${e.message}`));
-    sendWebhooks(notifyPayload).catch(() => {});
-    sendUserEmailNotifications(notifyPayload).catch(() => {});
-    sendPushPerUser(notifyPayload).catch(() => {});
+    await notifyAll(perOrg, coordsPatch);
   })();
 
-  logger.info(`[${msg.protocol}] ${msg.capcode} (${aliasName || 'unknown'}): ${msg.message.substring(0, 80)}`);
+  logger.info(`[${rawMsg.protocol}] ${rawMsg.capcode}: ${rawMsg.message.substring(0, 80)}`);
 }
 
 // ── Multi-dongle pipeline spawner ─────────────────────────────────────────────

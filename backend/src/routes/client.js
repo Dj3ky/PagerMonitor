@@ -10,17 +10,13 @@ const { version } = require('../../package.json');
 const express = require('express');
 const router  = express.Router();
 
-const { insertMessage, getKeywordAlerts, getSetting } = require('../services/database');
+const { insertMessage, getSetting } = require('../services/database');
 const { broadcast }             = require('../services/websocket');
-const { resolveAlias }          = require('../utils/aliases');
+const { broadcastAll, notifyAll } = require('../services/fanout');
 const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
-const { sendNotifications }     = require('../services/notifications');
-const { sendWebhooks }          = require('../services/webhooks');
-const { sendUserEmailNotifications } = require('../services/emailNotifier');
-const { sendPushPerUser }       = require('../services/webpush');
 const { recordMessage, unregisterSource } = require('../services/deadair');
 const { recordClientMessage, recordClientPing, recordClientOffline, getClientConfig, popPendingCommand } = require('../services/clientTracker');
-const { getDedupConfig, passesFeedFilter } = require('../services/config');
+const { getDedupConfig } = require('../services/config');
 const logger                    = require('../utils/logger');
 
 // Dedup cache (same logic as sdr.js but for remote messages)
@@ -69,27 +65,6 @@ router.post('/message', requireClientKey, (req, res) => {
       return res.json({ ok: true, deduped: true });
     }
 
-    const aliasName = resolveAlias(capcode);
-
-    // Look up full alias + group info to match history format
-    let aliasColor = null, groupId = null, groupName = null, groupColor = null;
-    let parentGroupName = null, parentGroupColor = null;
-    try {
-      const { getDb } = require('../services/database');
-      const row = getDb().prepare(`
-        SELECT a.color, g.id as gid, g.name as gname, g.color as gcolor,
-               pg.name as pgname, pg.color as pgcolor
-        FROM aliases a
-        LEFT JOIN groups g  ON g.id = a.group_id
-        LEFT JOIN groups pg ON pg.id = g.parent_id
-        WHERE a.capcode = ?
-      `).get(capcode);
-      if (row) {
-        aliasColor = row.color; groupId = row.gid; groupName = row.gname;
-        groupColor = row.gcolor; parentGroupName = row.pgname; parentGroupColor = row.pgcolor;
-      }
-    } catch (_) {}
-
     // Which remote client this message came from — resolved to its friendly display name/color (if set)
     let clientDisplayName = null, clientColor = null;
     try {
@@ -103,64 +78,36 @@ router.post('/message', requireClientKey, (req, res) => {
     const location = parseLocation(message || '', geocodeCountry);
     const { lat, lng } = location;
     const ts  = timestamp || new Date().toISOString();
-    const msg = {
+    // Raw, alias-agnostic — alias/group naming is resolved per-org at broadcast/read
+    // time (an alias can differ per org, or be a global shared default; see services/fanout.js).
+    const rawMsg = {
       timestamp: ts, capcode, protocol, baud, funcbits,
       message: message || '', raw: raw || '',
-      lat, lng,
-      alias:              aliasName,
-      alias_name:         aliasName,
-      alias_color:        aliasColor,
-      group_id:           groupId,
-      group_name:         groupName,
-      group_color:        groupColor,
-      parent_group_name:  parentGroupName,
-      parent_group_color: parentGroupColor,
-      client_id:          clientId || null,
-      client_name:        clientDisplayName,
-      client_color:       clientColor,
+      lat, lng, alias: null,
+      client_id:    clientId || null,
+      client_name:  clientDisplayName,
+      client_color: clientColor,
     };
-    // Feed filter — drop the message entirely (not saved to DB, no notifications)
-    if (!passesFeedFilter(msg)) {
-      logger.debug(`[feed-filter] dropped ${capcode}`);
-      return res.json({ ok: true, filtered: true });
-    }
 
-    const id      = insertMessage(msg);
-    const payload = { type: 'message', id, ...msg };
+    const id     = insertMessage(rawMsg);
+    const perOrg = broadcastAll(rawMsg, id); // resolves alias/group + applies each org's feed filter
 
-    broadcast(payload);
     recordMessage(clientId);
     recordClientMessage(clientId, req.ip, { message, freq, protocols });
 
-    // Keyword alerts
-    try {
-      const alerts  = getKeywordAlerts().filter(a => a.enabled);
-      const matched = alerts.filter(a => {
-        try {
-          const re = a.is_regex
-            ? new RegExp(a.pattern, 'i')
-            : new RegExp(a.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-          return re.test(msg.message || '') || re.test(msg.capcode || '');
-        } catch { return false; }
-      });
-      if (matched.length) broadcast({ ...payload, type: 'keyword_alert', matchedAlerts: matched });
-    } catch (_) {}
-
-    // Geocode address first if no explicit coords, so notifications include a map link
+    // Geocode address first if no explicit coords, so notifications include a map link.
+    // Runs once for the shared raw message, not per-org — location isn't org-specific.
     ;(async () => {
-      let notifyPayload = payload;
+      let coordsPatch = null;
       if (!lat) {
         const result = await geocodeAddress(location.candidates || [], geocodeCountry, message).catch(() => null);
         if (result) {
           try { require('../services/database').getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(result.lat, result.lng, id); } catch (_) {}
           broadcast({ type: 'message_location', id, lat: result.lat, lng: result.lng });
-          notifyPayload = { ...payload, lat: result.lat, lng: result.lng };
+          coordsPatch = { lat: result.lat, lng: result.lng };
         }
       }
-      sendNotifications(notifyPayload).catch(e => logger.warn(`Notification: ${e.message}`));
-      sendWebhooks(notifyPayload).catch(() => {});
-      sendUserEmailNotifications(notifyPayload).catch(() => {});
-      sendPushPerUser(notifyPayload).catch(() => {});
+      await notifyAll(perOrg, coordsPatch);
     })();
 
     logger.info(`[client:${clientId}] [${protocol}] ${capcode}: ${(message || '').substring(0, 60)}`);

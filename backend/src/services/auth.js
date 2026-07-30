@@ -4,13 +4,16 @@ const db     = require('./database');
 const logger = require('../utils/logger');
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const sessions = new Map(); // token → { userId, username, role, expires }
+const sessions = new Map(); // token → { userId, username, role, orgId, isPlatformAdmin, expires }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 function initSessions() {
   try {
     const rows = db.loadActiveSessions();
-    for (const r of rows) sessions.set(r.token, { userId: r.user_id, username: r.username, role: r.role, expires: r.expires });
+    for (const r of rows) sessions.set(r.token, {
+      userId: r.user_id, username: r.username, role: r.role,
+      orgId: r.org_id ?? null, isPlatformAdmin: !!r.is_platform_admin, expires: r.expires,
+    });
     logger.info(`Loaded ${rows.length} active session(s) from DB`);
   } catch (e) {
     logger.warn(`Could not load sessions from DB: ${e.message}`);
@@ -20,8 +23,10 @@ function initSessions() {
 function createSession(user) {
   const token   = crypto.randomBytes(32).toString('hex');
   const expires = Date.now() + SESSION_TTL_MS;
-  sessions.set(token, { userId: user.id, username: user.username, role: user.role, expires });
-  try { db.saveDbSession(token, user.id, user.username, user.role, expires); } catch (_) {}
+  const orgId = user.org_id ?? null;
+  const isPlatformAdmin = !!user.is_platform_admin;
+  sessions.set(token, { userId: user.id, username: user.username, role: user.role, orgId, isPlatformAdmin, expires });
+  try { db.saveDbSession(token, user.id, user.username, user.role, expires, orgId, isPlatformAdmin); } catch (_) {}
   return token;
 }
 
@@ -44,15 +49,27 @@ setInterval(() => {
   try { db.pruneExpiredSessions(); } catch (_) {}
 }, 60 * 60 * 1000);
 
+// Which org an anonymous (public-mode) viewer sees. Public mode is a single instance-wide
+// toggle (site_settings.publicMode) with no org picker yet, so default to an explicitly
+// configured 'public_org_id' setting, falling back to the lowest-id organization — good
+// enough for the common single-org deployment; revisit if/when public mode needs to target
+// a specific org on a multi-org instance.
+function getPublicOrgId() {
+  const configured = db.getSetting('public_org_id', null);
+  if (configured) return configured;
+  const orgs = db.getOrganizations();
+  return orgs.length ? orgs[0].id : null;
+}
+
 // ── User ops ──────────────────────────────────────────────────────────────────
-async function register(username, password, role = 'viewer') {
+async function register(username, password, role = 'viewer', orgId = null, isPlatformAdmin = false) {
   if (!username || username.length < 2) throw new Error('Username must be at least 2 characters');
   if (!password || password.length < 6) throw new Error('Password must be at least 6 characters');
   if (!['admin', 'editor', 'viewer'].includes(role)) throw new Error('Role must be admin, editor or viewer');
   if (db.getUserByUsername(username)) throw new Error('Username already taken');
   const hash = await bcrypt.hash(password, 10);
-  const id   = db.createUser(username, hash, role);
-  logger.info(`User registered: ${username} (${role})`);
+  const id   = db.createUser(username, hash, role, orgId, isPlatformAdmin);
+  logger.info(`User registered: ${username} (${role}${isPlatformAdmin ? ', platform-admin' : ''}, org=${orgId})`);
   return id;
 }
 
@@ -64,7 +81,7 @@ async function login(username, password) {
   db.touchUserLogin(user.id);
   const token = createSession(user);
   logger.info(`Login: ${username}`);
-  return { token, username: user.username, role: user.role };
+  return { token, username: user.username, role: user.role, orgId: user.org_id, isPlatformAdmin: !!user.is_platform_admin };
 }
 
 async function changePassword(userId, oldPassword, newPassword) {
@@ -91,7 +108,7 @@ function extractToken(req) {
 function requireAuth(req, res, next) {
   // Allow unauthenticated GET requests when public mode is active
   if (req.publicAccess && req.method === 'GET') {
-    req.session = { userId: null, username: 'guest', role: 'viewer' };
+    req.session = { userId: null, username: 'guest', role: 'viewer', orgId: getPublicOrgId(), isPlatformAdmin: false };
     return next();
   }
   const s = validateSession(extractToken(req));
@@ -100,6 +117,10 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Org admin — scoped to req.session.orgId by every downstream DB call, not by this
+// middleware itself. A platform admin is also role='admin' in their own org, so this
+// still passes for them; requirePlatformAdmin below is the separate, additional gate
+// for instance-wide infrastructure and cross-org access.
 function requireAdmin(req, res, next) {
   const s = validateSession(extractToken(req));
   if (!s)              return res.status(401).json({ error: 'Not authenticated' });
@@ -108,7 +129,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// Editor or above — can manage aliases, groups, rules, keyword alerts
+// Editor or above — can manage aliases, groups, rules, keyword alerts (within their own org)
 function requireEditor(req, res, next) {
   const s = validateSession(extractToken(req));
   if (!s) return res.status(401).json({ error: 'Not authenticated' });
@@ -117,11 +138,23 @@ function requireEditor(req, res, next) {
   next();
 }
 
-// ── First-run: create default admin if no users exist ────────────────────────
+// Platform admin — the app owner's cross-org tier. Gates instance infrastructure
+// (SDR, email config, DB tools, etc.) and cross-org management, independent of the
+// per-org admin/editor/viewer role.
+function requirePlatformAdmin(req, res, next) {
+  const s = validateSession(extractToken(req));
+  if (!s) return res.status(401).json({ error: 'Not authenticated' });
+  if (!s.isPlatformAdmin) return res.status(403).json({ error: 'Platform admin access required' });
+  req.session = s;
+  next();
+}
+
+// ── First-run: create default admin + org if no users exist ──────────────────
 async function ensureDefaultAdmin() {
   if (db.countUsers() === 0) {
+    const orgId = db.createOrganization('My Organization', null);
     const pass = process.env.DEFAULT_ADMIN_PASS || crypto.randomBytes(12).toString('hex');
-    await register('admin', pass, 'admin');
+    await register('admin', pass, 'admin', orgId, true);
     logger.warn(`⚠  Default admin created  username=admin  password=${pass}`);
     logger.warn('   Change this password in Admin → Users immediately!');
   }
@@ -129,6 +162,6 @@ async function ensureDefaultAdmin() {
 
 module.exports = {
   register, login, changePassword, adminSetPassword,
-  createSession, validateSession, destroySession, initSessions,
-  requireAuth, requireAdmin, requireEditor, ensureDefaultAdmin,
+  createSession, validateSession, destroySession, initSessions, getPublicOrgId,
+  requireAuth, requireAdmin, requireEditor, requirePlatformAdmin, ensureDefaultAdmin,
 };

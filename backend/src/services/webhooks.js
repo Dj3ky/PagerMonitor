@@ -3,9 +3,11 @@ const { getWebhooks } = require('./database');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 
-async function sendWebhooks(msg) {
+// Called once per org per ingested message (see services/fanout.js) — webhooks are
+// org-scoped, since each org configures its own destinations.
+async function sendWebhooks(msg, orgId) {
   let hooks;
-  try { hooks = getWebhooks().filter(h => h.enabled); } catch { return; }
+  try { hooks = getWebhooks(orgId).filter(h => h.enabled); } catch { return; }
   if (!hooks.length) return;
 
   await Promise.allSettled(hooks.map(async hook => {

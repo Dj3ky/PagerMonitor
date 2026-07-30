@@ -5,7 +5,7 @@ const path    = require('path');
 const { execSync, spawn } = require('child_process');
 const { version } = require('../../package.json');
 
-const { requireAdmin, requireEditor } = require('../services/auth');
+const { requireAdmin, requireEditor, requirePlatformAdmin } = require('../services/auth');
 const { startSdrPipeline, stopSdrPipeline, restartSdrPipeline, getStatus, getLogs } = require('../services/sdr');
 const { getDb, getStats, getMessageStats,
         getGroups, createGroup, updateGroup, deleteGroup,
@@ -14,7 +14,9 @@ const { getDb, getStats, getMessageStats,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
         getWebhooks, upsertWebhook, deleteWebhook,
         addAuditLog, getAuditLog,
-        deleteMessage, getUserLocations,
+        deleteMessage, getUserLocations, getUserById,
+        createOrganization, getOrganizations,
+        createInvite, listInvites, revokeInvite,
         getSetting: _gs, setSetting: _ss } = require('../services/database');
 const { getConfig, updateConfig, testNotification } = require('../services/notifications');
 const { getSdrConfig, saveSdrConfig, getDedupConfig, saveDedupConfig,
@@ -26,21 +28,34 @@ const { unregisterSource } = require('../services/deadair');
 const logger = require('../utils/logger');
 
 // All admin routes require at least editor role by default
-// Sensitive routes explicitly require requireAdmin below
+// Sensitive routes explicitly require requireAdmin/requirePlatformAdmin below
 router.use(requireEditor);
 
-// Inline helper — use as middleware on admin-only routes
+// Org-tier admin (manages their own org's content/members) — role check only, the
+// actual org boundary is enforced by every DB call below taking req.session.orgId.
 const adminOnly = (req, res, next) =>
   req.session?.role === 'admin' ? next() : res.status(403).json({ error: 'Admin access required' });
 
-// ── SDR ───────────────────────────────────────────────────────────────────────
-router.post('/sdr/start',   adminOnly, (req, res) => { startSdrPipeline();   addAuditLog(req.session?.username||'admin', 'sdr.start',   null); res.json({ ok: true }); });
-router.post('/sdr/stop',    adminOnly, (req, res) => { stopSdrPipeline();    addAuditLog(req.session?.username||'admin', 'sdr.stop',    null); res.json({ ok: true }); });
-router.post('/sdr/restart', adminOnly, (req, res) => { restartSdrPipeline(); addAuditLog(req.session?.username||'admin', 'sdr.restart', null); res.json({ ok: true }); });
-router.get('/sdr/status',   adminOnly, (_req, res) => res.json(getStatus()));
-router.get('/sdr/logs',     adminOnly, (_req, res) => res.json(getLogs()));
-router.get('/sdr/config',   adminOnly, (_req, res) => res.json(getSdrConfig()));
-router.post('/sdr/config',  adminOnly, (req, res)  => {
+// Platform tier (the app owner) — instance infrastructure + cross-org access.
+// Re-validates the token itself (see services/auth.js), independent of the org role above.
+const platformOnly = requirePlatformAdmin;
+
+// A row a caller may write to global (org_id NULL) content: platform admin only,
+// and only when explicitly requested (?global=1 or body.is_global) — everyone else
+// always writes within their own org.
+function effectiveOrgId(req) {
+  const wantsGlobal = req.query.global === '1' || req.body?.is_global === true;
+  return (req.session.isPlatformAdmin && wantsGlobal) ? null : req.session.orgId;
+}
+
+// ── SDR (instance infrastructure — the physical/decoder feed shared by every org) ──
+router.post('/sdr/start',   platformOnly, (req, res) => { startSdrPipeline();   addAuditLog(req.session?.username||'admin', 'sdr.start',   null); res.json({ ok: true }); });
+router.post('/sdr/stop',    platformOnly, (req, res) => { stopSdrPipeline();    addAuditLog(req.session?.username||'admin', 'sdr.stop',    null); res.json({ ok: true }); });
+router.post('/sdr/restart', platformOnly, (req, res) => { restartSdrPipeline(); addAuditLog(req.session?.username||'admin', 'sdr.restart', null); res.json({ ok: true }); });
+router.get('/sdr/status',   platformOnly, (_req, res) => res.json(getStatus()));
+router.get('/sdr/logs',     platformOnly, (_req, res) => res.json(getLogs()));
+router.get('/sdr/config',   platformOnly, (_req, res) => res.json(getSdrConfig()));
+router.post('/sdr/config',  platformOnly, (req, res)  => {
   try {
     saveSdrConfig(req.body); restartSdrPipeline();
     addAuditLog(req.session?.username||'admin', 'sdr.config', `freq=${req.body.RTL_FM_FREQ||'?'}`);
@@ -50,8 +65,8 @@ router.post('/sdr/config',  adminOnly, (req, res)  => {
 });
 
 // Multi-dongle configs
-router.get('/sdr/dongles',  adminOnly, (_req, res) => { try{ res.json(getDongleConfigs() || []); } catch(e){ res.status(500).json({error:e.message}); }});
-router.put('/sdr/dongles',  adminOnly, (req, res)  => {
+router.get('/sdr/dongles',  platformOnly, (_req, res) => { try{ res.json(getDongleConfigs() || []); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/sdr/dongles',  platformOnly, (req, res)  => {
   try {
     const dongles = Array.isArray(req.body) ? req.body : [];
     saveDongleConfigs(dongles.length > 0 ? dongles : null);
@@ -62,7 +77,7 @@ router.put('/sdr/dongles',  adminOnly, (req, res)  => {
 });
 
 // ── System ────────────────────────────────────────────────────────────────────
-router.get('/system', adminOnly, (_req, res) => {
+router.get('/system', platformOnly, (_req, res) => {
   let disk = null;
   try {
     const df = execSync("df -k / --output=size,used,avail 2>/dev/null | tail -1", { timeout: 3000 }).toString().trim();
@@ -81,9 +96,9 @@ router.get('/system', adminOnly, (_req, res) => {
   });
 });
 
-// ── DB tools ──────────────────────────────────────────────────────────────────
+// ── DB tools (operate on the shared raw message stream — platform-level) ──────
 // Clear all location data (lat/lng) from messages without deleting the messages
-router.delete('/map/locations', adminOnly, (req, res) => {
+router.delete('/map/locations', platformOnly, (req, res) => {
   try {
     const result = getDb().prepare('UPDATE messages SET lat=NULL, lng=NULL WHERE lat IS NOT NULL OR lng IS NOT NULL').run();
     require('../services/websocket').broadcast({ type: 'map_locations_cleared' });
@@ -92,7 +107,7 @@ router.delete('/map/locations', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.delete('/db/purge/all', adminOnly, (req, res) => {
+router.delete('/db/purge/all', platformOnly, (req, res) => {
   try {
     const db = getDb();
     db.exec('DELETE FROM messages_fts');
@@ -103,7 +118,7 @@ router.delete('/db/purge/all', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.delete('/db/purge', adminOnly, (req, res) => {
+router.delete('/db/purge', platformOnly, (req, res) => {
   const days = parseInt(req.query.days || '30', 10);
   if (isNaN(days) || days < 1) return res.status(400).json({ error: 'days must be >=1' });
   try {
@@ -136,7 +151,7 @@ router.delete('/db/purge', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.delete('/messages/:id', adminOnly, (req, res) => {
+router.delete('/messages/:id', platformOnly, (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id || isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   try {
@@ -146,7 +161,7 @@ router.delete('/messages/:id', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/messages/:id/regeocode', adminOnly, async (req, res) => {
+router.post('/messages/:id/regeocode', platformOnly, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id || isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   try {
@@ -171,18 +186,18 @@ router.post('/messages/:id/regeocode', adminOnly, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/db/export', adminOnly, (_req, res) => {
+router.get('/db/export', platformOnly, (_req, res) => {
   try {
     const rows    = getDb().prepare('SELECT * FROM messages ORDER BY id ASC').all();
     const headers = ['id','timestamp','capcode','alias','protocol','baud','funcbits','message','raw'];
     const csv = [headers.join(','), ...rows.map(r => headers.map(h => `"${String(r[h]??'').replace(/"/g,'""')}"`).join(','))].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="pagermonitor-${Date.now()}.csv"`);
-    res.send('\uFEFF' + csv);
+    res.send('﻿' + csv);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/db/stats', adminOnly, (_req, res) => {
+router.get('/db/stats', platformOnly, (_req, res) => {
   try {
     const db = getDb();
     const total    = db.prepare('SELECT COUNT(*) as n FROM messages').get();
@@ -195,44 +210,44 @@ router.get('/db/stats', adminOnly, (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Notifications ─────────────────────────────────────────────────────────────
-router.get('/notifications/config', adminOnly, (_req, res) => res.json(getConfig()));
+// ── Notifications (per-org destinations/filter) ────────────────────────────────
+router.get('/notifications/config', adminOnly, (req, res) => res.json(getConfig(req.session.orgId)));
 router.put('/notifications/config', adminOnly, (req, res) => {
-  try { updateConfig(req.body); addAuditLog(req.session?.username||'admin', 'notif.config', null); res.json({ ok: true }); }
+  try { updateConfig(req.session.orgId, req.body); addAuditLog(req.session?.username||'admin', 'notif.config', null, req.session.orgId); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.post('/notifications/test/:service', adminOnly, async (req, res) => {
-  try { await testNotification(req.params.service); addAuditLog(req.session?.username||'admin', 'notif.test', req.params.service); res.json({ ok: true }); }
+  try { await testNotification(req.session.orgId, req.params.service); addAuditLog(req.session?.username||'admin', 'notif.test', req.params.service, req.session.orgId); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // GET/PUT /admin/notifications/filter
-router.get('/notifications/filter', adminOnly, (_req, res) => res.json(getNotifFilter()));
+router.get('/notifications/filter', adminOnly, (req, res) => res.json(getNotifFilter(req.session.orgId)));
 router.put('/notifications/filter', adminOnly, (req, res) => {
-  try { saveNotifFilter(req.body); addAuditLog(req.session?.username||'admin', 'notif.filter', null); res.json({ ok: true }); }
+  try { saveNotifFilter(req.session.orgId, req.body); addAuditLog(req.session?.username||'admin', 'notif.filter', null, req.session.orgId); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Feed filter ───────────────────────────────────────────────────────────────
-router.get('/feed-filter', adminOnly, (_req, res) => res.json(getFeedFilter()));
+// ── Feed filter (per-org — controls what that org's live feed/history shows) ──
+router.get('/feed-filter', adminOnly, (req, res) => res.json(getFeedFilter(req.session.orgId)));
 router.put('/feed-filter', adminOnly, (req, res) => {
   try {
-    saveFeedFilter(req.body);
-    addAuditLog(req.session?.username||'admin', 'feed_filter.save', `mode=${req.body.mode}`);
+    saveFeedFilter(req.session.orgId, req.body);
+    addAuditLog(req.session?.username||'admin', 'feed_filter.save', `mode=${req.body.mode}`, req.session.orgId);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Dedup ─────────────────────────────────────────────────────────────────────
-router.get('/dedup', adminOnly, (_req, res) => res.json(getDedupConfig()));
-router.put('/dedup', adminOnly, (req, res) => {
+// ── Dedup (operates on the raw shared stream before any org-specific logic) ───
+router.get('/dedup', platformOnly, (_req, res) => res.json(getDedupConfig()));
+router.put('/dedup', platformOnly, (req, res) => {
   try { saveDedupConfig(req.body); addAuditLog(req.session?.username||'admin', 'dedup.config', `enabled=${req.body.enabled}`); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Message normalizations ────────────────────────────────────────────────────
-router.get('/message-normalizations', adminOnly, (_req, res) => res.json(getMessageNormalizations()));
-router.put('/message-normalizations', adminOnly, (req, res) => {
+// ── Message normalizations (decode-quality cleanup — platform-level) ──────────
+router.get('/message-normalizations', platformOnly, (_req, res) => res.json(getMessageNormalizations()));
+router.put('/message-normalizations', platformOnly, (req, res) => {
   try {
     saveMessageNormalizations(req.body);
     addAuditLog(req.session?.username||'admin', 'msg_norm.save', `count=${Array.isArray(req.body)?req.body.length:0}`);
@@ -240,71 +255,74 @@ router.put('/message-normalizations', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Groups ────────────────────────────────────────────────────────────────────
-router.get('/groups', (_req, res) => { try { res.json(getGroups()); } catch (e) { res.status(500).json({ error: e.message }); } });
+// ── Groups (org-scoped; NULL org_id = global/shared default, platform-admin only) ──
+router.get('/groups', (req, res) => { try { res.json(getGroups(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); } });
 router.post('/groups', (req, res) => {
   try {
     const { name, color, parent_id, row_color, row_sound } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
-    const id = createGroup(name, color, parent_id, row_color || null, row_sound || null);
-    addAuditLog(req.session?.username||'admin', 'group.create', `name=${name}`);
+    const id = createGroup(effectiveOrgId(req), name, color, parent_id, row_color || null, row_sound || null);
+    addAuditLog(req.session?.username||'admin', 'group.create', `name=${name}`, req.session.orgId);
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.put('/groups/:id', (req, res) => {
   try {
     const { name, color, parent_id, row_color, row_sound } = req.body;
-    updateGroup(parseInt(req.params.id), name, color, parent_id, row_color || null, row_sound || null);
-    addAuditLog(req.session?.username||'admin', 'group.update', `id=${req.params.id} name=${name}`);
+    const changes = updateGroup(parseInt(req.params.id), req.session.orgId, req.session.isPlatformAdmin, name, color, parent_id, row_color || null, row_sound || null);
+    if (!changes) return res.status(404).json({ error: 'Group not found, or not yours to edit' });
+    addAuditLog(req.session?.username||'admin', 'group.update', `id=${req.params.id} name=${name}`, req.session.orgId);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.delete('/groups/:id', (req, res) => {
   try {
-    deleteGroup(parseInt(req.params.id));
-    addAuditLog(req.session?.username||'admin', 'group.delete', `id=${req.params.id}`);
+    const changes = deleteGroup(parseInt(req.params.id), req.session.orgId, req.session.isPlatformAdmin);
+    if (!changes) return res.status(404).json({ error: 'Group not found, or not yours to delete' });
+    addAuditLog(req.session?.username||'admin', 'group.delete', `id=${req.params.id}`, req.session.orgId);
     res.json({ ok: true });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Aliases (admin — with group_id support) ───────────────────────────────────
-router.get('/aliases', (_req, res) => { try { res.json(getAliases()); } catch (e) { res.status(500).json({ error: e.message }); } });
+// ── Aliases (admin — with group_id support; org-scoped like groups) ───────────
+router.get('/aliases', (req, res) => { try { res.json(getAliases(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); } });
 router.put('/aliases/:capcode', (req, res) => {
   try {
     const { name, color, notes, group_id, row_color, row_sound } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
-    upsertAlias(req.params.capcode, name, color, notes, group_id, row_color || null, row_sound || null);
-    addAuditLog(req.session?.username||'admin', 'alias.save', `capcode=${req.params.capcode} name=${name}`);
+    upsertAlias(effectiveOrgId(req), req.session.isPlatformAdmin, req.params.capcode, name, color, notes, group_id, row_color || null, row_sound || null);
+    addAuditLog(req.session?.username||'admin', 'alias.save', `capcode=${req.params.capcode} name=${name}`, req.session.orgId);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// Deletes only the caller's own org's aliases — never the global library or another org's.
 router.delete('/aliases', adminOnly, (req, res) => {
   try {
-    const info = getDb().prepare('DELETE FROM aliases').run();
-    addAuditLog(req.session?.username||'admin', 'alias.delete_all', `count=${info.changes}`);
+    const info = getDb().prepare('DELETE FROM aliases WHERE org_id=?').run(req.session.orgId);
+    addAuditLog(req.session?.username||'admin', 'alias.delete_all', `count=${info.changes}`, req.session.orgId);
     res.json({ ok: true, deleted: info.changes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.delete('/aliases/:capcode', (req, res) => {
   try {
-    deleteAlias(req.params.capcode);
-    addAuditLog(req.session?.username||'admin', 'alias.delete', `capcode=${req.params.capcode}`);
+    deleteAlias(effectiveOrgId(req), req.session.isPlatformAdmin, req.params.capcode);
+    addAuditLog(req.session?.username||'admin', 'alias.delete', `capcode=${req.params.capcode}`, req.session.orgId);
     res.json({ ok: true });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Alias CSV export
-router.get('/aliases/export', (_req, res) => {
+router.get('/aliases/export', (req, res) => {
   try {
-    const aliases = getAliases();
+    const aliases = getAliases(req.session.orgId);
     const csv = ['capcode,name,color,notes,group_id',
       ...aliases.map(a => `"${a.capcode}","${(a.name||'').replace(/"/g,'""')}","${a.color||''}","${(a.notes||'').replace(/"/g,'""')}","${a.group_id||''}"`),
     ].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="aliases.csv"');
-    res.send('\uFEFF' + csv);
+    res.send('﻿' + csv);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -323,15 +341,28 @@ router.post('/aliases/import', express.text({ type: 'text/csv', limit: '1mb' }),
       if (row.capcode) rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'', group_id: row.group_id||null });
       else skipped++;
     }
-    bulkUpsertAliases(rows);
+    bulkUpsertAliases(effectiveOrgId(req), rows);
     res.json({ ok: true, imported: rows.length, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Highlight rules ───────────────────────────────────────────────────────────
-router.get('/rules',        (_req, res) => { try { res.json(getHighlightRules()); } catch (e) { res.status(500).json({ error: e.message }); } });
-router.put('/rules',        (req, res)  => { try { const id = upsertHighlightRule(req.body); addAuditLog(req.session?.username||'admin', 'rule.save', `name=${req.body.name}`); res.json({ ok: true, id }); } catch (e) { res.status(500).json({ error: e.message }); } });
-router.delete('/rules/:id', (req, res)  => { try { deleteHighlightRule(parseInt(req.params.id)); addAuditLog(req.session?.username||'admin', 'rule.delete', `id=${req.params.id}`); res.json({ ok: true }); } catch (e) { res.status(500).json({ error: e.message }); } });
+// ── Highlight rules (org-scoped) ───────────────────────────────────────────────
+router.get('/rules', (req, res) => { try { res.json(getHighlightRules(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); } });
+router.put('/rules', (req, res) => {
+  try {
+    const { id } = upsertHighlightRule(req.session.orgId, req.body);
+    addAuditLog(req.session?.username||'admin', 'rule.save', `name=${req.body.name}`, req.session.orgId);
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.delete('/rules/:id', (req, res) => {
+  try {
+    const changes = deleteHighlightRule(parseInt(req.params.id), req.session.orgId);
+    if (!changes) return res.status(404).json({ error: 'Rule not found, or not yours to delete' });
+    addAuditLog(req.session?.username||'admin', 'rule.delete', `id=${req.params.id}`, req.session.orgId);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 function parseCsvLine(line) {
   const result = []; let cur = '', inQ = false;
@@ -343,18 +374,18 @@ function parseCsvLine(line) {
   return result;
 }
 
-// ── User live locations ────────────────────────────────────────────────────────
-router.get('/user-locations', adminOnly, (_req, res) => {
-  try { res.json(getUserLocations(525600)); } // all stored (up to 1 year)
+// ── User live locations (org-scoped — a member's live position is personal data) ──
+router.get('/user-locations', adminOnly, (req, res) => {
+  try { res.json(getUserLocations(525600, req.session.isPlatformAdmin ? null : req.session.orgId)); } // all stored (up to 1 year)
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Site settings ─────────────────────────────────────────────────────────────
-router.get('/site-settings', adminOnly, (_req, res) => {
+// ── Site settings (instance-wide) ──────────────────────────────────────────────
+router.get('/site-settings', platformOnly, (_req, res) => {
   try { res.json(_gs('site_settings', { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'si', locale:'sl-SI', timezone:'Europe/Ljubljana', windyApiKey:'' })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-router.put('/site-settings', adminOnly, (req, res) => {
+router.put('/site-settings', platformOnly, (req, res) => {
   try {
     const { siteName, siteDescription, newBadgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays, publicMode, geocodeCountry, locale, hour12, timezone, windyApiKey } = req.body;
     const validTz = tz => { try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; } catch (_) { return false; } };
@@ -375,10 +406,10 @@ router.put('/site-settings', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Geo data download (SSE) ───────────────────────────────────────────────────
+// ── Geo data download (SSE, instance-wide) ────────────────────────────────────
 // Streams stdout/stderr from fetchStreets.js + fetchPlaces.js back to the browser.
 // Uses fetch()-streaming on the frontend (not EventSource) so Bearer auth works.
-router.get('/geo-data/fetch', adminOnly, (req, res) => {
+router.get('/geo-data/fetch', platformOnly, (req, res) => {
   const cc = /^[a-z]{2}$/.test(req.query.cc || '') ? req.query.cc : 'si';
 
   res.setHeader('Content-Type',  'text/event-stream');
@@ -428,9 +459,9 @@ router.get('/geo-data/fetch', adminOnly, (req, res) => {
   addAuditLog(req.session?.username || 'admin', 'geo.fetch', `cc=${cc}`);
 });
 
-// ── Client key ────────────────────────────────────────────────────────────────
-router.get('/client-key', adminOnly, (_req, res) => { try { res.json({ key: _gs('client_key','') }); } catch(e){ res.status(500).json({error:e.message}); }});
-router.put('/client-key', adminOnly, (req, res) => {
+// ── Client key (instance-wide — shared secret for every remote SDR client) ────
+router.get('/client-key', platformOnly, (_req, res) => { try { res.json({ key: _gs('client_key','') }); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/client-key', platformOnly, (req, res) => {
   try {
     const { key } = req.body;
     if (!key || key.trim().length < 16) return res.status(400).json({ error: 'Key must be at least 16 characters' });
@@ -438,14 +469,20 @@ router.put('/client-key', adminOnly, (req, res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
-// ── Keyword alerts ────────────────────────────────────────────────────────────
-router.get('/keyword-alerts',        (_req,res) => { try{ res.json(getKeywordAlerts()); } catch(e){ res.status(500).json({error:e.message}); }});
-router.put('/keyword-alerts',        (req,res)  => { try{ res.json({ok:true,id:upsertKeywordAlert(req.body)}); } catch(e){ res.status(500).json({error:e.message}); }});
-router.delete('/keyword-alerts/:id', (req,res)  => { try{ deleteKeywordAlert(parseInt(req.params.id)); res.json({ok:true}); } catch(e){ res.status(500).json({error:e.message}); }});
+// ── Keyword alerts (org-scoped) ────────────────────────────────────────────────
+router.get('/keyword-alerts',        (req,res) => { try{ res.json(getKeywordAlerts(req.session.orgId)); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/keyword-alerts',        (req,res) => { try{ const { id } = upsertKeywordAlert(req.session.orgId, req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});
+router.delete('/keyword-alerts/:id', (req,res) => {
+  try {
+    const changes = deleteKeywordAlert(parseInt(req.params.id), req.session.orgId);
+    if (!changes) return res.status(404).json({ error: 'Alert not found, or not yours to delete' });
+    res.json({ok:true});
+  } catch(e){ res.status(500).json({error:e.message}); }
+});
 
-// ── Dead air config ───────────────────────────────────────────────────────────
-router.get('/dead-air', adminOnly, (_req,res) => { try{ res.json(_gs('dead_air_config',{enabled:false,thresholdHours:6})); } catch(e){ res.status(500).json({error:e.message}); }});
-router.put('/dead-air', adminOnly, (req,res) => {
+// ── Dead air config (instance-wide) ────────────────────────────────────────────
+router.get('/dead-air', platformOnly, (_req,res) => { try{ res.json(_gs('dead_air_config',{enabled:false,thresholdHours:6})); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/dead-air', platformOnly, (req,res) => {
   try {
     const { enabled, thresholdHours } = req.body;
     _ss('dead_air_config', { enabled: !!enabled, thresholdHours: Math.max(1, Math.min(168, parseInt(thresholdHours,10)||6) )});
@@ -453,26 +490,33 @@ router.put('/dead-air', adminOnly, (req,res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
-// ── Webhooks ──────────────────────────────────────────────────────────────────
-router.get('/webhooks', adminOnly,        (_req,res) => { try{ res.json(getWebhooks()); } catch(e){ res.status(500).json({error:e.message}); }});
-router.put('/webhooks', adminOnly,        (req,res)  => { try{ res.json({ok:true,id:upsertWebhook(req.body)}); } catch(e){ res.status(500).json({error:e.message}); }});
-router.delete('/webhooks/:id', adminOnly, (req,res)  => { try{ deleteWebhook(parseInt(req.params.id)); res.json({ok:true}); } catch(e){ res.status(500).json({error:e.message}); }});
+// ── Webhooks (org-scoped) ───────────────────────────────────────────────────────
+router.get('/webhooks', adminOnly, (_req,res) => { try{ res.json(getWebhooks(_req.session.orgId)); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/webhooks', adminOnly, (req,res) => { try{ const { id } = upsertWebhook(req.session.orgId, req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});
+router.delete('/webhooks/:id', adminOnly, (req,res) => {
+  try {
+    const changes = deleteWebhook(parseInt(req.params.id), req.session.orgId);
+    if (!changes) return res.status(404).json({ error: 'Webhook not found, or not yours to delete' });
+    res.json({ok:true});
+  } catch(e){ res.status(500).json({error:e.message}); }
+});
 router.post('/webhooks/:id/test', adminOnly, async (req,res) => {
   try {
-    const hooks = getWebhooks().filter(h => h.id === parseInt(req.params.id,10));
+    const hooks = getWebhooks(req.session.orgId).filter(h => h.id === parseInt(req.params.id,10));
     if (!hooks.length) return res.status(404).json({error:'Not found'});
     const { sendWebhooks } = require('../services/webhooks');
-    await sendWebhooks({ type:'test', message:'PagerMonitor webhook test', timestamp: new Date().toISOString() });
+    await sendWebhooks({ type:'test', message:'PagerMonitor webhook test', timestamp: new Date().toISOString() }, req.session.orgId);
     res.json({ ok: true });
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
-// ── Audit log ─────────────────────────────────────────────────────────────────
-router.get('/audit-log', adminOnly, (req,res) => {
+// ── Audit log (platform-wide; optional ?org_id= to focus on one org) ──────────
+router.get('/audit-log', platformOnly, (req,res) => {
   try {
     const limit  = parseInt(req.query.limit || '200', 10);
     const filter = req.query.filter || ''; // e.g. "alias,group,rule"
-    let rows = getAuditLog(limit);
+    const orgId  = req.query.org_id ? parseInt(req.query.org_id) : null;
+    let rows = getAuditLog(limit, orgId);
     if (filter) {
       const prefixes = filter.split(',').map(s => s.trim()).filter(Boolean);
       rows = rows.filter(r => prefixes.some(p => r.action.startsWith(p)));
@@ -481,20 +525,66 @@ router.get('/audit-log', adminOnly, (req,res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
-// ── Message stats ─────────────────────────────────────────────────────────────
-router.get('/stats', adminOnly, (_req,res) => {
-  try{ res.json(getMessageStats()); } catch(e){ res.status(500).json({error:e.message}); }
+// ── Message stats (platform-wide dashboard over the shared raw stream) ────────
+router.get('/stats', platformOnly, (req,res) => {
+  try{ res.json(getMessageStats(req.session.orgId)); } catch(e){ res.status(500).json({error:e.message}); }
 });
 
-// ── SDR Clients dashboard ─────────────────────────────────────────────────────
+// ── Organizations & invites ────────────────────────────────────────────────────
+// Platform admin: create/list organizations, reassign users (see routes/auth.js
+// for PUT /auth/users/:id/org).
+router.get('/organizations', platformOnly, (_req, res) => {
+  try { res.json(getOrganizations()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.post('/organizations', platformOnly, (req, res) => {
+  try {
+    const name = (req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const id = createOrganization(name, req.session.userId);
+    addAuditLog(req.session.username, 'org.create', `name=${name}`);
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Invites — org-admin scoped (their own org only). An admin may invite at any of the
+// three org roles, including a co-admin — it's their org to manage.
+router.get('/invites', adminOnly, (req, res) => {
+  try { res.json(listInvites(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.post('/invites', adminOnly, (req, res) => {
+  try {
+    const { role, expiresInDays, maxUses } = req.body || {};
+    const validRoles = ['admin', 'editor', 'viewer'];
+    const expiresAt = expiresInDays ? new Date(Date.now() + parseInt(expiresInDays,10) * 86400000).toISOString() : null;
+    const code = createInvite({
+      orgId: req.session.orgId,
+      role: validRoles.includes(role) ? role : 'viewer',
+      createdBy: req.session.userId,
+      expiresAt,
+      maxUses: parseInt(maxUses, 10) || 0,
+    });
+    addAuditLog(req.session.username, 'invite.create', `role=${role}`, req.session.orgId);
+    res.json({ ok: true, code });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.delete('/invites/:id', adminOnly, (req, res) => {
+  try {
+    const changes = revokeInvite(parseInt(req.params.id), req.session.orgId);
+    if (!changes) return res.status(404).json({ error: 'Invite not found, or not yours to revoke' });
+    addAuditLog(req.session.username, 'invite.revoke', `id=${req.params.id}`, req.session.orgId);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── SDR Clients dashboard (instance infrastructure) ────────────────────────────
 const { getClients, resetClient, getAllClientConfigs, saveClientConfig, setPendingCommand, setDisplayName, setClientColor } = require('../services/clientTracker');
 
-router.get('/sdr-clients', adminOnly, (_req, res) => {
+router.get('/sdr-clients', platformOnly, (_req, res) => {
   try { res.json(getClients()); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/sdr-clients/:id/name', adminOnly, (req, res) => {
+router.put('/sdr-clients/:id/name', platformOnly, (req, res) => {
   try {
     const id   = decodeURIComponent(req.params.id);
     const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 60) : '';
@@ -505,7 +595,7 @@ router.put('/sdr-clients/:id/name', adminOnly, (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/sdr-clients/:id/color', adminOnly, (req, res) => {
+router.put('/sdr-clients/:id/color', platformOnly, (req, res) => {
   try {
     const id    = decodeURIComponent(req.params.id);
     const color = typeof req.body?.color === 'string' ? req.body.color.trim().slice(0, 20) : '';
@@ -516,7 +606,7 @@ router.put('/sdr-clients/:id/color', adminOnly, (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.delete('/sdr-clients/:id', adminOnly, (req, res) => {
+router.delete('/sdr-clients/:id', platformOnly, (req, res) => {
   try {
     const id = decodeURIComponent(req.params.id);
     resetClient(id);
@@ -527,12 +617,12 @@ router.delete('/sdr-clients/:id', adminOnly, (req, res) => {
 });
 
 // Per-client remote config
-router.get('/sdr-clients/configs', adminOnly, (_req, res) => {
+router.get('/sdr-clients/configs', platformOnly, (_req, res) => {
   try { res.json(getAllClientConfigs()); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/sdr-clients/:id/config', adminOnly, (req, res) => {
+router.put('/sdr-clients/:id/config', platformOnly, (req, res) => {
   try {
     const version = saveClientConfig(decodeURIComponent(req.params.id), req.body);
     res.json({ ok: true, version });
@@ -541,7 +631,7 @@ router.put('/sdr-clients/:id/config', adminOnly, (req, res) => {
 });
 
 // POST /admin/sdr-clients/:id/command — queue a remote command (e.g. 'update')
-router.post('/sdr-clients/:id/command', adminOnly, (req, res) => {
+router.post('/sdr-clients/:id/command', platformOnly, (req, res) => {
   try {
     const { command } = req.body;
     if (!command) return res.status(400).json({ error: 'command required' });
@@ -552,16 +642,16 @@ router.post('/sdr-clients/:id/command', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Email config ──────────────────────────────────────────────────────────────
+// ── Email config (instance-wide) ───────────────────────────────────────────────
 const { getEmailConfig, saveEmailConfig, testEmail } = require('../services/email');
 
-router.get('/email/config', requireAdmin, (_req, res) => {
+router.get('/email/config', platformOnly, (_req, res) => {
   try {
     res.json(getEmailConfig());
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/email/config', requireAdmin, (req, res) => {
+router.put('/email/config', platformOnly, (req, res) => {
   try {
     const existing = getEmailConfig();
     const cfg = { ...existing, ...req.body };
@@ -571,7 +661,7 @@ router.put('/email/config', requireAdmin, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/email/test', requireAdmin, async (req, res) => {
+router.post('/email/test', platformOnly, async (req, res) => {
   try {
     const { to } = req.body;
     if (!to) return res.status(400).json({ error: 'to email required' });
@@ -581,17 +671,21 @@ router.post('/email/test', requireAdmin, async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// ── Per-user notification prefs ───────────────────────────────────────────────
+// ── Per-user notification prefs (org-scoped) ──────────────────────────────────
 const { getAllUsersWithPrefs, getUserNotifPrefs, setUserNotifPrefs, updateUserEmail } = require('../services/database');
 
-router.get('/user-notif-prefs', adminOnly, (_req, res) => {
-  try { res.json(getAllUsersWithPrefs()); }
+router.get('/user-notif-prefs', adminOnly, (req, res) => {
+  try { res.json(getAllUsersWithPrefs(req.session.orgId)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.put('/user-notif-prefs/:userId', adminOnly, (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
+    if (!req.session.isPlatformAdmin) {
+      const target = getUserById(userId);
+      if (!target || target.org_id !== req.session.orgId) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
+    }
     setUserNotifPrefs(userId, req.body);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -599,25 +693,30 @@ router.put('/user-notif-prefs/:userId', adminOnly, (req, res) => {
 
 router.put('/users/:id/email', adminOnly, (req, res) => {
   try {
-    updateUserEmail(parseInt(req.params.id), req.body.email);
+    const id = parseInt(req.params.id);
+    if (!req.session.isPlatformAdmin) {
+      const target = getUserById(id);
+      if (!target || target.org_id !== req.session.orgId) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
+    }
+    updateUserEmail(id, req.body.email);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Archive ───────────────────────────────────────────────────────────────────
+// ── Archive (instance-wide) ─────────────────────────────────────────────────────
 const { archiveOldMessages, getArchiveStats } = require('../services/archive');
 
-router.get('/archive/stats', adminOnly, (_req, res) => {
+router.get('/archive/stats', platformOnly, (_req, res) => {
   try { res.json(getArchiveStats()); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/archive/config', adminOnly, (_req, res) => {
+router.get('/archive/config', platformOnly, (_req, res) => {
   try { res.json(_gs('archive_config', { enabled: false, afterDays: 30 })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/archive/config', adminOnly, (req, res) => {
+router.put('/archive/config', platformOnly, (req, res) => {
   try {
     const { enabled, afterDays } = req.body;
     _ss('archive_config', {
@@ -628,7 +727,7 @@ router.put('/archive/config', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/archive/run', adminOnly, (req, res) => {
+router.post('/archive/run', platformOnly, (req, res) => {
   try {
     const cfg   = _gs('archive_config', { enabled: false, afterDays: 30 });
     const days  = parseInt(req.body.days, 10) || cfg.afterDays || 30;
@@ -637,10 +736,10 @@ router.post('/archive/run', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── AI Geocode ────────────────────────────────────────────────────────────────
+// ── AI Geocode (instance-wide) ──────────────────────────────────────────────────
 const aiGeocode = require('../utils/aiGeocode');
 
-router.get('/ai-geocode/config', adminOnly, (_req, res) => {
+router.get('/ai-geocode/config', platformOnly, (_req, res) => {
   try {
     const cfg = aiGeocode.getConfig();
     // Never send key values to the frontend — send only whether they are set and from where
@@ -661,7 +760,7 @@ router.get('/ai-geocode/config', adminOnly, (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/ai-geocode/config', adminOnly, (req, res) => {
+router.put('/ai-geocode/config', platformOnly, (req, res) => {
   try {
     aiGeocode.saveConfig(req.body);
     addAuditLog(req.session?.username || 'admin', 'ai_geocode.config', `provider=${req.body.provider}`);
@@ -669,12 +768,12 @@ router.put('/ai-geocode/config', adminOnly, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/ai-geocode/status', adminOnly, async (_req, res) => {
+router.get('/ai-geocode/status', platformOnly, async (_req, res) => {
   try { res.json(await aiGeocode.checkStatus()); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/ai-geocode/test', adminOnly, async (req, res) => {
+router.post('/ai-geocode/test', platformOnly, async (req, res) => {
   try {
     const text = (req.body.text || '').trim();
     if (!text) return res.status(400).json({ error: 'text is required' });
@@ -683,12 +782,12 @@ router.post('/ai-geocode/test', adminOnly, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── System Update ─────────────────────────────────────────────────────────────
+// ── System Update (instance-wide) ──────────────────────────────────────────────
 const ROOT_DIR      = path.join(__dirname, '../../..');
 const UPDATE_SCRIPT = path.join(ROOT_DIR, 'update-web.sh');
 
 // GET /admin/update/status — local git info (frontend fetches GitHub API itself)
-router.get('/update/status', adminOnly, (_req, res) => {
+router.get('/update/status', platformOnly, (_req, res) => {
   let localHash = null, localDate = null, localCommits = null;
   try {
     localHash    = execSync('git rev-parse --short HEAD',      { cwd: ROOT_DIR, timeout: 5000, stdio: 'pipe' }).toString().trim();
@@ -704,7 +803,7 @@ function stripAnsi(str) {
 }
 
 // POST /admin/update — streams update-web.sh output via SSE, then restarts service
-router.post('/update', adminOnly, (req, res) => {
+router.post('/update', platformOnly, (req, res) => {
   res.setHeader('Content-Type',  'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection',    'keep-alive');

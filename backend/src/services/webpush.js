@@ -48,14 +48,17 @@ function removeSubscription(endpoint) {
 
 // ── Send ──────────────────────────────────────────────────────────────────────
 
-async function sendPushPerUser(msg) {
+// Called once per org per ingested message (see services/fanout.js) — only that org's
+// members' subscriptions are eligible.
+async function sendPushPerUser(msg, orgId) {
   if (!webpush) return;
   const subs = getDb().prepare(`
     SELECT ps.*, unp.push_enabled, unp.push_mode,
            unp.push_group_ids, unp.push_capcodes, unp.push_keywords
     FROM push_subscriptions ps
+    JOIN users u ON u.id = ps.user_id AND u.org_id = ?
     LEFT JOIN user_notif_prefs unp ON unp.user_id = ps.user_id
-  `).all();
+  `).all(orgId);
   if (!subs.length) return;
 
   const alias = msg.alias_name || msg.alias || msg.capcode;

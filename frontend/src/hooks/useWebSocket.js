@@ -35,7 +35,10 @@ export function useWebSocket(backendUrl) {
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    const ws = new WebSocket(wsUrl);
+    // Browsers can't set custom headers on a WS handshake, so the bearer token — which
+    // determines which organization's feed this connection sees — travels as a query param.
+    const token = localStorage.getItem('pm_token') || '';
+    const ws = new WebSocket(token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl);
     wsRef.current = ws;
     setWsStatus('connecting');
 

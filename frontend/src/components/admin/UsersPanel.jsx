@@ -1,15 +1,9 @@
 import { useState } from 'react';
-import { Users, UserPlus, Trash2, Key, ShieldCheck, LogOut, Pencil, Save, X, Mail } from 'lucide-react';
-import { authUsers, authRegister, authSetRole, authResetPw, authDeleteUser, authChangePw } from '../../utils/api.js';
+import { Users, UserPlus, Trash2, Key, ShieldCheck, LogOut, Pencil, Save, X, Mail, Link2, Copy, Ban } from 'lucide-react';
+import { authUsers, authRegister, authSetRole, authResetPw, authDeleteUser, authChangePw, adminSetUserEmail,
+         adminFetchInvites, adminCreateInvite, adminRevokeInvite } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-
-const BASE = import.meta.env.VITE_BACKEND_URL || '';
-const tok  = () => localStorage.getItem('pm_token') || '';
-const api  = (m, p, b) => fetch(`${BASE}${p}`, {
-  method: m, headers: { 'Content-Type':'application/json', Authorization:`Bearer ${tok()}` },
-  body: b ? JSON.stringify(b) : undefined,
-}).then(r => r.json());
 
 function Flash({ msg }) {
   if (!msg) return null;
@@ -63,15 +57,43 @@ function UserRow({ u, me, onRole, onDelete, onEdit }) {
 export default function UsersPanel() {
   const { user: me, logout } = useAuth();
   const { data: users, loading, reload } = useAdminFetch(authUsers, []);
+  const { data: invites, loading: invitesLoading, reload: reloadInvites } = useAdminFetch(adminFetchInvites, []);
   const [msg, setMsg]         = useState(null);
   const [newUser, setNewUser] = useState({ username:'', password:'', email:'', role:'viewer' });
   const [pwForm, setPwForm]   = useState({ oldPassword:'', newPassword:'' });
   const [editTarget, setEditTarget] = useState(null); // user being edited
   const [editEmail, setEditEmail]   = useState('');
   const [editPw, setEditPw]         = useState('');
+  const [inviteForm, setInviteForm] = useState({ role:'viewer', expiresInDays:'7', maxUses:'1' });
+  const [lastInviteUrl, setLastInviteUrl] = useState(null);
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); };
-  const safeUsers = Array.isArray(users) ? users : [];
+  const safeUsers   = Array.isArray(users) ? users : [];
+  const safeInvites = Array.isArray(invites) ? invites : [];
+
+  const handleCreateInvite = async () => {
+    try {
+      const { code } = await adminCreateInvite(
+        inviteForm.role,
+        inviteForm.expiresInDays ? parseInt(inviteForm.expiresInDays) : null,
+        inviteForm.maxUses ? parseInt(inviteForm.maxUses) : 0,
+      );
+      const url = `${window.location.origin}/?invite=${code}`;
+      setLastInviteUrl(url);
+      flash('ok', 'Invite created — copy the link below');
+      reloadInvites();
+    } catch (e) { flash('err', e.message); }
+  };
+
+  const handleRevokeInvite = async (id) => {
+    try { await adminRevokeInvite(id); flash('ok', 'Invite revoked'); reloadInvites(); }
+    catch (e) { flash('err', e.message); }
+  };
+
+  const copyInviteUrl = (code) => {
+    const url = `${window.location.origin}/?invite=${code}`;
+    navigator.clipboard?.writeText(url).then(() => flash('ok', 'Join link copied')).catch(() => setLastInviteUrl(url));
+  };
 
   const handleAdd = async () => {
     if (!newUser.username || newUser.password.length < 6) { flash('err', 'Username required, password min 6 chars'); return; }
@@ -100,7 +122,7 @@ export default function UsersPanel() {
     if (!editTarget) return;
     try {
       // Save email
-      await api('PUT', `/admin/users/${editTarget.id}/email`, { email: editEmail });
+      await adminSetUserEmail(editTarget.id, editEmail);
       // Reset password if provided
       if (editPw) {
         if (editPw.length < 6) { flash('err', 'Password min 6 characters'); return; }
@@ -139,6 +161,74 @@ export default function UsersPanel() {
                 onRole={handleRole} onDelete={handleDelete} onEdit={openEdit} />
             ))
         }
+      </div>
+
+      {/* Invites — let someone join your organization directly, sharing your groups/aliases/filter */}
+      <div className="pm-card" style={{ marginBottom:'1rem' }}>
+        <div className="pm-section-title"><Link2 size={13}/> Invite links</div>
+        <p style={{ fontSize:'0.78rem', color:'var(--text-3)', margin:'0 0 0.6rem' }}>
+          Anyone who joins via an invite link lands in your organization immediately, seeing the
+          same groups, aliases, and feed filter you already have — not a copy, the same live setup.
+        </p>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.5rem', marginBottom:'0.6rem' }}>
+          <div>
+            <label className="pm-label">Role granted</label>
+            <select value={inviteForm.role} onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))}
+              style={{ background:'var(--bg-3)', border:'1px solid var(--border)', color:'var(--text-2)',
+                borderRadius:'0.5rem', padding:'0.4rem 0.5rem', fontSize:'0.8rem', width:'100%' }}>
+              <option value="viewer">viewer</option>
+              <option value="editor">editor</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+          <div>
+            <label className="pm-label">Expires in (days, blank = never)</label>
+            <input className="pm-input" type="number" min="0" value={inviteForm.expiresInDays}
+              onChange={e => setInviteForm(f => ({ ...f, expiresInDays: e.target.value }))} />
+          </div>
+          <div>
+            <label className="pm-label">Max uses (0 = unlimited)</label>
+            <input className="pm-input" type="number" min="0" value={inviteForm.maxUses}
+              onChange={e => setInviteForm(f => ({ ...f, maxUses: e.target.value }))} />
+          </div>
+        </div>
+        <button className="pm-btn pm-btn-primary" onClick={handleCreateInvite}>
+          <Link2 size={13}/> Generate invite link
+        </button>
+
+        {lastInviteUrl && (
+          <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginTop:'0.6rem',
+            padding:'0.4rem 0.6rem', background:'var(--bg-2)', border:'1px solid var(--border)', borderRadius:'0.4rem' }}>
+            <input readOnly value={lastInviteUrl} className="pm-input" style={{ flex:1, fontSize:'0.72rem' }}
+              onFocus={e => e.target.select()} />
+            <button className="pm-btn" onClick={() => navigator.clipboard?.writeText(lastInviteUrl)}>
+              <Copy size={12}/> Copy
+            </button>
+          </div>
+        )}
+
+        {!invitesLoading && safeInvites.length > 0 && (
+          <div style={{ marginTop:'0.75rem' }}>
+            {safeInvites.map(inv => (
+              <div key={inv.id} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.4rem 0',
+                borderBottom:'1px solid var(--border-soft)', fontSize:'0.78rem', flexWrap:'wrap' }}>
+                <span style={{ fontFamily:'monospace', color:'var(--text-2)' }}>{inv.role}</span>
+                <span style={{ color:'var(--text-3)' }}>
+                  {inv.use_count}/{inv.max_uses || '∞'} used
+                  {inv.expires_at ? ` · expires ${new Date(inv.expires_at).toLocaleDateString()}` : ''}
+                  {inv.revoked ? ' · revoked' : ''}
+                </span>
+                <span style={{ flex:1 }} />
+                {!inv.revoked && (
+                  <>
+                    <button className="pm-btn" onClick={() => copyInviteUrl(inv.code)}><Copy size={12}/> Copy link</button>
+                    <button className="pm-btn pm-btn-danger" onClick={() => handleRevokeInvite(inv.id)}><Ban size={12}/> Revoke</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Edit user panel */}

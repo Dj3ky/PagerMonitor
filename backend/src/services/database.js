@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs   = require('fs');
+const crypto = require('crypto');
 const logger = require('../utils/logger');
 
 const DB_PATH = process.env.DB_PATH || './data/pagermonitor.db';
@@ -165,6 +166,9 @@ function initDb() {
 
 function _migrate() {
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
+  // Captured before organizations/invites are created below — tells us whether this boot
+  // is the one doing the one-time org migration (fresh install or first upgrade to org support).
+  const isFreshOrgSetup = !tables.includes('organizations');
 
   if (!tables.includes('groups')) {
     db.exec(`CREATE TABLE IF NOT EXISTS groups (
@@ -173,6 +177,36 @@ function _migrate() {
     )`);
     logger.info('Migration: created groups table');
   }
+
+  // ── Organizations & invites ──────────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS organizations (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT    NOT NULL,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS invites (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      code       TEXT    NOT NULL UNIQUE,
+      org_id     INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      role       TEXT    NOT NULL DEFAULT 'viewer',
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT,
+      max_uses   INTEGER NOT NULL DEFAULT 0,
+      use_count  INTEGER NOT NULL DEFAULT 0,
+      revoked    INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_invites_org ON invites(org_id);
+    CREATE TABLE IF NOT EXISTS invite_uses (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      invite_id INTEGER NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
+      user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      used_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  if (isFreshOrgSetup) logger.info('Migration: created organizations/invites tables');
 
   const aliasColumns = db.prepare("PRAGMA table_info(aliases)").all().map(c => c.name);
   if (!aliasColumns.includes('group_id')) {
@@ -185,11 +219,42 @@ function _migrate() {
     logger.info('Migration: added row_color/row_sound to aliases');
   }
 
+  // Aliases PK rebuild — capcode alone can no longer be the PK once a row can be
+  // global (org_id NULL, e.g. the owner's bulk-uploaded reference library) or
+  // org-specific (an org's own override for the same capcode). Existing rows
+  // become global on rebuild — see backfill note below for why.
+  if (!aliasColumns.includes('id')) {
+    db.exec(`
+      CREATE TABLE aliases_new (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id    INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+        capcode   TEXT NOT NULL,
+        name      TEXT NOT NULL,
+        color     TEXT DEFAULT '#4ade80',
+        notes     TEXT,
+        group_id  INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+        row_color TEXT,
+        row_sound TEXT
+      );
+      INSERT INTO aliases_new (org_id, capcode, name, color, notes, group_id, row_color, row_sound)
+        SELECT NULL, capcode, name, color, notes, group_id, row_color, row_sound FROM aliases;
+      DROP TABLE aliases;
+      ALTER TABLE aliases_new RENAME TO aliases;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_aliases_org_capcode    ON aliases(org_id, capcode) WHERE org_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_aliases_global_capcode ON aliases(capcode)         WHERE org_id IS NULL;
+    `);
+    logger.info('Migration: rebuilt aliases table with surrogate id + org_id (existing rows became global/shared defaults)');
+  }
+
   const groupColumns = db.prepare("PRAGMA table_info(groups)").all().map(c => c.name);
   if (!groupColumns.includes('row_color')) {
     db.exec("ALTER TABLE groups ADD COLUMN row_color TEXT");
     db.exec("ALTER TABLE groups ADD COLUMN row_sound TEXT");
     logger.info('Migration: added row_color/row_sound to groups');
+  }
+  if (!groupColumns.includes('org_id')) {
+    db.exec('ALTER TABLE groups ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE');
+    logger.info('Migration: added org_id to groups (NULL = global/shared default)');
   }
 
   const userColumns = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
@@ -200,6 +265,62 @@ function _migrate() {
   if (!userColumns.includes('email')) {
     db.exec('ALTER TABLE users ADD COLUMN email TEXT');
     logger.info('Migration: added email to users');
+  }
+  if (!userColumns.includes('org_id')) {
+    db.exec('ALTER TABLE users ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL');
+    db.exec('ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0');
+    logger.info('Migration: added org_id/is_platform_admin to users');
+  }
+
+  const hrColumns = db.prepare("PRAGMA table_info(highlight_rules)").all().map(c => c.name);
+  if (!hrColumns.includes('org_id')) {
+    db.exec('ALTER TABLE highlight_rules ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE');
+    logger.info('Migration: added org_id to highlight_rules');
+  }
+  const kaColumns = db.prepare("PRAGMA table_info(keyword_alerts)").all().map(c => c.name);
+  if (!kaColumns.includes('org_id')) {
+    db.exec('ALTER TABLE keyword_alerts ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE');
+    logger.info('Migration: added org_id to keyword_alerts');
+  }
+  const whColumns = db.prepare("PRAGMA table_info(webhooks)").all().map(c => c.name);
+  if (!whColumns.includes('org_id')) {
+    db.exec('ALTER TABLE webhooks ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE');
+    logger.info('Migration: added org_id to webhooks');
+  }
+  const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all().map(c => c.name);
+  if (!sessionColumns.includes('org_id')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN org_id INTEGER');
+    db.exec('ALTER TABLE sessions ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0');
+    logger.info('Migration: added org_id/is_platform_admin to sessions');
+  }
+  const auditColumns = db.prepare("PRAGMA table_info(audit_log)").all().map(c => c.name);
+  if (!auditColumns.includes('org_id')) {
+    db.exec('ALTER TABLE audit_log ADD COLUMN org_id INTEGER');
+    logger.info('Migration: added org_id to audit_log (NULL = platform-level action)');
+  }
+
+  // One-time backfill so an existing single-tenant install keeps working unmodified:
+  // every pre-existing user/rule/alert/webhook moves into one synthesized "Default
+  // Organization", pre-existing admins additionally become platform admins (nobody
+  // should be silently demoted from what "admin" meant before orgs existed), and
+  // existing groups/aliases are left global (NULL org_id) so every future org
+  // automatically inherits them as shared defaults instead of the owner needing to
+  // re-import their alias library into a separate "global" bucket later.
+  if (isFreshOrgSetup) {
+    const existingUserCount = db.prepare('SELECT COUNT(*) as n FROM users').get().n;
+    if (existingUserCount > 0) {
+      const defaultOrgId = db.prepare("INSERT INTO organizations (name) VALUES ('Default Organization')").run().lastInsertRowid;
+      db.prepare('UPDATE users SET org_id = ? WHERE org_id IS NULL').run(defaultOrgId);
+      db.prepare("UPDATE users SET is_platform_admin = 1 WHERE role = 'admin'").run();
+      db.prepare('UPDATE highlight_rules SET org_id = ? WHERE org_id IS NULL').run(defaultOrgId);
+      db.prepare('UPDATE keyword_alerts SET org_id = ? WHERE org_id IS NULL').run(defaultOrgId);
+      db.prepare('UPDATE webhooks SET org_id = ? WHERE org_id IS NULL').run(defaultOrgId);
+      for (const base of ['feed_filter', 'notif_filter', 'notif_config']) {
+        const row = db.prepare('SELECT value FROM settings WHERE key=?').get(base);
+        if (row) db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(`org:${defaultOrgId}:${base}`, row.value);
+      }
+      logger.warn(`Migration: created "Default Organization" (id=${defaultOrgId}) and moved ${existingUserCount} existing user(s) into it. Existing groups/aliases remain global/shared defaults. Pre-existing admin(s) were also granted platform-admin access.`);
+    }
   }
 
   // Message notes
@@ -332,44 +453,57 @@ function insertMessage(msg) {
   return info.lastInsertRowid;
 }
 
-function getHistory(limit = 200) {
+// Shared alias/group resolution — a capcode can now match an org-specific alias row
+// AND a global (org_id IS NULL) one; the org-specific row always wins, falling back
+// to the global default. Embed with ${ALIAS_GROUP_JOIN_SQL} directly after the last
+// `messages m` join in a query's FROM clause (it references `m.capcode`), and put
+// ${ALIAS_GROUP_SELECT_SQL} in the SELECT list. Adds exactly one `?` placeholder
+// (the viewing org's id) at the position where the join fragment appears in the SQL text.
+const ALIAS_GROUP_JOIN_SQL = `
+  LEFT JOIN aliases a  ON a.capcode = m.capcode AND a.org_id = ?
+  LEFT JOIN aliases ag ON ag.capcode = m.capcode AND ag.org_id IS NULL
+  LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id)
+  LEFT JOIN groups  pg ON pg.id = g.parent_id
+`;
+const ALIAS_GROUP_SELECT_SQL = `
+  COALESCE(a.name, ag.name)             as alias_name,
+  COALESCE(a.color, ag.color)           as alias_color,
+  COALESCE(a.row_color, ag.row_color)   as alias_row_color,
+  COALESCE(a.row_sound, ag.row_sound)   as alias_row_sound,
+  g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
+  pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound
+`;
+
+function getHistory(orgId, limit = 200) {
   return getDb().prepare(`
-    SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
-           g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
-           pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
+    SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
            c.display_name as client_name, c.color as client_color,
            (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
     FROM messages m
-    LEFT JOIN aliases a  ON a.capcode = m.capcode
-    LEFT JOIN groups  g  ON g.id = a.group_id
-    LEFT JOIN groups  pg ON pg.id = g.parent_id
+    ${ALIAS_GROUP_JOIN_SQL}
     LEFT JOIN sdr_clients c ON c.id = m.client_id
     ORDER BY m.id DESC LIMIT ?
-  `).all(limit);
+  `).all(orgId, limit);
 }
 
-function searchMessages(query, limit = 100) {
+function searchMessages(orgId, query, limit = 100) {
   const safe  = query.replace(/['"*]/g, '').trim();
   const terms = safe.split(/\s+/).filter(Boolean);
   const ftsQuery = terms.map(t => `${t}*`).join(' ');
   return getDb().prepare(`
-    SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
-           g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
-           pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
+    SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
            c.display_name as client_name, c.color as client_color,
            (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
     FROM messages_fts f
     JOIN messages m ON m.id = f.rowid
-    LEFT JOIN aliases a  ON a.capcode = m.capcode
-    LEFT JOIN groups  g  ON g.id = a.group_id
-    LEFT JOIN groups  pg ON pg.id = g.parent_id
+    ${ALIAS_GROUP_JOIN_SQL}
     LEFT JOIN sdr_clients c ON c.id = m.client_id
     WHERE messages_fts MATCH ?
     ORDER BY m.id DESC LIMIT ?
-  `).all(ftsQuery, limit);
+  `).all(orgId, ftsQuery, limit);
 }
 
-function getMessageStats() {
+function getMessageStats(orgId) {
   const d = getDb();
   const hourly = d.prepare(`
     SELECT strftime('%Y-%m-%dT%H:00:00Z', timestamp) as hour, COUNT(*) as n
@@ -382,10 +516,12 @@ function getMessageStats() {
     GROUP BY day ORDER BY day ASC
   `).all();
   const topCodes = d.prepare(`
-    SELECT m.capcode, COUNT(*) as n, a.name
-    FROM messages m LEFT JOIN aliases a ON a.capcode = m.capcode
+    SELECT m.capcode, COUNT(*) as n, COALESCE(a.name, ag.name) as name
+    FROM messages m
+    LEFT JOIN aliases a  ON a.capcode = m.capcode AND a.org_id = ?
+    LEFT JOIN aliases ag ON ag.capcode = m.capcode AND ag.org_id IS NULL
     GROUP BY m.capcode ORDER BY n DESC LIMIT 10
-  `).all();
+  `).all(orgId);
   const byProtocol = d.prepare(`
     SELECT protocol, COUNT(*) as n FROM messages
     GROUP BY protocol ORDER BY n DESC
@@ -394,9 +530,10 @@ function getMessageStats() {
 }
 
 // ── Groups ────────────────────────────────────────────────────────────────────
-function getGroups() {
-  const groups  = getDb().prepare('SELECT * FROM groups ORDER BY parent_id NULLS FIRST, name').all();
-  const aliases = getDb().prepare('SELECT capcode, name, color, group_id FROM aliases WHERE group_id IS NOT NULL').all();
+// orgId's own groups plus every global (org_id IS NULL) default group.
+function getGroups(orgId) {
+  const groups  = getDb().prepare('SELECT * FROM groups WHERE org_id = ? OR org_id IS NULL ORDER BY parent_id NULLS FIRST, name').all(orgId);
+  const aliases = getDb().prepare('SELECT capcode, name, color, group_id FROM aliases WHERE group_id IS NOT NULL AND (org_id = ? OR org_id IS NULL)').all(orgId);
   const aliasMap = {};
   for (const a of aliases) {
     if (!aliasMap[a.group_id]) aliasMap[a.group_id] = [];
@@ -404,41 +541,85 @@ function getGroups() {
   }
   return groups.map(g => ({ ...g, aliases: aliasMap[g.id] || [] }));
 }
-function createGroup(name, color, parent_id, row_color, row_sound) {
-  return getDb().prepare('INSERT INTO groups (name, color, parent_id, row_color, row_sound) VALUES (?, ?, ?, ?, ?)').run(name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null).lastInsertRowid;
+// orgId null (platform admin only) creates a global/shared-default group.
+function createGroup(orgId, name, color, parent_id, row_color, row_sound) {
+  return getDb().prepare('INSERT INTO groups (org_id, name, color, parent_id, row_color, row_sound) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(orgId ?? null, name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null).lastInsertRowid;
 }
-function updateGroup(id, name, color, parent_id, row_color, row_sound) {
-  getDb().prepare('UPDATE groups SET name=?, color=?, parent_id=?, row_color=?, row_sound=? WHERE id=?').run(name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null, id);
+// isPlatformAdmin bypasses the org-ownership check (can edit global rows or any org's rows);
+// otherwise the update only applies if the row actually belongs to orgId. Returns affected-row
+// count so the route layer can 403/404 when a non-owner tries to touch a row that isn't theirs.
+function updateGroup(id, orgId, isPlatformAdmin, name, color, parent_id, row_color, row_sound) {
+  const sql    = isPlatformAdmin ? 'UPDATE groups SET name=?, color=?, parent_id=?, row_color=?, row_sound=? WHERE id=?'
+                                  : 'UPDATE groups SET name=?, color=?, parent_id=?, row_color=?, row_sound=? WHERE id=? AND org_id=?';
+  const params = isPlatformAdmin ? [name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null, id]
+                                  : [name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null, id, orgId];
+  return getDb().prepare(sql).run(...params).changes;
 }
-function deleteGroup(id) {
+function deleteGroup(id, orgId, isPlatformAdmin) {
   getDb().prepare('UPDATE aliases SET group_id=NULL WHERE group_id=?').run(id);
   getDb().prepare('UPDATE groups SET parent_id=NULL WHERE parent_id=?').run(id);
-  getDb().prepare('DELETE FROM groups WHERE id=?').run(id);
+  const sql    = isPlatformAdmin ? 'DELETE FROM groups WHERE id=?' : 'DELETE FROM groups WHERE id=? AND org_id=?';
+  const params = isPlatformAdmin ? [id] : [id, orgId];
+  return getDb().prepare(sql).run(...params).changes;
 }
 
 // ── Aliases ───────────────────────────────────────────────────────────────────
-function getAliases() {
+// orgId's own aliases plus every global (org_id IS NULL) default alias.
+function getAliases(orgId) {
   return getDb().prepare(`
     SELECT a.*, g.name as group_name, g.color as group_color
-    FROM aliases a LEFT JOIN groups g ON g.id = a.group_id ORDER BY a.capcode
-  `).all();
+    FROM aliases a LEFT JOIN groups g ON g.id = a.group_id
+    WHERE a.org_id = ? OR a.org_id IS NULL
+    ORDER BY a.capcode
+  `).all(orgId);
 }
 // Capcodes are plain integers from the decoder (no leading zeros). Strip leading zeros
 // from user-supplied values so aliases always match decoded messages.
 const normCapcode = c => /^\d+$/.test(c) ? String(parseInt(c, 10)) : c;
 
-function upsertAlias(capcode, name, color, notes, group_id, row_color, row_sound) {
-  getDb().prepare(`
-    INSERT INTO aliases (capcode, name, color, notes, group_id, row_color, row_sound) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(capcode) DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes,
-      group_id=excluded.group_id, row_color=excluded.row_color, row_sound=excluded.row_sound
-  `).run(normCapcode(capcode), name, color || '#4ade80', notes || null, group_id || null, row_color || null, row_sound || null);
+// orgId null (platform admin only — enforced by isPlatformAdmin check) writes a global/shared
+// default alias; otherwise writes/overrides within that org. Two separate upsert statements
+// because each targets a different partial unique index (SQLite's ON CONFLICT arbiter must
+// match one specific index).
+function upsertAlias(orgId, isPlatformAdmin, capcode, name, color, notes, group_id, row_color, row_sound) {
+  const cap = normCapcode(capcode);
+  if (orgId == null) {
+    if (!isPlatformAdmin) throw new Error('Only the platform admin can edit global/shared-default aliases');
+    getDb().prepare(`
+      INSERT INTO aliases (org_id, capcode, name, color, notes, group_id, row_color, row_sound) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(capcode) WHERE org_id IS NULL DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes,
+        group_id=excluded.group_id, row_color=excluded.row_color, row_sound=excluded.row_sound
+    `).run(cap, name, color || '#4ade80', notes || null, group_id || null, row_color || null, row_sound || null);
+  } else {
+    getDb().prepare(`
+      INSERT INTO aliases (org_id, capcode, name, color, notes, group_id, row_color, row_sound) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(org_id, capcode) WHERE org_id IS NOT NULL DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes,
+        group_id=excluded.group_id, row_color=excluded.row_color, row_sound=excluded.row_sound
+    `).run(orgId, cap, name, color || '#4ade80', notes || null, group_id || null, row_color || null, row_sound || null);
+  }
 }
-function deleteAlias(capcode) { getDb().prepare('DELETE FROM aliases WHERE capcode=?').run(normCapcode(capcode)); }
-function bulkUpsertAliases(rows) {
-  const stmt = getDb().prepare(`INSERT INTO aliases (capcode, name, color, notes, group_id) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(capcode) DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes, group_id=excluded.group_id`);
-  getDb().transaction(rows => { for (const r of rows) stmt.run(normCapcode(r.capcode), r.name, r.color || '#4ade80', r.notes || null, r.group_id || null); })(rows);
+function deleteAlias(orgId, isPlatformAdmin, capcode) {
+  const cap = normCapcode(capcode);
+  if (orgId == null) {
+    if (!isPlatformAdmin) throw new Error('Only the platform admin can delete global/shared-default aliases');
+    return getDb().prepare('DELETE FROM aliases WHERE capcode=? AND org_id IS NULL').run(cap).changes;
+  }
+  return getDb().prepare('DELETE FROM aliases WHERE capcode=? AND org_id=?').run(cap, orgId).changes;
+}
+function bulkUpsertAliases(orgId, rows) {
+  const stmt = orgId == null
+    ? getDb().prepare(`INSERT INTO aliases (org_id, capcode, name, color, notes, group_id) VALUES (NULL, ?, ?, ?, ?, ?)
+        ON CONFLICT(capcode) WHERE org_id IS NULL DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes, group_id=excluded.group_id`)
+    : getDb().prepare(`INSERT INTO aliases (org_id, capcode, name, color, notes, group_id) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(org_id, capcode) WHERE org_id IS NOT NULL DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes, group_id=excluded.group_id`);
+  getDb().transaction(rows => {
+    for (const r of rows) {
+      const cap = normCapcode(r.capcode);
+      if (orgId == null) stmt.run(cap, r.name, r.color || '#4ade80', r.notes || null, r.group_id || null);
+      else stmt.run(orgId, cap, r.name, r.color || '#4ade80', r.notes || null, r.group_id || null);
+    }
+  })(rows);
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -451,12 +632,69 @@ function setSetting(key, value) {
   getDb().prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(key, JSON.stringify(value));
 }
 
+// ── Organizations ─────────────────────────────────────────────────────────────
+function createOrganization(name, createdBy) {
+  return getDb().prepare('INSERT INTO organizations (name, created_by) VALUES (?, ?)').run(name, createdBy || null).lastInsertRowid;
+}
+function getOrganizations() {
+  return getDb().prepare(`
+    SELECT o.*, (SELECT COUNT(*) FROM users u WHERE u.org_id = o.id) as user_count
+    FROM organizations o ORDER BY o.id
+  `).all();
+}
+function getOrganization(id) { return getDb().prepare('SELECT * FROM organizations WHERE id=?').get(id); }
+
+// ── Invites ───────────────────────────────────────────────────────────────────
+function createInvite({ orgId, role, createdBy, expiresAt, maxUses }) {
+  const code = crypto.randomBytes(9).toString('base64url');
+  getDb().prepare(`
+    INSERT INTO invites (code, org_id, role, created_by, expires_at, max_uses)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(code, orgId, role || 'viewer', createdBy || null, expiresAt || null, maxUses || 0);
+  return code;
+}
+function getInviteByCode(code) { return getDb().prepare('SELECT * FROM invites WHERE code=?').get(code); }
+function listInvites(orgId) { return getDb().prepare('SELECT * FROM invites WHERE org_id=? ORDER BY id DESC').all(orgId); }
+function revokeInvite(id, orgId) { return getDb().prepare('UPDATE invites SET revoked=1 WHERE id=? AND org_id=?').run(id, orgId).changes; }
+
+// Atomic check-and-consume so two people racing the last use of a max_uses-limited
+// invite can't both succeed.
+function consumeInvite(code, userId) {
+  const d = getDb();
+  return d.transaction(() => {
+    const invite = d.prepare('SELECT * FROM invites WHERE code=?').get(code);
+    if (!invite) throw new Error('Invalid invite code');
+    if (invite.revoked) throw new Error('This invite has been revoked');
+    if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) throw new Error('This invite has expired');
+    if (invite.max_uses > 0 && invite.use_count >= invite.max_uses) throw new Error('This invite has reached its usage limit');
+    d.prepare('UPDATE invites SET use_count = use_count + 1 WHERE id=?').run(invite.id);
+    d.prepare('INSERT INTO invite_uses (invite_id, user_id) VALUES (?, ?)').run(invite.id, userId);
+    return invite;
+  })();
+}
+
 // ── Users ─────────────────────────────────────────────────────────────────────
-function getUsers() { return getDb().prepare('SELECT id,username,email,role,created_at,last_login FROM users ORDER BY id').all(); }
+// orgId null (platform admin) → every user, with org name attached; otherwise scoped to that org.
+function getUsers(orgId) {
+  if (orgId == null) {
+    return getDb().prepare(`
+      SELECT u.id,u.username,u.email,u.role,u.org_id,u.is_platform_admin,u.created_at,u.last_login, o.name as org_name
+      FROM users u LEFT JOIN organizations o ON o.id = u.org_id ORDER BY u.id
+    `).all();
+  }
+  return getDb().prepare(`
+    SELECT id,username,email,role,org_id,is_platform_admin,created_at,last_login FROM users WHERE org_id=? ORDER BY id
+  `).all(orgId);
+}
+function getUserById(id) { return getDb().prepare('SELECT * FROM users WHERE id=?').get(id); }
 function getUserByUsername(username)   { return getDb().prepare('SELECT * FROM users WHERE username=?').get(username); }
-function createUser(username, hash, role) { return getDb().prepare('INSERT INTO users (username,password,role) VALUES (?,?,?)').run(username, hash, role).lastInsertRowid; }
+function createUser(username, hash, role, orgId, isPlatformAdmin = false) {
+  return getDb().prepare('INSERT INTO users (username,password,role,org_id,is_platform_admin) VALUES (?,?,?,?,?)')
+    .run(username, hash, role, orgId ?? null, isPlatformAdmin ? 1 : 0).lastInsertRowid;
+}
 function updateUserPassword(id, hash)  { getDb().prepare('UPDATE users SET password=? WHERE id=?').run(hash, id); }
 function updateUserEmail(id, email) { getDb().prepare('UPDATE users SET email=? WHERE id=?').run(email || null, id); }
+function setUserOrg(userId, orgId) { getDb().prepare('UPDATE users SET org_id=? WHERE id=?').run(orgId, userId); }
 
 // Per-user notification preferences
 function getUserNotifPrefs(userId) {
@@ -503,8 +741,10 @@ function setUserNotifPrefs(userId, prefs) {
   );
 }
 
-function getAllUsersWithPrefs() {
-  const users = getDb().prepare('SELECT id, username, email FROM users ORDER BY id').all();
+function getAllUsersWithPrefs(orgId) {
+  const users = orgId == null
+    ? getDb().prepare('SELECT id, username, email FROM users ORDER BY id').all()
+    : getDb().prepare('SELECT id, username, email FROM users WHERE org_id=? ORDER BY id').all(orgId);
   return users.map(u => ({ ...u, prefs: getUserNotifPrefs(u.id) }));
 }
 function updateUserRole(id, role)      { getDb().prepare('UPDATE users SET role=? WHERE id=?').run(role, id); }
@@ -515,53 +755,63 @@ function getLastSeenId(userId)         { return getDb().prepare('SELECT last_see
 function setLastSeenId(userId, msgId)  { getDb().prepare('UPDATE users SET last_seen_id=? WHERE id=?').run(msgId, userId); }
 
 // ── Highlight rules ───────────────────────────────────────────────────────────
-function getHighlightRules() { return getDb().prepare('SELECT * FROM highlight_rules ORDER BY sort_order ASC, id ASC').all(); }
-function upsertHighlightRule(rule) {
+function getHighlightRules(orgId) { return getDb().prepare('SELECT * FROM highlight_rules WHERE org_id=? ORDER BY sort_order ASC, id ASC').all(orgId); }
+function upsertHighlightRule(orgId, rule) {
   if (rule.id) {
-    getDb().prepare('UPDATE highlight_rules SET name=?,pattern=?,is_regex=?,color=?,bg=?,enabled=?,sort_order=? WHERE id=?')
-      .run(rule.name, rule.pattern, rule.is_regex?1:0, rule.color, rule.bg||'', rule.enabled?1:0, rule.sort_order||0, rule.id);
-    return rule.id;
+    const changes = getDb().prepare('UPDATE highlight_rules SET name=?,pattern=?,is_regex=?,color=?,bg=?,enabled=?,sort_order=? WHERE id=? AND org_id=?')
+      .run(rule.name, rule.pattern, rule.is_regex?1:0, rule.color, rule.bg||'', rule.enabled?1:0, rule.sort_order||0, rule.id, orgId).changes;
+    return { id: rule.id, changes };
   }
-  return getDb().prepare('INSERT INTO highlight_rules (name,pattern,is_regex,color,bg,enabled,sort_order) VALUES (?,?,?,?,?,?,?)')
-    .run(rule.name, rule.pattern, rule.is_regex?1:0, rule.color, rule.bg||'', rule.enabled?1:0, rule.sort_order||0).lastInsertRowid;
+  const id = getDb().prepare('INSERT INTO highlight_rules (org_id,name,pattern,is_regex,color,bg,enabled,sort_order) VALUES (?,?,?,?,?,?,?,?)')
+    .run(orgId, rule.name, rule.pattern, rule.is_regex?1:0, rule.color, rule.bg||'', rule.enabled?1:0, rule.sort_order||0).lastInsertRowid;
+  return { id, changes: 1 };
 }
-function deleteHighlightRule(id) { getDb().prepare('DELETE FROM highlight_rules WHERE id=?').run(id); }
+function deleteHighlightRule(id, orgId) { return getDb().prepare('DELETE FROM highlight_rules WHERE id=? AND org_id=?').run(id, orgId).changes; }
 
 // ── Keyword alerts ────────────────────────────────────────────────────────────
-function getKeywordAlerts() { return getDb().prepare('SELECT * FROM keyword_alerts ORDER BY sort_order ASC, id ASC').all(); }
-function upsertKeywordAlert(alert) {
-  if (alert.id) {
-    getDb().prepare('UPDATE keyword_alerts SET name=?,pattern=?,is_regex=?,sound=?,enabled=?,sort_order=? WHERE id=?')
-      .run(alert.name, alert.pattern, alert.is_regex?1:0, alert.sound||'alert', alert.enabled?1:0, alert.sort_order||0, alert.id);
-    return alert.id;
-  }
-  return getDb().prepare('INSERT INTO keyword_alerts (name,pattern,is_regex,sound,enabled,sort_order) VALUES (?,?,?,?,?,?)')
-    .run(alert.name, alert.pattern, alert.is_regex?1:0, alert.sound||'alert', alert.enabled?1:0, alert.sort_order||0).lastInsertRowid;
+function getKeywordAlerts(orgId) {
+  if (orgId == null) return getDb().prepare('SELECT * FROM keyword_alerts ORDER BY sort_order ASC, id ASC').all();
+  return getDb().prepare('SELECT * FROM keyword_alerts WHERE org_id=? ORDER BY sort_order ASC, id ASC').all(orgId);
 }
-function deleteKeywordAlert(id) { getDb().prepare('DELETE FROM keyword_alerts WHERE id=?').run(id); }
+function upsertKeywordAlert(orgId, alert) {
+  if (alert.id) {
+    const changes = getDb().prepare('UPDATE keyword_alerts SET name=?,pattern=?,is_regex=?,sound=?,enabled=?,sort_order=? WHERE id=? AND org_id=?')
+      .run(alert.name, alert.pattern, alert.is_regex?1:0, alert.sound||'alert', alert.enabled?1:0, alert.sort_order||0, alert.id, orgId).changes;
+    return { id: alert.id, changes };
+  }
+  const id = getDb().prepare('INSERT INTO keyword_alerts (org_id,name,pattern,is_regex,sound,enabled,sort_order) VALUES (?,?,?,?,?,?,?)')
+    .run(orgId, alert.name, alert.pattern, alert.is_regex?1:0, alert.sound||'alert', alert.enabled?1:0, alert.sort_order||0).lastInsertRowid;
+  return { id, changes: 1 };
+}
+function deleteKeywordAlert(id, orgId) { return getDb().prepare('DELETE FROM keyword_alerts WHERE id=? AND org_id=?').run(id, orgId).changes; }
 
 // ── Webhooks ──────────────────────────────────────────────────────────────────
-function getWebhooks() { return getDb().prepare('SELECT * FROM webhooks ORDER BY id').all(); }
-function upsertWebhook(w) {
+function getWebhooks(orgId) { return getDb().prepare('SELECT * FROM webhooks WHERE org_id=? ORDER BY id').all(orgId); }
+function upsertWebhook(orgId, w) {
   if (w.id) {
-    getDb().prepare('UPDATE webhooks SET name=?,url=?,enabled=?,secret=? WHERE id=?').run(w.name, w.url, w.enabled?1:0, w.secret||null, w.id);
-    return w.id;
+    const changes = getDb().prepare('UPDATE webhooks SET name=?,url=?,enabled=?,secret=? WHERE id=? AND org_id=?')
+      .run(w.name, w.url, w.enabled?1:0, w.secret||null, w.id, orgId).changes;
+    return { id: w.id, changes };
   }
-  return getDb().prepare('INSERT INTO webhooks (name,url,enabled,secret) VALUES (?,?,?,?)').run(w.name, w.url, w.enabled?1:0, w.secret||null).lastInsertRowid;
+  const id = getDb().prepare('INSERT INTO webhooks (org_id,name,url,enabled,secret) VALUES (?,?,?,?,?)')
+    .run(orgId, w.name, w.url, w.enabled?1:0, w.secret||null).lastInsertRowid;
+  return { id, changes: 1 };
 }
-function deleteWebhook(id) { getDb().prepare('DELETE FROM webhooks WHERE id=?').run(id); }
+function deleteWebhook(id, orgId) { return getDb().prepare('DELETE FROM webhooks WHERE id=? AND org_id=?').run(id, orgId).changes; }
 
 // ── Audit log ─────────────────────────────────────────────────────────────────
-function addAuditLog(username, action, detail) {
+// orgId null = platform-level action; otherwise attributed to that org.
+function addAuditLog(username, action, detail, orgId = null) {
   try {
     const db = getDb();
-    db.prepare('INSERT INTO audit_log (username, action, detail) VALUES (?, ?, ?)').run(username, action, detail || null);
+    db.prepare('INSERT INTO audit_log (username, action, detail, org_id) VALUES (?, ?, ?, ?)').run(username, action, detail || null, orgId);
     // Keep last 1000 entries — delete older ones
     db.prepare('DELETE FROM audit_log WHERE id NOT IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT 1000)').run();
   } catch (e) { /* non-critical */ }
 }
-function getAuditLog(limit = 200) {
-  return getDb().prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?').all(limit);
+function getAuditLog(limit = 200, orgId = null) {
+  if (orgId == null) return getDb().prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?').all(limit);
+  return getDb().prepare('SELECT * FROM audit_log WHERE org_id=? ORDER BY id DESC LIMIT ?').all(orgId, limit);
 }
 
 // ── Message notes ─────────────────────────────────────────────────────────────
@@ -620,8 +870,9 @@ function getStats() {
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
-function saveDbSession(token, userId, username, role, expires) {
-  getDb().prepare('INSERT OR REPLACE INTO sessions (token,user_id,username,role,expires) VALUES (?,?,?,?,?)').run(token, userId, username, role, expires);
+function saveDbSession(token, userId, username, role, expires, orgId, isPlatformAdmin) {
+  getDb().prepare('INSERT OR REPLACE INTO sessions (token,user_id,username,role,expires,org_id,is_platform_admin) VALUES (?,?,?,?,?,?,?)')
+    .run(token, userId, username, role, expires, orgId ?? null, isPlatformAdmin ? 1 : 0);
 }
 function deleteDbSession(token) {
   getDb().prepare('DELETE FROM sessions WHERE token=?').run(token);
@@ -637,13 +888,25 @@ function upsertUserLocation(userId, username, lat, lng) {
   `).run(userId, username, lat, lng);
 }
 
-function getUserLocations(maxAgeMinutes = 5) {
+// orgId null = every user's location (platform admin); otherwise only that org's members —
+// live position is per-user personal data, joined through users.org_id since user_locations
+// itself isn't (and doesn't need to be) org-scoped as a table.
+function getUserLocations(maxAgeMinutes = 5, orgId = null) {
+  if (orgId == null) {
+    return getDb().prepare(`
+      SELECT user_id, username, lat, lng, updated_at
+      FROM user_locations
+      WHERE updated_at >= datetime('now', ? || ' minutes')
+      ORDER BY updated_at DESC
+    `).all(`-${maxAgeMinutes}`);
+  }
   return getDb().prepare(`
-    SELECT user_id, username, lat, lng, updated_at
-    FROM user_locations
-    WHERE updated_at >= datetime('now', ? || ' minutes')
-    ORDER BY updated_at DESC
-  `).all(`-${maxAgeMinutes}`);
+    SELECT ul.user_id, ul.username, ul.lat, ul.lng, ul.updated_at
+    FROM user_locations ul
+    JOIN users u ON u.id = ul.user_id
+    WHERE ul.updated_at >= datetime('now', ? || ' minutes') AND u.org_id = ?
+    ORDER BY ul.updated_at DESC
+  `).all(`-${maxAgeMinutes}`, orgId);
 }
 
 function deleteUserLocation(userId) {
@@ -656,11 +919,15 @@ function pruneExpiredSessions() {
 
 module.exports = {
   initDb, getDb,
+  ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL,
   insertMessage, getHistory, searchMessages, getMessageStats, deleteMessage,
   getGroups, createGroup, updateGroup, deleteGroup,
   getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
   getSetting, setSetting,
-  getUsers, getUserByUsername, createUser, updateUserPassword, updateUserRole, updateUserEmail, deleteUser, touchUserLogin, countUsers,
+  createOrganization, getOrganizations, getOrganization,
+  createInvite, getInviteByCode, listInvites, revokeInvite, consumeInvite,
+  getUsers, getUserById, getUserByUsername, createUser, updateUserPassword, updateUserRole, updateUserEmail,
+  deleteUser, touchUserLogin, countUsers, setUserOrg,
   getLastSeenId, setLastSeenId,
   getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode,
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,

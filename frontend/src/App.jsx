@@ -13,6 +13,7 @@ import MapView       from './components/MapView.jsx';
 import ArchivePanel      from './components/ArchivePanel.jsx';
 import WeatherView       from './components/WeatherView.jsx';
 import PasswordResetPage from './components/PasswordResetPage.jsx';
+import JoinPage          from './components/JoinPage.jsx';
 import UserProfile       from './components/UserProfile.jsx';
 import ErrorBoundary     from './components/ErrorBoundary.jsx';
 import { playAlertSound } from './components/admin/KeywordAlerts.jsx';
@@ -31,6 +32,7 @@ export default function App() {
   const [showLogin, setShowLogin]       = useState(false);
   const [showProfile, setShowProfile]   = useState(false);
   const [resetToken]                    = useState(() => new URLSearchParams(window.location.search).get('reset'));
+  const [inviteCode]                    = useState(() => new URLSearchParams(window.location.search).get('invite'));
 
   const { messages, wsStatus, sdrStatus, prependHistory, appendHistory, removeMessage } = useWebSocket(BACKEND_URL);
 
@@ -199,6 +201,9 @@ export default function App() {
 
   // Handle password reset link /?reset=TOKEN
   if (resetToken) return <PasswordResetPage token={resetToken} />;
+
+  // Handle invite link /?invite=CODE
+  if (inviteCode) return <JoinPage code={inviteCode} />;
 
   if (authLoading) {
     return (

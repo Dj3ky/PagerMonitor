@@ -3,6 +3,7 @@ import { Layers, Plus, Trash2, Pencil, X, Save } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
 import { adminFetchGroups, adminSaveGroup, adminDeleteGroup } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const EMPTY = { name:'', color:'#a855f7', parent_id:'', row_color:'', row_sound:'' };
 
@@ -19,6 +20,8 @@ function Flash({ msg }) {
 }
 
 export default function GroupManager({ onGroupsChange }) {
+  const { user } = useAuth();
+  const isPlatformAdmin = !!user?.isPlatformAdmin;
   const { data: raw, loading, reload } = useAdminFetch(adminFetchGroups, []);
   const groups = Array.isArray(raw) ? raw : [];
 
@@ -59,7 +62,10 @@ export default function GroupManager({ onGroupsChange }) {
     } catch (e) { flash('err', e.message); }
   };
 
-  const GroupRow = ({ g, indent = 0 }) => (
+  const GroupRow = ({ g, indent = 0 }) => {
+    const isGlobal = g.org_id == null;
+    const locked   = isGlobal && !isPlatformAdmin;
+    return (
     <>
       <div style={{
         display:'flex', alignItems:'center', gap:'0.6rem',
@@ -71,21 +77,30 @@ export default function GroupManager({ onGroupsChange }) {
         {indent > 0 && <span style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>↳</span>}
         <div style={{ width:'12px', height:'12px', borderRadius:'50%', background: g.color||'#a855f7', flexShrink:0 }} />
         <span style={{ flex:1, fontSize:'0.85rem', fontWeight:600, color: g.color||'var(--accent-purple)' }}>{g.name}</span>
+        {isGlobal && (
+          <span title="Shared default — visible to every organization" style={{ fontSize:'0.65rem', color:'var(--text-3)',
+            background:'var(--bg-3)', border:'1px solid var(--border)', padding:'0.1rem 0.4rem', borderRadius:'0.75rem', flexShrink:0 }}>
+            global
+          </span>
+        )}
         {g.aliases?.length > 0 && (
           <span style={{ fontSize:'0.68rem', color:'var(--text-3)', fontFamily:'monospace' }}>
             {g.aliases.length} alias{g.aliases.length!==1?'es':''}
           </span>
         )}
-        <button onClick={() => startEdit(g)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.2rem' }}>
+        <button onClick={() => startEdit(g)} disabled={locked} title={locked ? 'Only the platform admin can edit shared defaults' : undefined}
+          style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--text-3)', padding:'0.2rem' }}>
           <Pencil size={13} />
         </button>
-        <button onClick={() => handleDelete(g.id, g.name)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent-red)', padding:'0.2rem' }}>
+        <button onClick={() => handleDelete(g.id, g.name)} disabled={locked} title={locked ? 'Only the platform admin can delete shared defaults' : undefined}
+          style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--accent-red)', padding:'0.2rem' }}>
           <Trash2 size={13} />
         </button>
       </div>
       {subOf(g.id).map(sub => <GroupRow key={sub.id} g={sub} indent={indent+1} />)}
     </>
-  );
+    );
+  };
 
   return (
     <div style={{ maxWidth:'600px' }}>

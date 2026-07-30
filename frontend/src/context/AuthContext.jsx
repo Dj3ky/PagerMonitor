@@ -59,7 +59,7 @@ export function AuthProvider({ children }) {
     if (!r.ok) throw new Error(d.error || 'Login failed');
     localStorage.setItem('pm_token', d.token);
     setToken(d.token);
-    setUser({ username: d.username, role: d.role });
+    setUser({ username: d.username, role: d.role, orgId: d.orgId, isPlatformAdmin: !!d.isPlatformAdmin });
     setNeedsSetup(false);
     setIsPublic(false);
   }, []);
