@@ -120,7 +120,9 @@ export default function UserProfile({ onClose }) {
           <User size={18} style={{ color:'var(--accent-green)' }}/>
           <div style={{ flex:1 }}>
             <div style={{ fontWeight:700, color:'var(--text-1)' }}>{user?.username}</div>
-            <div style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>{user?.role}</div>
+            <div style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>
+              {user?.role}{user?.orgName ? ` · ${user.orgName}` : ''}{user?.isPlatformAdmin ? ' · platform admin' : ''}
+            </div>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer',
             color:'var(--text-3)', padding:'0.25rem' }}><X size={18}/></button>

@@ -85,9 +85,9 @@ export const adminFetchUpdateStatus  = () => A('GET', '/admin/update/status');
 export const adminFetchMsgNorm       = () => A('GET', '/admin/message-normalizations');
 export const adminSaveMsgNorm        = rules => A('PUT', '/admin/message-normalizations', rules);
 
-export const adminImportAliasesCsv = (csvText) => {
+export const adminImportAliasesCsv = (csvText, asGlobal = false) => {
   const t = getToken();
-  return fetch(`${BASE}/admin/aliases/import`, {
+  return fetch(`${BASE}/admin/aliases/import${asGlobal ? '?global=1' : ''}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/csv', Authorization: `Bearer ${t}` },
     body: csvText,
@@ -110,6 +110,7 @@ export const authUsers      = (orgId) => A('GET',  `/auth/users${orgId ? `?org_i
 export const authRegister   = (u, p, r, e) => A('POST', '/auth/register', { username:u, password:p, role:r, email:e });
 export const authSetRole    = (id, role) => A('PUT',  `/auth/users/${id}/role`, { role });
 export const authSetUserOrg = (id, orgId) => A('PUT', `/auth/users/${id}/org`, { org_id: orgId });
+export const authSetPlatformAdmin = (id, isPlatformAdmin) => A('PUT', `/auth/users/${id}/platform-admin`, { isPlatformAdmin });
 export const authResetPw    = (id, pw)   => A('POST', `/auth/users/${id}/reset-password`, { password:pw });
 export const authDeleteUser = (id)       => A('DELETE', `/auth/users/${id}`);
 export const authChangePw   = (old_, new_) => A('POST', '/auth/change-password', { oldPassword:old_, newPassword:new_ });
@@ -122,6 +123,9 @@ export const adminCreateInvite  = (role, expiresInDays, maxUses) => A('POST', '/
 export const adminRevokeInvite  = (id) => A('DELETE', `/admin/invites/${id}`);
 export const adminFetchOrgs     = () => A('GET', '/admin/organizations');
 export const adminCreateOrg     = (name) => A('POST', '/admin/organizations', { name });
+export const adminRenameOrg     = (id, name) => A('PUT', `/admin/organizations/${id}`, { name });
+export const adminRenameOwnOrg  = (name) => A('PUT', '/admin/organization', { name });
+export const adminDeleteOrg     = (id) => A('DELETE', `/admin/organizations/${id}`);
 export const postUserLocation   = (lat, lng) => req('POST',   '/api/user-location', { lat, lng });
 export const deleteUserLocation = ()         => req('DELETE', '/api/user-location');
 export const fetchUserLocations = ()         => A('GET', '/admin/user-locations');

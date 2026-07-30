@@ -81,7 +81,11 @@ async function login(username, password) {
   db.touchUserLogin(user.id);
   const token = createSession(user);
   logger.info(`Login: ${username}`);
-  return { token, username: user.username, role: user.role, orgId: user.org_id, isPlatformAdmin: !!user.is_platform_admin };
+  const org = user.org_id ? db.getOrganization(user.org_id) : null;
+  return {
+    token, username: user.username, role: user.role,
+    orgId: user.org_id, orgName: org?.name || null, isPlatformAdmin: !!user.is_platform_admin,
+  };
 }
 
 async function changePassword(userId, oldPassword, newPassword) {

@@ -59,7 +59,7 @@ export function AuthProvider({ children }) {
     if (!r.ok) throw new Error(d.error || 'Login failed');
     localStorage.setItem('pm_token', d.token);
     setToken(d.token);
-    setUser({ username: d.username, role: d.role, orgId: d.orgId, isPlatformAdmin: !!d.isPlatformAdmin });
+    setUser({ username: d.username, role: d.role, orgId: d.orgId, orgName: d.orgName, isPlatformAdmin: !!d.isPlatformAdmin });
     setNeedsSetup(false);
     setIsPublic(false);
   }, []);
@@ -85,8 +85,18 @@ export function AuthProvider({ children }) {
     return fetch(`${BASE}${path}`, { ...opts, headers });
   }, [token]);
 
+  // Re-fetch /auth/me — used after something like an org rename, where the session
+  // itself is still valid but a display field (orgName) has changed server-side.
+  const refreshUser = useCallback(async () => {
+    if (!token) return;
+    try {
+      const r = await fetch(`${BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setUser(await r.json());
+    } catch (_) {}
+  }, [token]);
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, needsSetup, isPublic, login, logout, authFetch, setNeedsSetup }}>
+    <AuthContext.Provider value={{ user, token, loading, needsSetup, isPublic, login, logout, authFetch, setNeedsSetup, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

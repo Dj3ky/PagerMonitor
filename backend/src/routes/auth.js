@@ -4,7 +4,7 @@ const { register, login, destroySession, requireAuth, requireAdmin, requirePlatf
         changePassword, adminSetPassword } = require('../services/auth');
 const {
   getUsers, getUserById, countUsers, deleteUser, updateUserRole, updateUserEmail, setUserOrg,
-  getInviteByCode, consumeInvite, addAuditLog,
+  setUserPlatformAdmin, getInviteByCode, consumeInvite, addAuditLog, getDb, getOrganization,
 } = require('../services/database');
 const logger = require('../utils/logger');
 
@@ -67,10 +67,11 @@ router.post('/logout', requireAuth, (req, res) => {
 
 // GET /auth/me
 router.get('/me', requireAuth, (req, res) => {
-  const u = req.session.userId ? getUserById(req.session.userId) : null;
+  const u   = req.session.userId ? getUserById(req.session.userId) : null;
+  const org = req.session.orgId ? getOrganization(req.session.orgId) : null;
   res.json({
     id: req.session.userId, username: req.session.username, role: req.session.role,
-    orgId: req.session.orgId, isPlatformAdmin: !!req.session.isPlatformAdmin,
+    orgId: req.session.orgId, orgName: org?.name || null, isPlatformAdmin: !!req.session.isPlatformAdmin,
     email: u?.email || '',
   });
 });
@@ -126,6 +127,24 @@ router.put('/users/:id/org', requirePlatformAdmin, (req, res) => {
     if (!orgId) return res.status(400).json({ error: 'org_id required' });
     setUserOrg(id, orgId);
     addAuditLog(req.session.username, 'user.org_reassign', `id=${id} org_id=${orgId}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// PUT /auth/users/:id/platform-admin — platform admin only: grant/revoke platform-admin access
+router.put('/users/:id/platform-admin', requirePlatformAdmin, (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const grant  = !!req.body.isPlatformAdmin;
+    const target = getUserById(id);
+    if (!grant && target?.is_platform_admin) {
+      // Don't allow the last platform admin to be revoked, leaving nobody able to
+      // reach instance settings.
+      const remaining = getDb().prepare('SELECT COUNT(*) as n FROM users WHERE is_platform_admin = 1 AND id != ?').get(id).n;
+      if (remaining === 0) return res.status(400).json({ error: 'Cannot remove the last platform admin' });
+    }
+    setUserPlatformAdmin(id, grant);
+    addAuditLog(req.session.username, 'user.platform_admin_set', `id=${id} value=${grant}`);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });

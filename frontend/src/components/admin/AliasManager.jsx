@@ -6,7 +6,7 @@ import { adminFetchAliases, adminSaveAlias, adminDeleteAlias, adminDeleteAllAlia
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
-const EMPTY = { capcode:'', name:'', color:'#00ff9d', notes:'', group_id:'', row_color:'', row_sound:'' };
+const EMPTY = { capcode:'', name:'', color:'#00ff9d', notes:'', group_id:'', row_color:'', row_sound:'', is_global:false };
 
 function Flash({ msg }) {
   if (!msg) return null;
@@ -33,6 +33,7 @@ export default function AliasManager() {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving]   = useState(false);
   const [msg, setMsg]         = useState(null);
+  const [importAsGlobal, setImportAsGlobal] = useState(false);
   const fileRef               = useRef();
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 3500); };
@@ -45,6 +46,7 @@ export default function AliasManager() {
         name: form.name, color: form.color, notes: form.notes,
         group_id: form.group_id ? parseInt(form.group_id) : null,
         row_color: form.row_color || null, row_sound: form.row_sound || null,
+        is_global: form.is_global,
       });
       flash('ok', editing ? `Updated ${form.capcode}` : `Added ${form.capcode}`);
       setForm({ ...EMPTY }); setEditing(null); reload();
@@ -53,7 +55,10 @@ export default function AliasManager() {
   };
 
   const startEdit = a => {
-    setForm({ capcode:a.capcode, name:a.name||'', color:a.color||'#00ff9d', notes:a.notes||'', group_id: a.group_id||'', row_color: a.row_color||'', row_sound: a.row_sound||'' });
+    // Preserve the alias's existing scope while editing — a global alias stays global
+    // (there's no "convert to org-only" via this form, only via delete + recreate),
+    // so the platform-admin-only "make global" checkbox only appears for brand new aliases.
+    setForm({ capcode:a.capcode, name:a.name||'', color:a.color||'#00ff9d', notes:a.notes||'', group_id: a.group_id||'', row_color: a.row_color||'', row_sound: a.row_sound||'', is_global: a.org_id == null });
     setEditing(a.capcode);
   };
   const cancelEdit = () => { setForm({ ...EMPTY }); setEditing(null); };
@@ -77,7 +82,7 @@ export default function AliasManager() {
     if (!file) return;
     try {
       const text = await file.text();
-      const r = await adminImportAliasesCsv(text);
+      const r = await adminImportAliasesCsv(text, isPlatformAdmin && importAsGlobal);
       const skipNote = r.skipped ? `, ${r.skipped} skipped (empty capcode)` : '';
       flash('ok', `Imported ${r.imported ?? 0} aliases${skipNote}`);
       reload();
@@ -91,7 +96,14 @@ export default function AliasManager() {
         <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', display:'flex', alignItems:'center', gap:'0.5rem', margin:0 }}>
           <Tag size={16} style={{ color:'var(--accent-amber)' }} /> Aliases
         </h2>
-        <div style={{ display:'flex', gap:'0.5rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+          {isPlatformAdmin && (
+            <label style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.72rem', color:'var(--text-3)', cursor:'pointer' }}
+              title="New imports become global/shared defaults instead of belonging to your own org">
+              <input type="checkbox" checked={importAsGlobal} onChange={e => setImportAsGlobal(e.target.checked)} />
+              Import as global
+            </label>
+          )}
           <button className="pm-btn" onClick={handleExport} style={{ fontSize:'0.75rem' }}><Download size={12} /> Export CSV</button>
           <button className="pm-btn" onClick={() => fileRef.current?.click()} style={{ fontSize:'0.75rem' }}><Upload size={12} /> Import CSV</button>
           {aliases.length > 0 && <button className="pm-btn" onClick={handleDeleteAll} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}><Trash2 size={12} /> Delete All</button>}
@@ -198,8 +210,17 @@ export default function AliasManager() {
           </div>
         </div>
 
+        {isPlatformAdmin && !editing && (
+          <label style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.78rem', color:'var(--text-2)',
+            cursor:'pointer', marginBottom:'0.6rem' }}
+            title="Visible as a shared default to every organization, not just your own">
+            <input type="checkbox" checked={form.is_global} onChange={e => setForm(f => ({ ...f, is_global: e.target.checked }))} />
+            Make this global (visible to every organization)
+          </label>
+        )}
+
         <button className="pm-btn pm-btn-primary" onClick={handleSave} disabled={!form.capcode||!form.name||saving}>
-          <Save size={13} /> {saving ? 'Saving…' : editing ? 'Update' : 'Add alias'}
+          <Save size={13} /> {saving ? 'Saving…' : editing ? 'Update' : form.is_global ? 'Add global alias' : 'Add alias'}
         </button>
       </div>
 

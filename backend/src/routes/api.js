@@ -199,16 +199,20 @@ router.post('/last-seen', requireAuth, (req, res) => {
 
 // ── Archive ───────────────────────────────────────────────────────────────────
 
-// Build a capcode→group_id map from current org+global aliases (used when feed filter is 'only_groups')
+// Build a capcode→group_id map from current org+global aliases (used when feed filter is
+// 'only_groups'). The org-specific row always wins over a global one for the same capcode
+// (same precedence as getAliases/getGroups) — suppressed explicitly rather than relying on
+// row order, since SQLite gives no ordering guarantee without an ORDER BY.
 function buildGroupMap(orgId) {
   try {
     return Object.fromEntries(
       getDb().prepare(`
-        SELECT a.capcode, COALESCE(a.group_id, ag.group_id) as group_id
+        SELECT a.capcode, a.group_id
         FROM aliases a
-        LEFT JOIN aliases ag ON ag.capcode = a.capcode AND ag.org_id IS NULL
-        WHERE (a.org_id = ? OR a.org_id IS NULL) AND COALESCE(a.group_id, ag.group_id) IS NOT NULL
-      `).all(orgId).map(r => [r.capcode, r.group_id])
+        WHERE (a.org_id = ? OR a.org_id IS NULL)
+          AND a.group_id IS NOT NULL
+          AND NOT (a.org_id IS NULL AND EXISTS (SELECT 1 FROM aliases ov WHERE ov.capcode = a.capcode AND ov.org_id = ?))
+      `).all(orgId, orgId).map(r => [r.capcode, r.group_id])
     );
   } catch (_) { return {}; }
 }

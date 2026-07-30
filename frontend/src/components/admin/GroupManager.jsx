@@ -5,7 +5,7 @@ import { adminFetchGroups, adminSaveGroup, adminDeleteGroup } from '../../utils/
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
-const EMPTY = { name:'', color:'#a855f7', parent_id:'', row_color:'', row_sound:'' };
+const EMPTY = { name:'', color:'#a855f7', parent_id:'', row_color:'', row_sound:'', is_global:false };
 
 function Flash({ msg }) {
   if (!msg) return null;
@@ -35,7 +35,10 @@ export default function GroupManager({ onGroupsChange }) {
   const subOf    = (parentId) => groups.filter(g => g.parent_id === parentId);
 
   const startEdit = g => {
-    setForm({ name: g.name, color: g.color||'#a855f7', parent_id: g.parent_id||'', row_color: g.row_color||'', row_sound: g.row_sound||'' });
+    // A group's org/global scope can't change via edit (the update path never touches
+    // it), so is_global is irrelevant here — always false, and the checkbox is hidden
+    // while editing anyway.
+    setForm({ name: g.name, color: g.color||'#a855f7', parent_id: g.parent_id||'', row_color: g.row_color||'', row_sound: g.row_sound||'', is_global:false });
     setEditing(g.id);
   };
   const cancelEdit = () => { setForm({ ...EMPTY }); setEditing(null); };
@@ -43,7 +46,7 @@ export default function GroupManager({ onGroupsChange }) {
   const handleSave = async () => {
     if (!form.name.trim()) { flash('err', 'Name is required'); return; }
     try {
-      const payload = { name: form.name, color: form.color, parent_id: form.parent_id ? parseInt(form.parent_id) : null, row_color: form.row_color || null, row_sound: form.row_sound || null };
+      const payload = { name: form.name, color: form.color, parent_id: form.parent_id ? parseInt(form.parent_id) : null, row_color: form.row_color || null, row_sound: form.row_sound || null, is_global: form.is_global };
       await adminSaveGroup(editing, payload);
       flash('ok', editing ? 'Group updated' : 'Group created');
       setForm({ ...EMPTY }); setEditing(null);
@@ -201,8 +204,17 @@ export default function GroupManager({ onGroupsChange }) {
           </div>
         </div>
 
+        {isPlatformAdmin && !editing && (
+          <label style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.78rem', color:'var(--text-2)',
+            cursor:'pointer', marginBottom:'0.6rem' }}
+            title="Visible as a shared default to every organization, not just your own">
+            <input type="checkbox" checked={form.is_global} onChange={e => setForm(f => ({ ...f, is_global: e.target.checked }))} />
+            Make this global (visible to every organization)
+          </label>
+        )}
+
         <button className="pm-btn pm-btn-primary" onClick={handleSave} disabled={!form.name}>
-          <Save size={13} /> {editing ? 'Update group' : 'Create group'}
+          <Save size={13} /> {editing ? 'Update group' : form.is_global ? 'Create global group' : 'Create group'}
         </button>
       </div>
 

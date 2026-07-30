@@ -133,7 +133,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
                 <User size={11}/> Log in
               </button>
             ) : (
-              <button onClick={onProfileOpen} title="Profile & notification settings"
+              <button onClick={onProfileOpen} title={user?.orgName ? `Profile & notification settings — ${user.orgName}` : 'Profile & notification settings'}
                 style={{ display:'flex', alignItems:'center', gap:'0.3rem',
                   fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace',
                   padding:'0.2rem 0.5rem', borderRadius:'0.3rem', cursor:'pointer',

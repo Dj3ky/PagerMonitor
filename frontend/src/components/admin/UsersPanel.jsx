@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Users, UserPlus, Trash2, Key, ShieldCheck, LogOut, Pencil, Save, X, Mail, Link2, Copy, Ban } from 'lucide-react';
 import { authUsers, authRegister, authSetRole, authResetPw, authDeleteUser, authChangePw, adminSetUserEmail,
-         adminFetchInvites, adminCreateInvite, adminRevokeInvite } from '../../utils/api.js';
+         adminFetchInvites, adminCreateInvite, adminRevokeInvite, adminRenameOwnOrg } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -55,7 +55,7 @@ function UserRow({ u, me, onRole, onDelete, onEdit }) {
 }
 
 export default function UsersPanel() {
-  const { user: me, logout } = useAuth();
+  const { user: me, logout, refreshUser } = useAuth();
   const { data: users, loading, reload } = useAdminFetch(authUsers, []);
   const { data: invites, loading: invitesLoading, reload: reloadInvites } = useAdminFetch(adminFetchInvites, []);
   const [msg, setMsg]         = useState(null);
@@ -66,9 +66,22 @@ export default function UsersPanel() {
   const [editPw, setEditPw]         = useState('');
   const [inviteForm, setInviteForm] = useState({ role:'viewer', expiresInDays:'7', maxUses:'1' });
   const [lastInviteUrl, setLastInviteUrl] = useState(null);
+  const [renamingOrg, setRenamingOrg] = useState(false);
+  const [orgNameDraft, setOrgNameDraft] = useState('');
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); };
   const safeUsers   = Array.isArray(users) ? users : [];
+
+  const startRenameOrg = () => { setOrgNameDraft(me?.orgName || ''); setRenamingOrg(true); };
+  const handleRenameOrg = async () => {
+    if (!orgNameDraft.trim()) return;
+    try {
+      await adminRenameOwnOrg(orgNameDraft.trim());
+      flash('ok', 'Organization renamed');
+      setRenamingOrg(false);
+      refreshUser();
+    } catch (e) { flash('err', e.message); }
+  };
   const safeInvites = Array.isArray(invites) ? invites : [];
 
   const handleCreateInvite = async () => {
@@ -143,8 +156,29 @@ export default function UsersPanel() {
   return (
     <div style={{ maxWidth:'640px' }}>
       <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', marginBottom:'1rem',
-        display:'flex', alignItems:'center', gap:'0.5rem' }}>
+        display:'flex', alignItems:'center', gap:'0.5rem', flexWrap:'wrap' }}>
         <Users size={16} style={{ color:'var(--accent-blue)' }} /> Users & Access
+        {renamingOrg ? (
+          <span style={{ display:'flex', alignItems:'center', gap:'0.3rem' }}>
+            <input className="pm-input" style={{ fontSize:'0.78rem', fontWeight:400, padding:'0.15rem 0.4rem' }}
+              value={orgNameDraft} onChange={e => setOrgNameDraft(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleRenameOrg()} autoFocus />
+            <button onClick={handleRenameOrg} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent-green)' }}><Save size={14}/></button>
+            <button onClick={() => setRenamingOrg(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)' }}><X size={14}/></button>
+          </span>
+        ) : (
+          me?.orgName && (
+            <span style={{ fontSize:'0.72rem', fontWeight:400, color:'var(--text-3)', display:'flex', alignItems:'center', gap:'0.25rem' }}>
+              — {me.orgName}
+              {me?.role === 'admin' && (
+                <button onClick={startRenameOrg} title="Rename organization"
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.1rem' }}>
+                  <Pencil size={11}/>
+                </button>
+              )}
+            </span>
+          )
+        )}
       </h2>
 
       <Flash msg={msg} />
@@ -170,9 +204,9 @@ export default function UsersPanel() {
           Anyone who joins via an invite link lands in your organization immediately, seeing the
           same groups, aliases, and feed filter you already have — not a copy, the same live setup.
         </p>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.5rem', marginBottom:'0.6rem' }}>
-          <div>
-            <label className="pm-label">Role granted</label>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.5rem', marginBottom:'0.6rem', alignItems:'end' }}>
+          <div style={{ display:'flex', flexDirection:'column' }}>
+            <label className="pm-label" style={{ minHeight:'2rem' }}>Role granted</label>
             <select value={inviteForm.role} onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))}
               style={{ background:'var(--bg-3)', border:'1px solid var(--border)', color:'var(--text-2)',
                 borderRadius:'0.5rem', padding:'0.4rem 0.5rem', fontSize:'0.8rem', width:'100%' }}>
@@ -181,13 +215,13 @@ export default function UsersPanel() {
               <option value="admin">admin</option>
             </select>
           </div>
-          <div>
-            <label className="pm-label">Expires in (days, blank = never)</label>
+          <div style={{ display:'flex', flexDirection:'column' }}>
+            <label className="pm-label" style={{ minHeight:'2rem' }}>Expires in (days, blank = never)</label>
             <input className="pm-input" type="number" min="0" value={inviteForm.expiresInDays}
               onChange={e => setInviteForm(f => ({ ...f, expiresInDays: e.target.value }))} />
           </div>
-          <div>
-            <label className="pm-label">Max uses (0 = unlimited)</label>
+          <div style={{ display:'flex', flexDirection:'column' }}>
+            <label className="pm-label" style={{ minHeight:'2rem' }}>Max uses (0 = unlimited)</label>
             <input className="pm-input" type="number" min="0" value={inviteForm.maxUses}
               onChange={e => setInviteForm(f => ({ ...f, maxUses: e.target.value }))} />
           </div>

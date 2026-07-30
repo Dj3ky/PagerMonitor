@@ -533,7 +533,16 @@ function getMessageStats(orgId) {
 // orgId's own groups plus every global (org_id IS NULL) default group.
 function getGroups(orgId) {
   const groups  = getDb().prepare('SELECT * FROM groups WHERE org_id = ? OR org_id IS NULL ORDER BY parent_id NULLS FIRST, name').all(orgId);
-  const aliases = getDb().prepare('SELECT capcode, name, color, group_id FROM aliases WHERE group_id IS NOT NULL AND (org_id = ? OR org_id IS NULL)').all(orgId);
+  // Suppress the global row for a capcode when this org already has its own override for
+  // it — otherwise a capcode with both a global default and an org-specific alias would
+  // show up twice (once under each row) instead of the org's override winning.
+  const aliases = getDb().prepare(`
+    SELECT a.capcode, a.name, a.color, a.group_id
+    FROM aliases a
+    WHERE a.group_id IS NOT NULL
+      AND (a.org_id = ? OR a.org_id IS NULL)
+      AND NOT (a.org_id IS NULL AND EXISTS (SELECT 1 FROM aliases ov WHERE ov.capcode = a.capcode AND ov.org_id = ?))
+  `).all(orgId, orgId);
   const aliasMap = {};
   for (const a of aliases) {
     if (!aliasMap[a.group_id]) aliasMap[a.group_id] = [];
@@ -565,14 +574,17 @@ function deleteGroup(id, orgId, isPlatformAdmin) {
 }
 
 // ── Aliases ───────────────────────────────────────────────────────────────────
-// orgId's own aliases plus every global (org_id IS NULL) default alias.
+// orgId's own aliases plus every global (org_id IS NULL) default alias — but not both
+// for the same capcode: an org-specific row always suppresses the global one it overrides,
+// same precedence as the live-feed resolution in ALIAS_GROUP_JOIN_SQL.
 function getAliases(orgId) {
   return getDb().prepare(`
     SELECT a.*, g.name as group_name, g.color as group_color
     FROM aliases a LEFT JOIN groups g ON g.id = a.group_id
-    WHERE a.org_id = ? OR a.org_id IS NULL
+    WHERE (a.org_id = ? OR a.org_id IS NULL)
+      AND NOT (a.org_id IS NULL AND EXISTS (SELECT 1 FROM aliases ov WHERE ov.capcode = a.capcode AND ov.org_id = ?))
     ORDER BY a.capcode
-  `).all(orgId);
+  `).all(orgId, orgId);
 }
 // Capcodes are plain integers from the decoder (no leading zeros). Strip leading zeros
 // from user-supplied values so aliases always match decoded messages.
@@ -643,6 +655,16 @@ function getOrganizations() {
   `).all();
 }
 function getOrganization(id) { return getDb().prepare('SELECT * FROM organizations WHERE id=?').get(id); }
+function renameOrganization(id, name) { return getDb().prepare('UPDATE organizations SET name=? WHERE id=?').run(name, id).changes; }
+// Only deletes if the org has no users left — callers should check first and surface a
+// clear error, but this is the last line of defense against orphaning someone's account
+// (users.org_id is ON DELETE SET NULL, so a forced delete wouldn't destroy the user, but
+// it would silently kick them out of their workspace, which is worse than just refusing).
+function deleteOrganization(id) {
+  const userCount = getDb().prepare('SELECT COUNT(*) as n FROM users WHERE org_id=?').get(id).n;
+  if (userCount > 0) throw new Error(`Cannot delete: ${userCount} user(s) still belong to this organization`);
+  return getDb().prepare('DELETE FROM organizations WHERE id=?').run(id).changes;
+}
 
 // ── Invites ───────────────────────────────────────────────────────────────────
 function createInvite({ orgId, role, createdBy, expiresAt, maxUses }) {
@@ -695,6 +717,7 @@ function createUser(username, hash, role, orgId, isPlatformAdmin = false) {
 function updateUserPassword(id, hash)  { getDb().prepare('UPDATE users SET password=? WHERE id=?').run(hash, id); }
 function updateUserEmail(id, email) { getDb().prepare('UPDATE users SET email=? WHERE id=?').run(email || null, id); }
 function setUserOrg(userId, orgId) { getDb().prepare('UPDATE users SET org_id=? WHERE id=?').run(orgId, userId); }
+function setUserPlatformAdmin(userId, isPlatformAdmin) { getDb().prepare('UPDATE users SET is_platform_admin=? WHERE id=?').run(isPlatformAdmin ? 1 : 0, userId); }
 
 // Per-user notification preferences
 function getUserNotifPrefs(userId) {
@@ -924,10 +947,10 @@ module.exports = {
   getGroups, createGroup, updateGroup, deleteGroup,
   getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
   getSetting, setSetting,
-  createOrganization, getOrganizations, getOrganization,
+  createOrganization, getOrganizations, getOrganization, renameOrganization, deleteOrganization,
   createInvite, getInviteByCode, listInvites, revokeInvite, consumeInvite,
   getUsers, getUserById, getUserByUsername, createUser, updateUserPassword, updateUserRole, updateUserEmail,
-  deleteUser, touchUserLogin, countUsers, setUserOrg,
+  deleteUser, touchUserLogin, countUsers, setUserOrg, setUserPlatformAdmin,
   getLastSeenId, setLastSeenId,
   getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode,
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,

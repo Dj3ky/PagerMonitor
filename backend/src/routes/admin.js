@@ -15,7 +15,7 @@ const { getDb, getStats, getMessageStats,
         getWebhooks, upsertWebhook, deleteWebhook,
         addAuditLog, getAuditLog,
         deleteMessage, getUserLocations, getUserById,
-        createOrganization, getOrganizations,
+        createOrganization, getOrganizations, renameOrganization, deleteOrganization,
         createInvite, listInvites, revokeInvite,
         getSetting: _gs, setSetting: _ss } = require('../services/database');
 const { getConfig, updateConfig, testNotification } = require('../services/notifications');
@@ -544,6 +544,37 @@ router.post('/organizations', platformOnly, (req, res) => {
     addAuditLog(req.session.username, 'org.create', `name=${name}`);
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.put('/organizations/:id', platformOnly, (req, res) => {
+  try {
+    const name = (req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const changes = renameOrganization(parseInt(req.params.id), name);
+    if (!changes) return res.status(404).json({ error: 'Organization not found' });
+    addAuditLog(req.session.username, 'org.rename', `id=${req.params.id} name=${name}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// PUT /admin/organization — org admin renames their own org (unlike the platform-only
+// /organizations/:id above, which can target any org). No :id — always req.session.orgId,
+// so an org admin can never rename anyone else's workspace.
+router.put('/organization', adminOnly, (req, res) => {
+  try {
+    const name = (req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    renameOrganization(req.session.orgId, name);
+    addAuditLog(req.session.username, 'org.rename', `id=${req.session.orgId} name=${name}`, req.session.orgId);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/organizations/:id', platformOnly, (req, res) => {
+  try {
+    const changes = deleteOrganization(parseInt(req.params.id));
+    if (!changes) return res.status(404).json({ error: 'Organization not found' });
+    addAuditLog(req.session.username, 'org.delete', `id=${req.params.id}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // Invites — org-admin scoped (their own org only). An admin may invite at any of the
