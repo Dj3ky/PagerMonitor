@@ -53,6 +53,8 @@ Define exactly which messages the system processes. Filtered messages are **comp
 | **Only groups** | Accept only messages whose alias belongs to one of the selected groups |
 | **Only aliased** | Accept only capcodes that have an alias defined; optionally restrict to specific ones |
 
+On top of any mode, **content filters** drop a message if its text matches a plain string or a regex pattern — useful for cutting out recurring noise regardless of capcode or alias. Regex patterns are validated at save time (length capped, catastrophic-backtracking shapes rejected) since they run on every incoming message.
+
 Configure under **Admin → Messages → Feed Filter**. Changes take effect immediately with no restart required.
 
 ### 🗺️ Map view
@@ -122,10 +124,19 @@ Install PagerMonitor directly to your home screen on Android, iOS, or desktop. N
 - Background push notifications — alerted even when the phone is locked or the app is closed
 - Click the **bell icon** in the header to enable — automatically subscribes the device to push
 
+### 🏢 Multi-tenant organizations
+Run one PagerMonitor instance for several teams, each seeing only their own workspace.
+- Every organization has its own **groups, aliases, and feed filter** — everyone still shares the same underlying pager feed; organizations only control who sees what
+- **Invite links** — generate a link from the Users panel, new accounts created via it land straight in that org and see its existing groups/aliases/feed filter immediately
+- **Platform admin** — a super-admin flag, separate from the per-org `admin` role, that can see and manage every organization on the instance and move users between them
+- A **Default Organization** is created automatically, so single-team setups work unchanged with zero extra configuration
+
+Configure under **Admin → Site → Organizations** (platform admins only).
+
 ### 👥 Multi-user access
 | Role | Access |
 |---|---|
-| `admin` | Full access — all settings, users, SDR control |
+| `admin` | Full access to their organization — settings, users, SDR control |
 | `editor` | Aliases, groups, highlights, keyword alerts |
 | `viewer` | Read-only feed, map, archive, search |
 
@@ -133,7 +144,7 @@ Install PagerMonitor directly to your home screen on Android, iOS, or desktop. N
 - Session tokens with 7-day expiry
 
 ### 📡 Multi-SDR support
-Run **multiple RTL-SDR dongles in parallel** — each on its own frequency, protocol, or gain setting. Status bar shows per-dongle health with individual indicators and hover tooltips.
+Run **multiple RTL-SDR dongles in parallel** — each on its own frequency, protocol, or gain setting. Status bar shows per-dongle health with individual indicators and hover tooltips. Distributed RPi clients can be assigned a **colour**, shown on their badge in the feed so messages are easy to trace back to their source dongle.
 
 ### 🗄️ Archive & history
 - Auto-archive old messages to a separate `archive.db`
@@ -145,12 +156,12 @@ Run **multiple RTL-SDR dongles in parallel** — each on its own frequency, prot
 
 | Group | Tabs |
 |---|---|
-| **SDR** | SDR Control (start/stop/restart) · Dead Air detection · Live log viewer · SDR Clients dashboard · Client Key |
-| **Messages** | Database tools (purge, export) · Archive config · Statistics dashboard · Dedup · Highlight rules · Keyword alerts · **Feed Filter** · **Message Normalizations** |
+| **SDR** | SDR Control (start/stop/restart) · Dead Air detection · Live log viewer · SDR Clients dashboard (per-client colour) · Client Key |
+| **Messages** | Database tools (purge, export) · Archive config · Statistics dashboard · Dedup · Highlight rules · Keyword alerts · **Feed Filter** (capcode/group/alias + content filters) · **Message Normalizations** |
 | **Notifications** | Services (Discord / Telegram / Gotify / Pushover / MQTT) · Webhooks · Email (SMTP) · User notification preferences |
 | **Aliases & Groups** | Group manager · Alias manager (with CSV import/export) |
 | **System** | System stats · **One-click update** · Backup & Restore · Audit log |
-| **Site** | Site settings · **AI Geocode** (Nominatim / HERE · Groq / OpenAI / Ollama) · User management |
+| **Site** | Site settings · **AI Geocode** (Nominatim / HERE · Groq / OpenAI / Ollama) · User management · **Organizations** (platform admins) |
 
 ---
 

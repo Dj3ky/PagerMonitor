@@ -11,6 +11,22 @@ Versioning follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATC
 
 ---
 
+## [2.4.0] — 2026-07-30
+
+### Added
+- **Multi-tenant organizations** — each organization is an isolated workspace with its own groups, aliases, and feed filter, while everyone still shares the same underlying pager feed. Admin → Site → Organizations lets platform admins create/rename/delete organizations and move users between them
+- **Platform admin role** — a super-admin flag, separate from the per-org `admin` role, that can see and manage every organization on the instance
+- **Invite links to join an organization** — generate an invite code from the Users panel; new accounts created via the link land directly in that org and see its existing groups/aliases/feed filter immediately
+- **SDR client colours** — assign a colour to each distributed RPi client from Admin → SDR → SDR Clients; shown on client badges in the live feed so messages are easy to trace back to their source dongle
+- **Message content filters in Feed Filter** — drop messages by matching free text or a regex pattern against the message body, in addition to the existing capcode/group/alias filters
+
+### Fixed
+- **Feed filter hardened against ReDoS** — regex patterns shaped for catastrophic backtracking, or longer than 200 characters, are rejected at save time since they run on every incoming message; text/regex filter lists are capped at 100 entries each
+- **Alias/group badges overflowing** onto the capcode and message text on feed rows
+- **Capcode zero-padding and decoding fixes**
+
+---
+
 ## [2.3.0] — 2026-05-24
 
 ### Added
