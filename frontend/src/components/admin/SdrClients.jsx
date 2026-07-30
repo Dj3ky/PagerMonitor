@@ -66,7 +66,7 @@ function Flash({ msg }) {
   }}>{msg.text}</div>;
 }
 
-function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, flash }) {
+function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, flash }) {
   const { locale, hour12 } = useSite();
   const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
@@ -87,6 +87,11 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
       await onRename(client.id, nameDraft.trim());
       setRenaming(false);
     } catch (e) { flashCfg('err', e.message); }
+  };
+
+  const changeColor = async (color) => {
+    try { await onSetColor(client.id, color); }
+    catch (e) { flashCfg('err', e.message); }
   };
 
   const save = async () => {
@@ -140,6 +145,21 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
                 style={{ padding:'0.15rem 0.35rem' }}>
                 <Pencil size={11}/>
               </button>
+              <label title="Feed icon color for this client"
+                style={{ display:'flex', alignItems:'center', gap:'0.25rem', cursor:'pointer' }}>
+                <span style={{ width:'14px', height:'14px', borderRadius:'50%', flexShrink:0,
+                  background: client.color || 'var(--accent-blue,#3b82f6)',
+                  border:'1px solid var(--border)' }} />
+                <input type="color" value={client.color || '#3b82f6'}
+                  onChange={e => changeColor(e.target.value)}
+                  style={{ position:'absolute', width:1, height:1, opacity:0, pointerEvents:'none' }} />
+              </label>
+              {client.color && (
+                <button className="pm-btn" onClick={() => changeColor('')} title="Reset to default color"
+                  style={{ padding:'0.15rem 0.35rem' }}>
+                  <X size={11}/>
+                </button>
+              )}
             </div>
           )}
           {client.ip && <div style={{ fontSize:'0.7rem', color:'var(--text-3)', fontFamily:'monospace' }}>{client.ip}</div>}
@@ -356,6 +376,13 @@ export default function SdrClients() {
     return r;
   };
 
+  const setColor = async (id, color) => {
+    const r = await api('PUT', `/admin/sdr-clients/${encodeURIComponent(id)}/color`, { color });
+    if (!r.ok) throw new Error(r.error || 'Color update failed');
+    load();
+    return r;
+  };
+
   const sendCommand = async (id, command) => {
     const r = await api('POST', `/admin/sdr-clients/${encodeURIComponent(id)}/command`, { command });
     if (!r.ok) throw new Error(r.error || 'Command failed');
@@ -388,7 +415,7 @@ export default function SdrClients() {
 
       {!loading && clients.map(c => (
         <ClientCard key={c.id} client={c} configs={configs} latestSha={latestSha}
-          onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} onRename={rename} flash={flash} />
+          onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} onRename={rename} onSetColor={setColor} flash={flash} />
       ))}
 
       <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginTop:'0.75rem' }}>

@@ -62,9 +62,9 @@ function initDb() {
       VALUES (new.id, new.message, new.capcode, new.alias);
     END;
 
-    -- Base columns only — clientTracker.ensureTables() migrates in the rest (display_name, etc.)
-    -- on first client contact. Created here too so messages.client_id can be joined even
-    -- before any remote client has ever connected.
+    -- Base columns only — clientTracker.ensureTables() migrates in the rest
+    -- on first client contact. display_name/color are created here too since
+    -- messages queries join and select them even before any remote client connects.
     CREATE TABLE IF NOT EXISTS sdr_clients (
       id              TEXT    PRIMARY KEY,
       first_seen      TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -76,7 +76,9 @@ function initDb() {
       freq            TEXT,
       protocols       TEXT,
       last_message    TEXT,
-      last_message_ts TEXT
+      last_message_ts TEXT,
+      display_name    TEXT,
+      color           TEXT
     );
 
     CREATE TABLE IF NOT EXISTS groups (
@@ -335,7 +337,7 @@ function getHistory(limit = 200) {
     SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
            g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
            pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
-           c.display_name as client_name,
+           c.display_name as client_name, c.color as client_color,
            (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
     FROM messages m
     LEFT JOIN aliases a  ON a.capcode = m.capcode
@@ -354,7 +356,7 @@ function searchMessages(query, limit = 100) {
     SELECT m.*, a.name as alias_name, a.color as alias_color, a.row_color as alias_row_color, a.row_sound as alias_row_sound,
            g.id as group_id, g.name as group_name, g.color as group_color, g.row_color as group_row_color, g.row_sound as group_row_sound,
            pg.name as parent_group_name, pg.color as parent_group_color, pg.row_color as parent_group_row_color, pg.row_sound as parent_group_row_sound,
-           c.display_name as client_name,
+           c.display_name as client_name, c.color as client_color,
            (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
     FROM messages_fts f
     JOIN messages m ON m.id = f.rowid

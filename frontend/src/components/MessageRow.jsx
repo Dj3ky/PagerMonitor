@@ -76,6 +76,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
   const groupColor = msg.group_color || msg.parent_group_color || '#a855f7';
   // Which remote SDR client this message came from — only set in multi-client setups
   const clientLabel = msg.client_name || msg.client_id || null;
+  const clientColor = msg.client_color || 'var(--accent-blue,#3b82f6)';
 
   // Row background color: alias takes priority over group, group over parent group
   const rowColor = msg.alias_row_color || msg.group_row_color || msg.parent_group_row_color || null;
@@ -124,7 +125,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
           {clientLabel && (
             <span title={`From client: ${clientLabel}`}
               style={{ display:'flex', alignItems:'center', flexShrink:0, lineHeight:1,
-                color:'var(--accent-blue,#3b82f6)', opacity:0.85 }}>
+                color: clientColor, opacity:0.85 }}>
               <Radio size={12}/>
             </span>
           )}
@@ -206,7 +207,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             {clientLabel && (
               <span title={`From client: ${clientLabel}`}
                 style={{ display:'flex', alignItems:'center', flexShrink:0, lineHeight:1,
-                  color:'var(--accent-blue,#3b82f6)', opacity:0.85 }}>
+                  color: clientColor, opacity:0.85 }}>
                 <Radio size={11}/>
               </span>
             )}

@@ -90,12 +90,13 @@ router.post('/message', requireClientKey, (req, res) => {
       }
     } catch (_) {}
 
-    // Which remote client this message came from — resolved to its friendly display name (if set)
-    let clientDisplayName = null;
+    // Which remote client this message came from — resolved to its friendly display name/color (if set)
+    let clientDisplayName = null, clientColor = null;
     try {
       const { getDb } = require('../services/database');
-      const row = getDb().prepare('SELECT display_name FROM sdr_clients WHERE id = ?').get(clientId);
+      const row = getDb().prepare('SELECT display_name, color FROM sdr_clients WHERE id = ?').get(clientId);
       clientDisplayName = row?.display_name || null;
+      clientColor        = row?.color || null;
     } catch (_) {}
 
     const geocodeCountry = (getSetting('site_settings', {}).geocodeCountry || 'si');
@@ -116,6 +117,7 @@ router.post('/message', requireClientKey, (req, res) => {
       parent_group_color: parentGroupColor,
       client_id:          clientId || null,
       client_name:        clientDisplayName,
+      client_color:       clientColor,
     };
     // Feed filter — drop the message entirely (not saved to DB, no notifications)
     if (!passesFeedFilter(msg)) {
