@@ -455,15 +455,19 @@ function insertMessage(msg) {
 
 // Shared alias/group resolution — a capcode can now match an org-specific alias row
 // AND a global (org_id IS NULL) one; the org-specific row always wins, falling back
-// to the global default. Embed with ${ALIAS_GROUP_JOIN_SQL} directly after the last
-// `messages m` join in a query's FROM clause (it references `m.capcode`), and put
-// ${ALIAS_GROUP_SELECT_SQL} in the SELECT list. Adds exactly one `?` placeholder
-// (the viewing org's id) at the position where the join fragment appears in the SQL text.
+// to the global default. The group/parent-group join is also visibility-checked: an
+// alias's group_id is just an FK with no org constraint of its own, so without this a
+// group belonging to a *different* org (or one that's since been reassigned away) would
+// still show its name/color here even though that org can't otherwise see it at all.
+// Embed with ${ALIAS_GROUP_JOIN_SQL} directly after the last `messages m` join in a
+// query's FROM clause (it references `m.capcode`), and put ${ALIAS_GROUP_SELECT_SQL} in
+// the SELECT list. Adds exactly three `?` placeholders — all the same viewing org's id,
+// repeated — at the position where the join fragment appears in the SQL text.
 const ALIAS_GROUP_JOIN_SQL = `
   LEFT JOIN aliases a  ON a.capcode = m.capcode AND a.org_id = ?
   LEFT JOIN aliases ag ON ag.capcode = m.capcode AND ag.org_id IS NULL
-  LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id)
-  LEFT JOIN groups  pg ON pg.id = g.parent_id
+  LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id) AND (g.org_id = ? OR g.org_id IS NULL)
+  LEFT JOIN groups  pg ON pg.id = g.parent_id AND (pg.org_id = ? OR pg.org_id IS NULL)
 `;
 const ALIAS_GROUP_SELECT_SQL = `
   COALESCE(a.name, ag.name)             as alias_name,
@@ -483,7 +487,7 @@ function getHistory(orgId, limit = 200) {
     ${ALIAS_GROUP_JOIN_SQL}
     LEFT JOIN sdr_clients c ON c.id = m.client_id
     ORDER BY m.id DESC LIMIT ?
-  `).all(orgId, limit);
+  `).all(orgId, orgId, orgId, limit);
 }
 
 function searchMessages(orgId, query, limit = 100) {
@@ -500,7 +504,7 @@ function searchMessages(orgId, query, limit = 100) {
     LEFT JOIN sdr_clients c ON c.id = m.client_id
     WHERE messages_fts MATCH ?
     ORDER BY m.id DESC LIMIT ?
-  `).all(orgId, ftsQuery, limit);
+  `).all(orgId, orgId, orgId, ftsQuery, limit);
 }
 
 function getMessageStats(orgId) {
@@ -589,11 +593,12 @@ function deleteGroup(id, orgId, isPlatformAdmin) {
 function getAliases(orgId) {
   return getDb().prepare(`
     SELECT a.*, g.name as group_name, g.color as group_color
-    FROM aliases a LEFT JOIN groups g ON g.id = a.group_id
+    FROM aliases a
+    LEFT JOIN groups g ON g.id = a.group_id AND (g.org_id = ? OR g.org_id IS NULL)
     WHERE (a.org_id = ? OR a.org_id IS NULL)
       AND NOT (a.org_id IS NULL AND EXISTS (SELECT 1 FROM aliases ov WHERE ov.capcode = a.capcode AND ov.org_id = ?))
     ORDER BY a.capcode
-  `).all(orgId, orgId);
+  `).all(orgId, orgId, orgId);
 }
 // Capcodes are plain integers from the decoder (no leading zeros). Strip leading zeros
 // from user-supplied values so aliases always match decoded messages.

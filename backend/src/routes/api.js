@@ -35,7 +35,7 @@ router.get('/history', requireAuth, (req, res) => {
           LEFT JOIN sdr_clients c ON c.id = m.client_id
           WHERE m.id < ?
           ORDER BY m.id DESC LIMIT ?
-        `).all(orgId, before, fetchLimit)
+        `).all(orgId, orgId, orgId, before, fetchLimit)
       : db.prepare(`
           SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
                  c.display_name as client_name, c.color as client_color,
@@ -44,7 +44,7 @@ router.get('/history', requireAuth, (req, res) => {
           ${ALIAS_GROUP_JOIN_SQL}
           LEFT JOIN sdr_clients c ON c.id = m.client_id
           ORDER BY m.id DESC LIMIT ?
-        `).all(orgId, fetchLimit);
+        `).all(orgId, orgId, orgId, fetchLimit);
     res.json(rows.filter(r => passesFeedFilter(r, orgId)).slice(0, limit));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -117,11 +117,11 @@ router.get('/map', requireAuth, (req, res) => {
         FROM messages m
         LEFT JOIN aliases a  ON a.capcode = m.capcode AND a.org_id = ?
         LEFT JOIN aliases ag ON ag.capcode = m.capcode AND ag.org_id IS NULL
-        LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id)
+        LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id) AND (g.org_id = ? OR g.org_id IS NULL)
         WHERE m.lat IS NOT NULL AND m.lng IS NOT NULL
           AND SUBSTR(m.timestamp, 1, 10) >= ? AND SUBSTR(m.timestamp, 1, 10) <= ?
         ORDER BY m.id DESC LIMIT ?
-      `).all(orgId, fromDate, toDate, limit);
+      `).all(orgId, orgId, fromDate, toDate, limit);
     } else {
       rows = getDb().prepare(`
         SELECT m.id, m.timestamp, m.capcode, m.message, m.protocol, m.lat, m.lng,
@@ -130,11 +130,11 @@ router.get('/map', requireAuth, (req, res) => {
         FROM messages m
         LEFT JOIN aliases a  ON a.capcode = m.capcode AND a.org_id = ?
         LEFT JOIN aliases ag ON ag.capcode = m.capcode AND ag.org_id IS NULL
-        LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id)
+        LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id) AND (g.org_id = ? OR g.org_id IS NULL)
         WHERE m.lat IS NOT NULL AND m.lng IS NOT NULL
           AND m.timestamp >= strftime('%Y-%m-%dT%H:%M:%S.000Z', datetime('now', '-' || ? || ' days'))
         ORDER BY m.id DESC LIMIT ?
-      `).all(orgId, maxAgeDays, limit);
+      `).all(orgId, orgId, maxAgeDays, limit);
     }
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }

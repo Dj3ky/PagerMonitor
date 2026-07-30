@@ -33,9 +33,9 @@ function resolveAliasGroupForOrg(rawMsg, orgId) {
     FROM (SELECT ? as capcode) src
     LEFT JOIN aliases a  ON a.capcode = src.capcode AND a.org_id = ?
     LEFT JOIN aliases ag ON ag.capcode = src.capcode AND ag.org_id IS NULL
-    LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id)
-    LEFT JOIN groups  pg ON pg.id = g.parent_id
-  `).get(rawMsg.capcode, orgId);
+    LEFT JOIN groups  g  ON g.id = COALESCE(a.group_id, ag.group_id) AND (g.org_id = ? OR g.org_id IS NULL)
+    LEFT JOIN groups  pg ON pg.id = g.parent_id AND (pg.org_id = ? OR pg.org_id IS NULL)
+  `).get(rawMsg.capcode, orgId, orgId, orgId);
 
   return {
     ...rawMsg,
