@@ -268,8 +268,14 @@ router.post('/groups', (req, res) => {
 });
 router.put('/groups/:id', (req, res) => {
   try {
-    const { name, color, parent_id, row_color, row_sound } = req.body;
-    const changes = updateGroup(parseInt(req.params.id), req.session.orgId, req.session.isPlatformAdmin, name, color, parent_id, row_color || null, row_sound || null);
+    const { name, color, parent_id, row_color, row_sound, is_global } = req.body;
+    // Scope reassignment only happens when the caller explicitly sent is_global (platform
+    // admin's edit form only includes it when the checkbox was actually toggled from the
+    // group's original state) — never inferred from a routine edit of name/color/etc.
+    const newScopeOrgId = (req.session.isPlatformAdmin && typeof is_global === 'boolean')
+      ? (is_global ? null : req.session.orgId)
+      : undefined;
+    const changes = updateGroup(parseInt(req.params.id), req.session.orgId, req.session.isPlatformAdmin, name, color, parent_id, row_color || null, row_sound || null, newScopeOrgId);
     if (!changes) return res.status(404).json({ error: 'Group not found, or not yours to edit' });
     addAuditLog(req.session?.username||'admin', 'group.update', `id=${req.params.id} name=${name}`, req.session.orgId);
     res.json({ ok: true });

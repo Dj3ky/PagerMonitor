@@ -558,11 +558,20 @@ function createGroup(orgId, name, color, parent_id, row_color, row_sound) {
 // isPlatformAdmin bypasses the org-ownership check (can edit global rows or any org's rows);
 // otherwise the update only applies if the row actually belongs to orgId. Returns affected-row
 // count so the route layer can 403/404 when a non-owner tries to touch a row that isn't theirs.
-function updateGroup(id, orgId, isPlatformAdmin, name, color, parent_id, row_color, row_sound) {
-  const sql    = isPlatformAdmin ? 'UPDATE groups SET name=?, color=?, parent_id=?, row_color=?, row_sound=? WHERE id=?'
-                                  : 'UPDATE groups SET name=?, color=?, parent_id=?, row_color=?, row_sound=? WHERE id=? AND org_id=?';
-  const params = isPlatformAdmin ? [name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null, id]
-                                  : [name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null, id, orgId];
+// newScopeOrgId (platform admin only) reassigns org_id — pass undefined to leave scope untouched
+// (the common case; only the route layer opts into this when the caller explicitly changed it).
+function updateGroup(id, orgId, isPlatformAdmin, name, color, parent_id, row_color, row_sound, newScopeOrgId) {
+  const changeScope = isPlatformAdmin && newScopeOrgId !== undefined;
+  const sql = changeScope
+    ? 'UPDATE groups SET name=?, color=?, parent_id=?, row_color=?, row_sound=?, org_id=? WHERE id=?'
+    : isPlatformAdmin
+      ? 'UPDATE groups SET name=?, color=?, parent_id=?, row_color=?, row_sound=? WHERE id=?'
+      : 'UPDATE groups SET name=?, color=?, parent_id=?, row_color=?, row_sound=? WHERE id=? AND org_id=?';
+  const params = changeScope
+    ? [name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null, newScopeOrgId, id]
+    : isPlatformAdmin
+      ? [name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null, id]
+      : [name, color || '#4ade80', parent_id || null, row_color || null, row_sound || null, id, orgId];
   return getDb().prepare(sql).run(...params).changes;
 }
 function deleteGroup(id, orgId, isPlatformAdmin) {

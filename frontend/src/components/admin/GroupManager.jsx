@@ -27,6 +27,7 @@ export default function GroupManager({ onGroupsChange }) {
 
   const [form, setForm]       = useState({ ...EMPTY });
   const [editing, setEditing] = useState(null); // group id
+  const [originalIsGlobal, setOriginalIsGlobal] = useState(false); // scope at the time editing started
   const [msg, setMsg]         = useState(null);
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 3500); };
@@ -35,18 +36,21 @@ export default function GroupManager({ onGroupsChange }) {
   const subOf    = (parentId) => groups.filter(g => g.parent_id === parentId);
 
   const startEdit = g => {
-    // A group's org/global scope can't change via edit (the update path never touches
-    // it), so is_global is irrelevant here — always false, and the checkbox is hidden
-    // while editing anyway.
-    setForm({ name: g.name, color: g.color||'#a855f7', parent_id: g.parent_id||'', row_color: g.row_color||'', row_sound: g.row_sound||'', is_global:false });
+    const isGlobal = g.org_id == null;
+    setForm({ name: g.name, color: g.color||'#a855f7', parent_id: g.parent_id||'', row_color: g.row_color||'', row_sound: g.row_sound||'', is_global: isGlobal });
+    setOriginalIsGlobal(isGlobal);
     setEditing(g.id);
   };
-  const cancelEdit = () => { setForm({ ...EMPTY }); setEditing(null); };
+  const cancelEdit = () => { setForm({ ...EMPTY }); setEditing(null); setOriginalIsGlobal(false); };
 
   const handleSave = async () => {
     if (!form.name.trim()) { flash('err', 'Name is required'); return; }
     try {
-      const payload = { name: form.name, color: form.color, parent_id: form.parent_id ? parseInt(form.parent_id) : null, row_color: form.row_color || null, row_sound: form.row_sound || null, is_global: form.is_global };
+      const payload = { name: form.name, color: form.color, parent_id: form.parent_id ? parseInt(form.parent_id) : null, row_color: form.row_color || null, row_sound: form.row_sound || null };
+      // Only send is_global when creating, or when editing AND the checkbox was actually
+      // changed from the group's current scope — otherwise a routine name/color edit could
+      // silently reassign the group's org as a side effect (see admin.js's /groups/:id route).
+      if (!editing || form.is_global !== originalIsGlobal) payload.is_global = form.is_global;
       await adminSaveGroup(editing, payload);
       flash('ok', editing ? 'Group updated' : 'Group created');
       setForm({ ...EMPTY }); setEditing(null);
@@ -204,7 +208,7 @@ export default function GroupManager({ onGroupsChange }) {
           </div>
         </div>
 
-        {isPlatformAdmin && !editing && (
+        {isPlatformAdmin && (
           <label style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.78rem', color:'var(--text-2)',
             cursor:'pointer', marginBottom:'0.6rem' }}
             title="Visible as a shared default to every organization, not just your own">
@@ -214,7 +218,10 @@ export default function GroupManager({ onGroupsChange }) {
         )}
 
         <button className="pm-btn pm-btn-primary" onClick={handleSave} disabled={!form.name}>
-          <Save size={13} /> {editing ? 'Update group' : form.is_global ? 'Create global group' : 'Create group'}
+          <Save size={13} />
+          {editing
+            ? (form.is_global !== originalIsGlobal ? (form.is_global ? 'Update & make global' : 'Update & assign to my org') : 'Update group')
+            : (form.is_global ? 'Create global group' : 'Create group')}
         </button>
       </div>
 
