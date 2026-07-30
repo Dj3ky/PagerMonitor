@@ -31,6 +31,7 @@ export default function AliasManager() {
 
   const [form, setForm]       = useState({ ...EMPTY });
   const [editing, setEditing] = useState(null);
+  const [overriding, setOverriding] = useState(false); // org-admin editing a global row → creates their own override, doesn't touch the shared one
   const [saving, setSaving]   = useState(false);
   const [msg, setMsg]         = useState(null);
   const [importAsGlobal, setImportAsGlobal] = useState(false);
@@ -48,20 +49,23 @@ export default function AliasManager() {
         row_color: form.row_color || null, row_sound: form.row_sound || null,
         is_global: form.is_global,
       });
-      flash('ok', editing ? `Updated ${form.capcode}` : `Added ${form.capcode}`);
-      setForm({ ...EMPTY }); setEditing(null); reload();
+      flash('ok', overriding ? `Saved your organization's own version of ${form.capcode}` : editing ? `Updated ${form.capcode}` : `Added ${form.capcode}`);
+      setForm({ ...EMPTY }); setEditing(null); setOverriding(false); reload();
     } catch (e) { flash('err', e.message); }
     finally { setSaving(false); }
   };
 
   const startEdit = a => {
-    // Preserve the alias's existing scope while editing — a global alias stays global
-    // (there's no "convert to org-only" via this form, only via delete + recreate),
-    // so the platform-admin-only "make global" checkbox only appears for brand new aliases.
-    setForm({ capcode:a.capcode, name:a.name||'', color:a.color||'#00ff9d', notes:a.notes||'', group_id: a.group_id||'', row_color: a.row_color||'', row_sound: a.row_sound||'', is_global: a.org_id == null });
+    // A global row opened by a non-platform-admin is an "override": saving creates a new
+    // row scoped to their own org (upsertAlias always targets req.session.orgId for them)
+    // rather than editing the shared global row — so it never touches what every other
+    // org sees. Only a platform admin editing a global row is a real in-place edit.
+    const isGlobalRow = a.org_id == null;
+    setForm({ capcode:a.capcode, name:a.name||'', color:a.color||'#00ff9d', notes:a.notes||'', group_id: a.group_id||'', row_color: a.row_color||'', row_sound: a.row_sound||'', is_global: isGlobalRow && isPlatformAdmin });
     setEditing(a.capcode);
+    setOverriding(isGlobalRow && !isPlatformAdmin);
   };
-  const cancelEdit = () => { setForm({ ...EMPTY }); setEditing(null); };
+  const cancelEdit = () => { setForm({ ...EMPTY }); setEditing(null); setOverriding(false); };
 
   const handleDelete = async capcode => {
     if (!confirm(`Delete alias for ${capcode}?`)) return;
@@ -117,9 +121,15 @@ export default function AliasManager() {
       <div className="pm-card" style={{ marginBottom:'1rem', borderColor: editing ? 'color-mix(in srgb, var(--accent-amber) 30%, transparent)' : 'var(--border)' }}>
         <div className="pm-section-title" style={{ color: editing?'var(--accent-amber)':'var(--text-2)',
           display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          {editing ? `Editing ${editing}` : 'Add alias'}
+          {overriding ? `Override ${editing} for your organization` : editing ? `Editing ${editing}` : 'Add alias'}
           {editing && <button onClick={cancelEdit} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)' }}><X size={14}/></button>}
         </div>
+        {overriding && (
+          <p style={{ fontSize:'0.72rem', color:'var(--text-3)', margin:'-0.2rem 0 0.6rem' }}>
+            This is a shared default from the global library — saving creates your organization's own version
+            (e.g. to put it in one of your groups) without changing what other organizations see.
+          </p>
+        )}
 
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.6rem', marginBottom:'0.6rem' }}>
           <div>
@@ -220,7 +230,7 @@ export default function AliasManager() {
         )}
 
         <button className="pm-btn pm-btn-primary" onClick={handleSave} disabled={!form.capcode||!form.name||saving}>
-          <Save size={13} /> {saving ? 'Saving…' : editing ? 'Update' : form.is_global ? 'Add global alias' : 'Add alias'}
+          <Save size={13} /> {saving ? 'Saving…' : overriding ? 'Save override' : editing ? 'Update' : form.is_global ? 'Add global alias' : 'Add alias'}
         </button>
       </div>
 
@@ -261,8 +271,8 @@ export default function AliasManager() {
                   )}
                   {a.notes && <span style={{ fontSize:'0.72rem', color:'var(--text-3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'120px' }}>{a.notes}</span>}
                   <div style={{ display:'flex', gap:'0.3rem', flexShrink:0 }}>
-                    <button onClick={() => startEdit(a)} disabled={locked} title={locked ? 'Only the platform admin can edit shared defaults' : undefined}
-                      style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--text-3)', padding:'0.2rem' }}><Pencil size={13}/></button>
+                    <button onClick={() => startEdit(a)} title={locked ? 'Create your organization\'s own version of this alias' : undefined}
+                      style={{ background:'none', border:'none', cursor:'pointer', color: locked ? 'var(--accent-blue)' : 'var(--text-3)', padding:'0.2rem' }}><Pencil size={13}/></button>
                     <button onClick={() => handleDelete(a.capcode)} disabled={locked} title={locked ? 'Only the platform admin can delete shared defaults' : undefined}
                       style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--accent-red)', padding:'0.2rem' }}><Trash2 size={13}/></button>
                   </div>
