@@ -121,14 +121,12 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             <div style={{ fontSize:'0.65rem', color:'var(--text-2)' }}>{fmtDate(msg.timestamp, locale)}</div>
             <div style={{ fontSize:'0.72rem', color:'var(--text-2)' }}>{fmtTime(msg.timestamp, locale, hour12)}</div>
           </div>
-          {/* Source client — only rendered when the message carries a client id (multi-client setups) */}
-          {clientLabel && (
-            <span title={`From client: ${clientLabel}`}
-              style={{ display:'flex', alignItems:'center', flexShrink:0, lineHeight:1,
-                color: clientColor, opacity:0.85 }}>
-              <Radio size={12}/>
-            </span>
-          )}
+          {/* Source client — icon only shown for multi-client setups, but slot is always reserved so columns stay aligned with the header */}
+          <span title={clientLabel ? `From client: ${clientLabel}` : undefined}
+            style={{ display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+              width:'12px', lineHeight:1, color: clientColor, opacity:0.85 }}>
+            {clientLabel && <Radio size={12}/>}
+          </span>
           {/* Capcode */}
           <span onClick={e => { e.stopPropagation(); onFilter?.('capcode', msg.capcode); }}
             title="Click to filter"
