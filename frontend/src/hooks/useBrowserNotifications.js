@@ -61,8 +61,11 @@ export function useBrowserNotifications() {
 
   const notify = useCallback((msg) => {
     if (!supported || !enabled || Notification.permission !== 'granted') return;
-    // Don't notify if the page is visible and focused — user can already see it
-    if (document.visibilityState === 'visible' && document.hasFocus()) return;
+    // Only notify when the page is open-but-unfocused (visible, background window).
+    // If focused, the user can already see it. If hidden/minimised, the service
+    // worker's push handler is the one responsible for notifying (see sw.js) —
+    // firing here too would duplicate it.
+    if (document.visibilityState !== 'visible' || document.hasFocus()) return;
 
     try {
       const alias   = msg.alias_name || msg.alias || msg.capcode;
