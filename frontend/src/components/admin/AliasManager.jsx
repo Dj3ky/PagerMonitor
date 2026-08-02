@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { Tag, Trash2, Save, Pencil, X, Upload, Download } from 'lucide-react';
+import { useState, useRef, useMemo } from 'react';
+import { Tag, Trash2, Save, Pencil, X, Upload, Download, Search } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
 import { adminFetchAliases, adminSaveAlias, adminDeleteAlias, adminDeleteAllAliases,
          adminFetchGroups, adminExportAliasesCsv, adminImportAliasesCsv } from '../../utils/api.js';
@@ -35,9 +35,21 @@ export default function AliasManager() {
   const [saving, setSaving]   = useState(false);
   const [msg, setMsg]         = useState(null);
   const [importAsGlobal, setImportAsGlobal] = useState(false);
+  const [search, setSearch]   = useState('');
   const fileRef               = useRef();
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 3500); };
+
+  const filteredAliases = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return aliases;
+    return aliases.filter(a =>
+      a.capcode?.toLowerCase().includes(q) ||
+      a.name?.toLowerCase().includes(q) ||
+      a.notes?.toLowerCase().includes(q) ||
+      a.group_name?.toLowerCase().includes(q)
+    );
+  }, [aliases, search]);
 
   const handleSave = async () => {
     if (!form.capcode.trim() || !form.name.trim()) { flash('err', 'Capcode and name are required'); return; }
@@ -239,13 +251,31 @@ export default function AliasManager() {
         CSV format: <span style={{ color:'var(--text-2)' }}>capcode,name,color,notes,group_id</span>
       </div>
 
+      {aliases.length > 0 && (
+        <div style={{ position:'relative', marginBottom:'0.75rem' }}>
+          <Search size={13} style={{ position:'absolute', left:'0.6rem', top:'50%', transform:'translateY(-50%)', color:'var(--text-3)' }} />
+          <input className="pm-input" placeholder="Search aliases by capcode, name, notes, or group…"
+            value={search} onChange={e => setSearch(e.target.value)}
+            style={{ paddingLeft:'1.9rem' }} />
+          {search && (
+            <button onClick={() => setSearch('')} title="Clear search"
+              style={{ position:'absolute', right:'0.5rem', top:'50%', transform:'translateY(-50%)',
+                background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.2rem' }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
+
       {loading
         ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem' }}>Loading…</div>
         : aliases.length === 0
           ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem', padding:'2rem', textAlign:'center' }}>No aliases yet.</div>
-          : (
+          : filteredAliases.length === 0
+            ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem', padding:'2rem', textAlign:'center' }}>No aliases match "{search}".</div>
+            : (
             <div style={{ display:'grid', gap:'0.3rem' }}>
-              {aliases.map(a => {
+              {filteredAliases.map(a => {
                 const isGlobal = a.org_id == null;
                 const locked   = isGlobal && !isPlatformAdmin;
                 return (
