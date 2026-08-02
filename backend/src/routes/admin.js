@@ -17,7 +17,7 @@ const { getDb, getStats, getMessageStats,
         deleteMessage, getUserLocations, getUserById,
         createOrganization, getOrganizations, renameOrganization, deleteOrganization,
         createInvite, listInvites, revokeInvite,
-        getSetting: _gs, setSetting: _ss } = require('../services/database');
+        getSetting: _gs, setSetting: _ss, normCapcode } = require('../services/database');
 const { getConfig, updateConfig, testNotification } = require('../services/notifications');
 const { getSdrConfig, saveSdrConfig, getDedupConfig, saveDedupConfig,
         getNotifFilter, saveNotifFilter, getDongleConfigs, saveDongleConfigs,
@@ -298,7 +298,7 @@ router.put('/aliases/:capcode', (req, res) => {
     const { name, color, notes, group_id, row_color, row_sound } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     upsertAlias(effectiveOrgId(req), req.session.isPlatformAdmin, req.params.capcode, name, color, notes, group_id, row_color || null, row_sound || null);
-    addAuditLog(req.session?.username||'admin', 'alias.save', `capcode=${req.params.capcode} name=${name}`, req.session.orgId);
+    addAuditLog(req.session?.username||'admin', 'alias.save', `capcode=${normCapcode(req.params.capcode)} name=${name}`, req.session.orgId);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -313,7 +313,7 @@ router.delete('/aliases', adminOnly, (req, res) => {
 router.delete('/aliases/:capcode', (req, res) => {
   try {
     deleteAlias(effectiveOrgId(req), req.session.isPlatformAdmin, req.params.capcode);
-    addAuditLog(req.session?.username||'admin', 'alias.delete', `capcode=${req.params.capcode}`, req.session.orgId);
+    addAuditLog(req.session?.username||'admin', 'alias.delete', `capcode=${normCapcode(req.params.capcode)}`, req.session.orgId);
     res.json({ ok: true });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
