@@ -496,6 +496,20 @@ router.put('/dead-air', platformOnly, (req,res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
+// ── OpenSky aircraft tracking credentials (instance-wide) ──────────────────────
+const openskyAircraft = require('../services/openskyAircraft');
+router.get('/opensky/config', platformOnly, (_req, res) => { try{ res.json(_gs('opensky_config', { clientId:'', clientSecret:'' })); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/opensky/config', platformOnly, (req, res) => {
+  try {
+    const clientId     = String(req.body?.clientId || '').trim();
+    const clientSecret = String(req.body?.clientSecret || '').trim();
+    _ss('opensky_config', { clientId, clientSecret });
+    openskyAircraft.restart();
+    addAuditLog(req.session?.username||'admin', 'opensky.config', null);
+    res.json({ ok: true });
+  } catch(e){ res.status(500).json({error:e.message}); }
+});
+
 // ── Webhooks (org-scoped) ───────────────────────────────────────────────────────
 router.get('/webhooks', adminOnly, (_req,res) => { try{ res.json(getWebhooks(_req.session.orgId)); } catch(e){ res.status(500).json({error:e.message}); }});
 router.put('/webhooks', adminOnly, (req,res) => { try{ const { id } = upsertWebhook(req.session.orgId, req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});

@@ -391,4 +391,8 @@ router.get('/weather/smok/stations', requireAuth, (_req, res) => res.json(smokWa
 const arsoQuakes = require('../services/arsoQuakes');
 router.get('/weather/arso/quakes', requireAuth, (_req, res) => res.json(arsoQuakes.getQuakes()));
 
+// ── Firefighting aircraft tracking (OpenSky) ────────────────────────────────────
+const openskyAircraft = require('../services/openskyAircraft');
+router.get('/aircraft', requireAuth, (_req, res) => res.json(openskyAircraft.getAircraft()));
+
 module.exports = router;
