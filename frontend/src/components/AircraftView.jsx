@@ -66,7 +66,7 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const tileLayerRef = useRef(null);
-  const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY);
+  const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
@@ -80,7 +80,7 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
-    const style = BASEMAPS[basemap] || BASEMAPS.dark;
+    const style = BASEMAPS[basemap] || BASEMAPS.streets;
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
     tileLayerRef.current = L.tileLayer(style.url, { attribution: style.attr, maxZoom: 19, detectRetina: true }).addTo(map);
     localStorage.setItem(BASEMAP_STORAGE_KEY, basemap);

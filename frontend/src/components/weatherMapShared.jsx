@@ -23,9 +23,9 @@ export const BASEMAPS = {
   light:   { label: 'Light',   url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: CARTO_ATTR },
 };
 
-export function useBasemap(storageKey) {
+export function useBasemap(storageKey, defaultBasemap = 'dark') {
   return useState(
-    () => (localStorage.getItem(storageKey) in BASEMAPS ? localStorage.getItem(storageKey) : 'dark')
+    () => (localStorage.getItem(storageKey) in BASEMAPS ? localStorage.getItem(storageKey) : defaultBasemap)
   );
 }
 
