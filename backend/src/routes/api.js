@@ -383,4 +383,8 @@ router.get('/weather/arso/current',  requireAuth, (_req, res) => res.json(arsoWe
 router.get('/weather/arso/forecast', requireAuth, (_req, res) => res.json(arsoWeather.getForecast()));
 router.get('/weather/arso/warnings', requireAuth, (_req, res) => res.json(arsoWeather.getWarnings()));
 
+// ── SMOK water levels (Slovenia) ──────────────────────────────────────────────
+const smokWater = require('../services/smokWater');
+router.get('/weather/smok/stations', requireAuth, (_req, res) => res.json(smokWater.getStations()));
+
 module.exports = router;

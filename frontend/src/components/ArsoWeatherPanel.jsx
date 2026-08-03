@@ -1,22 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AlertTriangle, Loader } from 'lucide-react';
-
-const BASE = import.meta.env.VITE_BACKEND_URL || '';
-const tok  = () => localStorage.getItem('pm_token') || '';
-const authHeaders = () => ({ Authorization: `Bearer ${tok()}` });
+import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
 
 const REFRESH_MS = 2 * 60 * 1000; // backend itself only refreshes every 10 min — this just
                                    // catches that update reasonably quickly, cost is a same-origin
                                    // read from the in-memory cache, not a new ARSO fetch.
 
-const OSM_ATTR   = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-const CARTO_ATTR = `${OSM_ATTR} © <a href="https://carto.com/attributions">CARTO</a>`;
-
-const BASEMAPS = {
-  streets: { label: 'Streets', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR },
-  dark:    { label: 'Dark',    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  attr: CARTO_ATTR },
-  light:   { label: 'Light',   url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: CARTO_ATTR },
-};
 const BASEMAP_STORAGE_KEY = 'pm_arso_basemap';
 
 const SEVERITY_LABEL = { yellow: 'Yellow', orange: 'Orange', red: 'Red' };
@@ -65,15 +54,6 @@ const STALE_MS = 60 * 60 * 1000; // no reading for 1h+ → flagged as stale on t
 
 function isStale(st) {
   return !st.updatedMs || (Date.now() - st.updatedMs) > STALE_MS;
-}
-
-function fmtUpdatedAt(iso) {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
-    });
-  } catch (_) { return iso; }
 }
 
 // ── Popup content ────────────────────────────────────────────────────────────
@@ -136,12 +116,6 @@ function buildPopupHtml(st) {
   `;
 }
 
-async function getJson(path) {
-  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
 // ── Warnings banner ─────────────────────────────────────────────────────────
 function WarningsBanner({ alerts }) {
   const [open, setOpen] = useState(false);
@@ -182,50 +156,13 @@ function WarningsBanner({ alerts }) {
   );
 }
 
-// ── Basemap style switcher (Streets / Dark / Light) ─────────────────────────
-function BasemapSwitcher({ basemap, onChange }) {
-  return (
-    <div style={{
-      position: 'absolute', top: '0.5rem', right: '0.5rem', zIndex: 1000,
-      display: 'flex', gap: '0.2rem', padding: '0.2rem', borderRadius: '0.5rem',
-      background: 'var(--bg-1)', border: '1px solid var(--border)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
-    }}>
-      {Object.entries(BASEMAPS).map(([id, b]) => (
-        <button key={id} onClick={() => onChange(id)} title={b.label} style={{
-          padding: '0.2rem 0.5rem', borderRadius: '0.35rem', fontSize: '0.68rem', fontWeight: 500,
-          cursor: 'pointer', border: 'none', whiteSpace: 'nowrap',
-          background: basemap === id ? 'color-mix(in srgb, var(--accent-green) 16%, transparent)' : 'transparent',
-          color: basemap === id ? 'var(--accent-green)' : 'var(--text-2)',
-        }}>{b.label}</button>
-      ))}
-    </div>
-  );
-}
-
-// ── Last-updated label ───────────────────────────────────────────────────────
-function LastUpdated({ updatedAt }) {
-  if (!updatedAt) return null;
-  return (
-    <div style={{
-      position: 'absolute', top: '0.5rem', left: '0.5rem', zIndex: 1000,
-      padding: '0.3rem 0.55rem', borderRadius: '0.5rem', fontSize: '0.68rem',
-      background: 'var(--bg-1)', border: '1px solid var(--border)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
-      color: 'var(--text-2)', whiteSpace: 'nowrap',
-    }}>
-      Updated {fmtUpdatedAt(updatedAt)}
-    </div>
-  );
-}
-
 // ── Station map ──────────────────────────────────────────────────────────────
 function StationMap({ stations, visible, updatedAt }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const tileLayerRef = useRef(null);
-  const [basemap, setBasemap] = useState(
-    () => (localStorage.getItem(BASEMAP_STORAGE_KEY) in BASEMAPS ? localStorage.getItem(BASEMAP_STORAGE_KEY) : 'dark')
-  );
+  const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY);
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
