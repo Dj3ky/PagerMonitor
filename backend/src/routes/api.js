@@ -377,4 +377,10 @@ router.post('/push/test', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── ARSO weather (Slovenia) ───────────────────────────────────────────────────
+const arsoWeather = require('../services/arsoWeather');
+router.get('/weather/arso/current',  requireAuth, (_req, res) => res.json(arsoWeather.getCurrent()));
+router.get('/weather/arso/forecast', requireAuth, (_req, res) => res.json(arsoWeather.getForecast()));
+router.get('/weather/arso/warnings', requireAuth, (_req, res) => res.json(arsoWeather.getWarnings()));
+
 module.exports = router;

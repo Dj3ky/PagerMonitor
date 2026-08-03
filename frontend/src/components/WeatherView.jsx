@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader, Gauge } from 'lucide-react';
+import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader, Gauge, MapPin } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
+import ArsoWeatherPanel from './ArsoWeatherPanel.jsx';
 
 // Iframe embed layers (radar is real-time data, works great in iframe mode)
 const LAYERS = [
@@ -18,6 +19,10 @@ const API_LAYERS = [
   { id: 'temp',     label: 'Temp',     icon: <Thermometer size={13}/>, desc: 'Surface temperature' },
   { id: 'pressure', label: 'Pressure', icon: <Gauge size={13}/>,       desc: 'Surface pressure' },
 ];
+
+// Only relevant when the instance is configured for Slovenia — backed by ARSO's
+// own station network, forecast & warning feeds rather than Windy.
+const ARSO_LAYER = { id: 'arso', label: 'ARSO', icon: <MapPin size={13}/>, desc: 'Live Slovenia stations, forecast & warnings' };
 
 // Module-level refs — survive component remounts and cross-effect communication.
 // Captures are done once; cleared on page reload.
@@ -47,7 +52,7 @@ function buildWindyUrl(lat, lon, zoom, overlay, userLat, userLon) {
 }
 
 // Shared toolbar used by both API and iframe modes
-function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing, layers }) {
+function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing, layers, showLocation = true, credit }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: '0.4rem',
@@ -73,7 +78,7 @@ function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing,
         </button>
       ))}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        {geoState === 'denied' ? (
+        {showLocation && (geoState === 'denied' ? (
           <span style={{ fontSize: '0.68rem', color: 'var(--accent-amber)' }}>Location blocked</span>
         ) : (
           <button
@@ -96,10 +101,10 @@ function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing,
               ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }}/> Locating…</>
               : <><LocateFixed size={12}/> {userPos ? 'My location' : 'Use my location'}</>}
           </button>
-        )}
+        ))}
         <span style={{ fontSize: '0.68rem', color: 'var(--text-3)' }}>
-          Powered by <a href="https://www.windy.com" target="_blank" rel="noopener noreferrer"
-            style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}>Windy</a>
+          Powered by <a href={credit?.url ?? 'https://www.windy.com'} target="_blank" rel="noopener noreferrer"
+            style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}>{credit?.label ?? 'Windy'}</a>
         </span>
       </div>
     </div>
@@ -297,13 +302,27 @@ export default function WeatherView({ visible, locationSharing }) {
   // useApi: attempt the JS API only when we have a key and init hasn't failed yet
   const useApi = settingsLoaded && !!windyApiKey && !apiInitFailed;
 
+  const layers = useMemo(() => {
+    const base = useApi ? API_LAYERS : LAYERS;
+    return geocodeCountry === 'si' ? [...base, ARSO_LAYER] : base;
+  }, [useApi, geocodeCountry]);
+
+  // The ARSO layer isn't a Windy overlay — if the site's country changes away
+  // from Slovenia while it's selected, fall back to something that still exists.
+  useEffect(() => {
+    if (overlay === 'arso' && geocodeCountry !== 'si') setOverlay('radar');
+  }, [overlay, geocodeCountry]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
       <Toolbar overlay={overlay} onOverlayChange={setOverlay}
         geoState={geoState} userPos={userPos} locationSharing={locationSharing}
-        layers={useApi ? API_LAYERS : LAYERS} />
+        layers={layers} showLocation={overlay !== 'arso'}
+        credit={overlay === 'arso' ? { label: 'ARSO', url: 'https://www.arso.gov.si' } : undefined} />
 
-      {useApi ? (
+      {overlay === 'arso' ? (
+        <ArsoWeatherPanel visible={visible} />
+      ) : useApi ? (
         <ApiMap
           windyApiKey={windyApiKey}
           userPos={userPos}
