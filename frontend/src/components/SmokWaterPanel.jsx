@@ -80,7 +80,7 @@ function StationMap({ stations, visible, updatedAt }) {
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
     const L = window.L;
-    const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 8 });
+    const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 9 });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
   }, []);
