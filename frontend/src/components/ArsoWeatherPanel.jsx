@@ -39,6 +39,78 @@ function fmtExpiry(iso) {
   } catch (_) { return iso; }
 }
 
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString(undefined, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch (_) { return iso; }
+}
+
+function fmtAge(ms) {
+  if (!ms) return null;
+  const mins = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ${mins % 60}m ago`;
+}
+
+// ── Popup content ────────────────────────────────────────────────────────────
+function statCard(label, value) {
+  return `<div style="background:var(--bg-3);border:1px solid var(--border);border-radius:0.5rem;padding:0.35rem 0.5rem">
+    <div style="font-size:0.62rem;color:var(--text-3);text-transform:uppercase;letter-spacing:0.02em">${label}</div>
+    <div style="font-weight:700;font-size:0.92rem;color:var(--text-1)">${value}</div>
+  </div>`;
+}
+
+function historyCard(label, unit, stat) {
+  if (!stat || stat.min == null) return '';
+  const row = (tag, color, val, at) => `
+    <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;margin-top:0.15rem">
+      <span style="color:${color};font-weight:700;min-width:28px">${tag}</span>
+      <span style="font-weight:600;color:var(--text-1)">${val}${unit}</span>
+      <span style="color:var(--text-3);margin-left:auto;white-space:nowrap">${fmtDateTime(at)}</span>
+    </div>`;
+  return `<div style="background:var(--bg-3);border:1px solid var(--border);border-radius:0.5rem;padding:0.4rem 0.5rem;margin-top:0.35rem">
+    <div style="font-weight:600;font-size:0.72rem;color:var(--text-2)">${label}</div>
+    ${row('MIN', 'var(--accent-blue)', stat.min, stat.minAt)}
+    ${row('MAX', 'var(--accent-red)', stat.max, stat.maxAt)}
+  </div>`;
+}
+
+function buildPopupHtml(st) {
+  const age = fmtAge(st.updatedMs);
+  const cards = [
+    st.tempC     != null && statCard('Temperature', `${st.tempC}°C`),
+    st.humidity  != null && statCard('Humidity', `${st.humidity}%`),
+    st.windSpeedKmh != null && statCard('Wind', `${st.windSpeedKmh} km/h`),
+    st.gustKmh   != null && statCard('Gusts', `${st.gustKmh} km/h`),
+  ].filter(Boolean).join('');
+
+  const precip = st.precip24hMm ?? st.precipIntervalMm;
+  const extraRows = [
+    ['Wind direction', st.windDirText ? `${st.windDirText}${st.windDirDeg != null ? ` (${st.windDirDeg}°)` : ''}` : '—'],
+    ['Precipitation', precip != null ? `${precip} mm` : '—'],
+    ['Pressure', st.pressureMsl != null ? `${st.pressureMsl} hPa` : '—'],
+    ['Snow depth', st.snowCm != null ? `${st.snowCm} cm` : '—'],
+  ].map(([k, v]) => `<div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">${k}</span><span style="color:var(--text-1)">${v}</span></div>`).join('');
+
+  const history = [
+    historyCard('Temperature', '°C', st.temp24h),
+    historyCard('Humidity', '%', st.humidity24h),
+    historyCard('Wind', ' km/h', st.wind24h),
+  ].filter(Boolean).join('');
+
+  return `
+    <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.78rem;min-width:210px;color:var(--text-1)">
+      <div style="font-weight:700;font-size:0.9rem">${st.name}${st.altitude != null ? ` <span style="font-weight:400;color:var(--text-3);font-size:0.72rem">(${st.altitude} m)</span>` : ''}</div>
+      <div style="color:var(--text-3);font-size:0.68rem;margin-bottom:0.5rem">Measured ${fmtTime(st.updated)}${age ? ` · ${age}` : ''}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;margin-bottom:0.5rem">${cards}</div>
+      <div style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.72rem;margin-bottom:0.4rem">${extraRows}</div>
+      ${history ? `<div style="font-weight:600;font-size:0.72rem;color:var(--text-2);border-top:1px solid var(--border);padding-top:0.35rem">24h history</div>${history}` : ''}
+    </div>
+  `;
+}
+
 async function getJson(path) {
   const res = await fetch(`${BASE}${path}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -94,7 +166,7 @@ function StationMap({ stations, visible }) {
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
     const L = window.L;
-    const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 8 });
+    const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 9 });
     L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map);
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -110,25 +182,21 @@ function StationMap({ stations, visible }) {
     const L = window.L;
     markersRef.current.forEach(m => map.removeLayer(m));
     markersRef.current = stations.map(st => {
-      const marker = L.circleMarker([st.lat, st.lon], {
-        radius: 7, weight: 1.5, color: '#fff', fillColor: tempColor(st.tempC), fillOpacity: 0.9,
-      }).addTo(map);
-      const rows = [
-        st.tempC  != null && ['Temperature', `${st.tempC}°C`],
-        st.humidity != null && ['Humidity', `${st.humidity}%`],
-        st.dewPointC != null && ['Dew point', `${st.dewPointC}°C`],
-        (st.windSpeedKmh != null) && ['Wind', `${st.windSpeedKmh} km/h${st.windDirText ? ' ' + st.windDirText : ''}${st.gustKmh ? ` (gust ${st.gustKmh})` : ''}`],
-        st.pressureMsl != null && ['Pressure', `${st.pressureMsl} hPa`],
-        st.precip24hMm != null && ['24h precip', `${st.precip24hMm} mm`],
-        st.snowCm != null && ['Snow depth', `${st.snowCm} cm`],
-      ].filter(Boolean);
-      marker.bindPopup(`
-        <div style="font-family:monospace;font-size:0.8rem;min-width:170px">
-          <div style="font-weight:700;margin-bottom:0.3rem">${st.name}${st.altitude != null ? ` (${st.altitude} m)` : ''}</div>
-          ${rows.map(([k, v]) => `<div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="opacity:0.65">${k}</span><span>${v}</span></div>`).join('')}
-          <div style="margin-top:0.3rem;opacity:0.55;font-size:0.7rem">Updated ${fmtTime(st.updated)}</div>
-        </div>
-      `);
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width:32px;height:32px;border-radius:50%;
+          background:${tempColor(st.tempC)};
+          display:flex;align-items:center;justify-content:center;
+          font-weight:700;font-size:0.68rem;color:#fff;
+          border:2px solid rgba(255,255,255,0.9);
+          box-shadow:0 1px 4px rgba(0,0,0,0.45);
+          font-family:system-ui,sans-serif;
+        ">${st.tempC != null ? Math.round(st.tempC) + '°' : '—'}</div>`,
+        iconSize: [32, 32], iconAnchor: [16, 16],
+      });
+      const marker = L.marker([st.lat, st.lon], { icon }).addTo(map);
+      marker.bindPopup(buildPopupHtml(st), { minWidth: 230 });
       return marker;
     });
   }, [stations]);

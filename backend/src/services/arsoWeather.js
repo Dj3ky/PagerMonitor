@@ -5,7 +5,8 @@ const { XMLParser } = require('fast-xml-parser');
 const logger = require('../utils/logger');
 
 const BASE = 'https://meteo.arso.gov.si/uploads/probase/www';
-const CURRENT_TAIL_BYTES = 20000; // comfortably covers the last 1-2 metData entries
+const CURRENT_HEAD_BYTES  = 20000;    // comfortably covers the newest 1-2 metData entries
+const BACKFILL_HEAD_BYTES = 1500000;  // ~150 entries (~25h @ 10-min interval) — one-time only, at startup
 const REFRESH_MS = 10 * 60 * 1000; // matches the AMS network's own 10-min update cadence
 const STATION_CONCURRENCY = 6;     // be polite to ARSO + gentle on Pi-class hardware
 
@@ -47,6 +48,15 @@ const num = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+// ARSO's own "…_UTC" fields look like "03.08.2026 14:10 UTC" — parse straight
+// to an epoch, avoiding any ambiguity from the CEST/CET-suffixed local fields.
+function parseArsoUtc(str) {
+  const m = typeof str === 'string' && str.match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const [, dd, mo, yyyy, hh, mi] = m;
+  return Date.UTC(+yyyy, +mo - 1, +dd, +hh, +mi);
+}
+
 let cache = {
   current:  { stations: [], updatedAt: null },
   forecast: { regions: [],  updatedAt: null },
@@ -78,33 +88,89 @@ function mapStation(m) {
     gustKmh:       num(m.ffmax_val_kmh),
     pressureMsl:   num(m.msl),
     precip24hMm:   num(m.tp_24h_acc) ?? num(m.rr24h_val),
+    precipIntervalMm: num(m.rr_val),
     snowCm:        num(m.snow),
     visibilityKm:  num(m.vis_val) ?? num(m.vis_value),
     icon:          m['nn_icon-wwsyn_icon'] || m.nn_icon || null,
     conditionText: m.nn_shortText || m.wwsyn_shortText || null,
     updated:       m.valid || m.tsValid_issued || null,
+    updatedMs:     parseArsoUtc(m.valid_UTC || m.tsValid_issued_UTC),
   };
 }
 
-async function fetchStationLatest(id) {
+// Fetches the HEAD of a station's rolling history file and returns every
+// complete metData entry found in it, newest → oldest — ARSO writes each
+// station's file with the most recent reading first, so the file's *head*
+// (not its tail) is what holds live data; the tail is the ~2-day-old end of
+// the window. The last block in the chunk may be truncated by the Range
+// boundary, so it's dropped whenever more than one block is present.
+async function fetchStationEntries(id, headBytes) {
   const url = `${BASE}/observ/surface/text/sl/recent/observationAms_${id}_history.xml`;
-  const text = await fetchText(url, { Range: `bytes=-${CURRENT_TAIL_BYTES}` });
+  const text = await fetchText(url, { Range: `bytes=0-${headBytes - 1}` });
   const blocks = text.match(/<metData>[\s\S]*?<\/metData>/g);
-  if (!blocks || !blocks.length) return null;
-  const parsed = parser.parse(`<root>${blocks[blocks.length - 1]}</root>`);
-  const list = parsed.root?.metData;
-  const m = Array.isArray(list) ? list[0] : list;
-  return m ? mapStation(m) : null;
+  if (!blocks || !blocks.length) return [];
+  const usable = blocks.length > 1 ? blocks.slice(0, -1) : blocks;
+  return usable
+    .map(b => {
+      const parsed = parser.parse(`<root>${b}</root>`);
+      const list = parsed.root?.metData;
+      return Array.isArray(list) ? list[0] : list;
+    })
+    .filter(Boolean);
 }
 
-async function refreshCurrent() {
+// Rolling 24h min/max (with the timestamp each extreme occurred) for
+// temperature, humidity and wind speed. Seeded once at startup from a larger
+// one-off history fetch per station, then topped up for free from each
+// regular 10-min poll — no repeated heavy downloads.
+const HISTORY_MS = 24 * 60 * 60 * 1000;
+const historyByStation = new Map(); // id -> Map<epochMs, { temp, humidity, windKmh }>
+
+function recordSample(id, m) {
+  const tMs = parseArsoUtc(m.valid_UTC || m.tsValid_issued_UTC);
+  if (!tMs) return;
+  let byTime = historyByStation.get(id);
+  if (!byTime) { byTime = new Map(); historyByStation.set(id, byTime); }
+  byTime.set(tMs, { temp: num(m.t), humidity: num(m.rh), windKmh: num(m.ff_val_kmh) });
+  const cutoff = Date.now() - HISTORY_MS;
+  for (const t of byTime.keys()) if (t < cutoff) byTime.delete(t);
+}
+
+function statFor(id, field) {
+  const byTime = historyByStation.get(id);
+  const empty = { min: null, minAt: null, max: null, maxAt: null };
+  if (!byTime || !byTime.size) return empty;
+  let min = Infinity, minAt = null, max = -Infinity, maxAt = null;
+  for (const [t, s] of byTime) {
+    const v = s[field];
+    if (v === null) continue;
+    if (v < min) { min = v; minAt = t; }
+    if (v > max) { max = v; maxAt = t; }
+  }
+  if (min === Infinity) return empty;
+  return { min, minAt: new Date(minAt).toISOString(), max, maxAt: new Date(maxAt).toISOString() };
+}
+
+async function refreshStation(id, seedHistory) {
+  const entries = await fetchStationEntries(id, seedHistory ? BACKFILL_HEAD_BYTES : CURRENT_HEAD_BYTES);
+  if (!entries.length) return null;
+  for (const m of entries) recordSample(id, m);
+  const st = mapStation(entries[0]); // newest-first — entries[0] is the latest reading
+  if (!st) return null;
+  st.temp24h     = statFor(id, 'temp');
+  st.humidity24h = statFor(id, 'humidity');
+  st.wind24h     = statFor(id, 'windKmh');
+  return st;
+}
+
+async function refreshCurrent(seedHistory = false) {
   const stations = [];
   let idx = 0;
   async function worker() {
     while (idx < STATION_IDS.length) {
       const id = STATION_IDS[idx++];
       try {
-        const st = await fetchStationLatest(id);
+        const st = await refreshStation(id, seedHistory);
         if (st) stations.push(st);
       } catch (e) {
         logger.warn(`ARSO station ${id}: ${e.message}`);
@@ -194,8 +260,8 @@ async function refreshWarnings() {
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
-async function refreshAll() {
-  const results = await Promise.allSettled([refreshCurrent(), refreshForecast(), refreshWarnings()]);
+async function refreshAll(seedHistory = false) {
+  const results = await Promise.allSettled([refreshCurrent(seedHistory), refreshForecast(), refreshWarnings()]);
   results.forEach((r, i) => {
     if (r.status === 'rejected') logger.warn(`ARSO weather refresh (${['current','forecast','warnings'][i]}): ${r.reason?.message}`);
   });
@@ -203,8 +269,8 @@ async function refreshAll() {
 
 function start() {
   if (timer) return;
-  refreshAll();
-  timer = setInterval(refreshAll, REFRESH_MS);
+  refreshAll(true); // first run also backfills ~24h of history per station
+  timer = setInterval(() => refreshAll(false), REFRESH_MS);
 }
 
 function stop() { clearInterval(timer); timer = null; }
