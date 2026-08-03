@@ -105,7 +105,10 @@ function StationMap({ stations, visible, updatedAt }) {
     const L = window.L;
     markersRef.current.forEach(m => map.removeLayer(m));
     markersRef.current = stations.map(st => {
-      const icon = L.icon({ iconUrl: st.iconUrl, iconSize: [24, 24], iconAnchor: [12, 12] });
+      // SMOK's icons are only 16x16 natively — 'pm-smok-icon' forces nearest-neighbor
+      // scaling (see index.css) so the 24px upscale reads crisp instead of blurry,
+      // especially on high-DPI phone screens.
+      const icon = L.icon({ iconUrl: st.iconUrl, iconSize: [24, 24], iconAnchor: [12, 12], className: 'pm-smok-icon' });
       const marker = L.marker([st.lat, st.lon], { icon }).addTo(map);
       marker.bindPopup(buildPopupHtml(st), { minWidth: 220 });
       return marker;

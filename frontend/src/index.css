@@ -245,3 +245,12 @@
 .leaflet-popup-close-button:hover {
   color: var(--text-1) !important;
 }
+
+/* SMOK's water-station icons are only 16x16px natively, upscaled to 24px —
+   nearest-neighbor scaling reads crisp; the browser default (smooth/bilinear)
+   reads soft/grainy, especially on high-DPI phone screens. */
+.pm-smok-icon {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}

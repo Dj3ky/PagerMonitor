@@ -59,11 +59,13 @@ export function BasemapSwitcher({ basemap, onChange }) {
 }
 
 // ── Last-updated label ───────────────────────────────────────────────────────
+// Bottom-left, not top-left — Leaflet's own zoom control (+/-) lives in the
+// top-left corner by default, and a top-left overlay sits right on top of it.
 export function LastUpdated({ updatedAt }) {
   if (!updatedAt) return null;
   return (
     <div style={{
-      position: 'absolute', top: '0.5rem', left: '0.5rem', zIndex: 1000,
+      position: 'absolute', bottom: '0.5rem', left: '0.5rem', zIndex: 1000,
       padding: '0.3rem 0.55rem', borderRadius: '0.5rem', fontSize: '0.68rem',
       background: 'var(--bg-1)', border: '1px solid var(--border)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
       color: 'var(--text-2)', whiteSpace: 'nowrap',
