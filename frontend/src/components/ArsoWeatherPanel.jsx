@@ -107,6 +107,21 @@ function isStale(st) {
   return !st.updatedMs || (Date.now() - st.updatedMs) > STALE_MS;
 }
 
+function buildRegionPopupHtml(region, alertsForRegion) {
+  const rows = alertsForRegion.map(a => `
+    <div style="display:flex;align-items:baseline;gap:0.4rem;font-size:0.72rem;margin-top:0.3rem">
+      <span style="font-size:0.6rem;font-weight:700;padding:0.05rem 0.4rem;border-radius:0.6rem;
+        color:${SEVERITY_HEX[a.color]};background:${SEVERITY_HEX[a.color]}22;white-space:nowrap">${SEVERITY_LABEL[a.color]}</span>
+      <span style="color:var(--text-1)">${a.event}</span>
+    </div>`).join('');
+  return `
+    <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.78rem;min-width:200px;color:var(--text-1)">
+      <div style="font-weight:700;font-size:0.9rem">${region.areaDesc || region.region}</div>
+      ${rows || `<div style="color:var(--text-3);font-size:0.72rem;margin-top:0.3rem">No active warnings</div>`}
+    </div>
+  `;
+}
+
 // ── Popup content ────────────────────────────────────────────────────────────
 function statCard(label, value) {
   return `<div style="background:var(--bg-3);border:1px solid var(--border);border-radius:0.5rem;padding:0.35rem 0.5rem">
@@ -228,10 +243,11 @@ function MetricSwitcher({ metric, onChange }) {
 }
 
 // ── Station map ──────────────────────────────────────────────────────────────
-function StationMap({ stations, visible, updatedAt }) {
+function StationMap({ stations, visible, updatedAt, regions, alerts }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
+  const regionLayersRef = useRef([]);
   const tileLayerRef = useRef(null);
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY);
   const [metric, setMetric] = useState(
@@ -294,6 +310,26 @@ function StationMap({ stations, visible, updatedAt }) {
     });
   }, [stations, metric]);
 
+  // Warning-region outlines — subtle when calm, filled with severity color when active.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+    const L = window.L;
+    regionLayersRef.current.forEach(l => map.removeLayer(l));
+    regionLayersRef.current = (regions || []).map(region => {
+      const active = region.worstColor && SEVERITY_HEX[region.worstColor];
+      const color = active || '#4a5568';
+      const layer = L.polygon(region.polygon, {
+        color, weight: active ? 2 : 1, opacity: active ? 0.85 : 0.4,
+        fillColor: color, fillOpacity: active ? 0.15 : 0.02,
+        dashArray: active ? null : '4 4',
+      }).addTo(map);
+      const alertsForRegion = (alerts || []).filter(a => a.region === region.region);
+      layer.bindPopup(buildRegionPopupHtml(region, alertsForRegion), { minWidth: 220 });
+      return layer;
+    });
+  }, [regions, alerts]);
+
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       <LastUpdated updatedAt={updatedAt} />
@@ -348,7 +384,7 @@ function ForecastStrip({ regions }) {
 export default function ArsoWeatherPanel({ visible }) {
   const [current, setCurrent]   = useState({ stations: [], updatedAt: null });
   const [forecast, setForecast] = useState({ regions: [], updatedAt: null });
-  const [warnings, setWarnings] = useState({ alerts: [], updatedAt: null });
+  const [warnings, setWarnings] = useState({ alerts: [], regions: [], updatedAt: null });
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
   const loadedOnce = useRef(false);
@@ -394,7 +430,8 @@ export default function ArsoWeatherPanel({ visible }) {
         </div>
       ) : (
         <>
-          <StationMap stations={current.stations} visible={visible} updatedAt={current.updatedAt} />
+          <StationMap stations={current.stations} visible={visible} updatedAt={current.updatedAt}
+            regions={warnings.regions} alerts={warnings.alerts} />
           <ForecastStrip regions={forecast.regions} />
         </>
       )}

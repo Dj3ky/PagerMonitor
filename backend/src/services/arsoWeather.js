@@ -39,7 +39,10 @@ const SEVERITY_COLOR = { 2: 'yellow', 3: 'orange', 4: 'red' };
 const parser = new XMLParser({
   ignoreAttributes: true,
   htmlEntities: true, // ARSO XML uses numeric char refs (&#382; etc.) for diacritics
-  isArray: (name) => ['metData', 'info', 'parameter', 'area'].includes(name),
+  // 'polygon' forced to array too: each <area> carries a real polygon plus a
+  // second, empty <polygon/> — without this, fast-xml-parser keeps only the
+  // last occurrence (the empty one), silently discarding the coordinates.
+  isArray: (name) => ['metData', 'info', 'parameter', 'area', 'polygon'].includes(name),
 });
 
 const num = (v) => {
@@ -60,7 +63,7 @@ function parseArsoUtc(str) {
 let cache = {
   current:  { stations: [], updatedAt: null },
   forecast: { regions: [],  updatedAt: null },
-  warnings: { alerts: [],   updatedAt: null },
+  warnings: { alerts: [], regions: [], updatedAt: null },
 };
 let timer = null;
 
@@ -216,11 +219,36 @@ async function refreshForecast() {
 
 // ── Warnings (CAP, yellow-or-higher only — level 1/green is ARSO's baseline
 //    "no warning" entry present for every hazard, not an actual alert) ──────
+// CAP polygons are "lat,lon lat,lon ..." space-separated pairs.
+function parsePolygon(str) {
+  if (!str) return null;
+  const pts = str.trim().split(/\s+/).map(pair => pair.split(',').map(Number));
+  const clean = pts.filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
+  return clean.length >= 3 ? clean : null;
+}
+
+// The region's boundary is identical across every hazard's <info> block within
+// one region's CAP file — grab it once from whichever block has it.
+function extractRegionShape(infos) {
+  for (const info of infos) {
+    if (info.language !== 'sl') continue;
+    const areas = Array.isArray(info.area) ? info.area : (info.area ? [info.area] : []);
+    for (const area of areas) {
+      const polys = Array.isArray(area.polygon) ? area.polygon : (area.polygon ? [area.polygon] : []);
+      for (const p of polys) {
+        const polygon = parsePolygon(p);
+        if (polygon) return { areaDesc: area.areaDesc || null, polygon };
+      }
+    }
+  }
+  return null;
+}
+
 async function fetchRegionWarnings(region) {
   const text = await fetchText(`${BASE}/warning/text/sl/warning_SLOVENIA_${region}_latest_CAP.xml`);
   const parsed = parser.parse(text);
   const infos = parsed.alert?.info || [];
-  const out = [];
+  const alerts = [];
   for (const info of infos) {
     if (info.language !== 'sl') continue;
     const params = Array.isArray(info.parameter) ? info.parameter : (info.parameter ? [info.parameter] : []);
@@ -228,7 +256,7 @@ async function fetchRegionWarnings(region) {
     const level = levelParam ? parseInt(String(levelParam.value).split(';')[0].trim(), 10) : NaN;
     if (!Number.isFinite(level) || level < 2) continue;
     const areas = Array.isArray(info.area) ? info.area : (info.area ? [info.area] : []);
-    out.push({
+    alerts.push({
       region,
       event:    info.event,
       level,
@@ -239,15 +267,22 @@ async function fetchRegionWarnings(region) {
       areaDesc: areas[0]?.areaDesc || null,
     });
   }
-  return out;
+  const shape = extractRegionShape(infos);
+  return { alerts, shape };
 }
 
 async function refreshWarnings() {
   const settled = await Promise.allSettled(WARNING_REGIONS.map(fetchRegionWarnings));
   const alerts = [];
+  const regions = [];
   settled.forEach((r, i) => {
-    if (r.status === 'fulfilled') alerts.push(...r.value);
-    else logger.warn(`ARSO warnings ${WARNING_REGIONS[i]}: ${r.reason?.message}`);
+    const region = WARNING_REGIONS[i];
+    if (r.status === 'fulfilled') {
+      alerts.push(...r.value.alerts);
+      if (r.value.shape) regions.push({ region, areaDesc: r.value.shape.areaDesc, polygon: r.value.shape.polygon });
+    } else {
+      logger.warn(`ARSO warnings ${region}: ${r.reason?.message}`);
+    }
   });
   // Same hazard can appear at multiple thresholds for one region — keep only the highest.
   const byKey = new Map();
@@ -256,7 +291,16 @@ async function refreshWarnings() {
     const prev = byKey.get(key);
     if (!prev || a.level > prev.level) byKey.set(key, a);
   }
-  cache.warnings = { alerts: [...byKey.values()].sort((a, b) => b.level - a.level), updatedAt: new Date().toISOString() };
+  const dedupedAlerts = [...byKey.values()].sort((a, b) => b.level - a.level);
+
+  // Attach each region's current worst active level/color, if any.
+  for (const r of regions) {
+    const worst = dedupedAlerts.filter(a => a.region === r.region).sort((a, b) => b.level - a.level)[0];
+    r.worstLevel = worst?.level ?? null;
+    r.worstColor = worst?.color ?? null;
+  }
+
+  cache.warnings = { alerts: dedupedAlerts, regions, updatedAt: new Date().toISOString() };
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
