@@ -7,18 +7,69 @@ const REFRESH_MS = 2 * 60 * 1000; // backend itself only refreshes every 10 min 
                                    // read from the in-memory cache, not a new ARSO fetch.
 
 const BASEMAP_STORAGE_KEY = 'pm_arso_basemap';
+const METRIC_STORAGE_KEY  = 'pm_arso_metric';
 
 const SEVERITY_LABEL = { yellow: 'Yellow', orange: 'Orange', red: 'Red' };
 const SEVERITY_HEX   = { yellow: '#d29922', orange: '#f0883e', red: '#f85149' };
 
-// Blue (cold) → red (hot) gradient for station dots. Clamped to a sane Slovenian range.
+const NO_DATA_COLOR = '#888';
+
+// Blue (cold) → red (hot). Clamped to a sane Slovenian range.
 function tempColor(t) {
-  if (t === null || t === undefined) return '#888';
   const clamped = Math.max(-10, Math.min(40, t));
   const frac = (clamped + 10) / 50; // 0..1
   const hue = 220 - frac * 220; // 220 (blue) → 0 (red)
   return `hsl(${hue}, 80%, 50%)`;
 }
+
+// Dry → deep blue. 0mm gets a distinct neutral tone so "dry" doesn't read as "no data".
+function precipColor(v) {
+  if (v <= 0) return '#4a5568';
+  const frac = Math.min(50, v) / 50;
+  return `hsl(215, 85%, ${75 - frac * 45}%)`;
+}
+
+// Bare ground → deep blue/cyan snowpack.
+function snowColor(v) {
+  if (v <= 0) return '#4a5568';
+  const frac = Math.min(100, v) / 100;
+  return `hsl(195, 80%, ${85 - frac * 50}%)`;
+}
+
+// Calm (green) → gale (red).
+function windColor(v) {
+  const clamped = Math.max(0, Math.min(60, v));
+  const frac = clamped / 60;
+  return `hsl(${130 - frac * 130}, 75%, 50%)`;
+}
+
+// Map metric definitions — value getter, marker color, and compact in-circle label.
+const METRICS = {
+  temp: {
+    label: 'Temp',
+    get:     st => st.tempC,
+    color:   tempColor,
+    display: v => `${v.toFixed(1)}°`,
+  },
+  precip: {
+    label: 'Precip',
+    get:     st => st.precip24hMm ?? st.precipIntervalMm,
+    color:   precipColor,
+    display: v => `${v.toFixed(1)}`,
+  },
+  snow: {
+    label: 'Snow',
+    get:     st => st.snowCm,
+    color:   snowColor,
+    display: v => `${Math.round(v)}cm`,
+  },
+  wind: {
+    label: 'Wind',
+    get:     st => st.windSpeedKmh,
+    color:   windColor,
+    display: v => `${Math.round(v)}`,
+  },
+};
 
 function fmtTime(str) {
   if (!str) return '—';
@@ -156,6 +207,26 @@ function WarningsBanner({ alerts }) {
   );
 }
 
+// ── Metric switcher (Temp / Precip / Snow / Wind) — stacked under BasemapSwitcher
+function MetricSwitcher({ metric, onChange }) {
+  return (
+    <div style={{
+      position: 'absolute', top: '2.6rem', right: '0.5rem', zIndex: 1000,
+      display: 'flex', flexDirection: 'column', gap: '0.2rem', padding: '0.2rem', borderRadius: '0.5rem',
+      background: 'var(--bg-1)', border: '1px solid var(--border)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
+    }}>
+      {Object.entries(METRICS).map(([id, m]) => (
+        <button key={id} onClick={() => onChange(id)} title={m.label} style={{
+          padding: '0.2rem 0.5rem', borderRadius: '0.35rem', fontSize: '0.68rem', fontWeight: 500,
+          cursor: 'pointer', border: 'none', whiteSpace: 'nowrap', textAlign: 'left',
+          background: metric === id ? 'color-mix(in srgb, var(--accent-green) 16%, transparent)' : 'transparent',
+          color: metric === id ? 'var(--accent-green)' : 'var(--text-2)',
+        }}>{m.label}</button>
+      ))}
+    </div>
+  );
+}
+
 // ── Station map ──────────────────────────────────────────────────────────────
 function StationMap({ stations, visible, updatedAt }) {
   const divRef = useRef(null);
@@ -163,6 +234,10 @@ function StationMap({ stations, visible, updatedAt }) {
   const markersRef = useRef([]);
   const tileLayerRef = useRef(null);
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY);
+  const [metric, setMetric] = useState(
+    () => (localStorage.getItem(METRIC_STORAGE_KEY) in METRICS ? localStorage.getItem(METRIC_STORAGE_KEY) : 'temp')
+  );
+  useEffect(() => { localStorage.setItem(METRIC_STORAGE_KEY, metric); }, [metric]);
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
@@ -191,14 +266,18 @@ function StationMap({ stations, visible, updatedAt }) {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
-    markersRef.current.forEach(m => map.removeLayer(m));
+    const m = METRICS[metric] || METRICS.temp;
+    markersRef.current.forEach(mk => map.removeLayer(mk));
     markersRef.current = stations.map(st => {
       const stale = isStale(st);
+      const val = m.get(st);
+      const color = val != null ? m.color(val) : NO_DATA_COLOR;
+      const text = val != null ? m.display(val) : '—';
       const icon = L.divIcon({
         className: '',
         html: `<div style="
           width:38px;height:38px;border-radius:50%;
-          background:${stale ? '#1a1a1a' : tempColor(st.tempC)};
+          background:${stale ? '#1a1a1a' : color};
           display:flex;align-items:center;justify-content:center;
           font-weight:700;font-size:0.64rem;color:${stale ? '#888' : '#fff'};
           border:2px solid ${stale ? '#555' : 'rgba(255,255,255,0.9)'};
@@ -206,19 +285,20 @@ function StationMap({ stations, visible, updatedAt }) {
           font-family:system-ui,sans-serif;
           white-space:nowrap;
           opacity:${stale ? 0.75 : 1};
-        ">${st.tempC != null ? st.tempC.toFixed(1) + '°' : '—'}</div>`,
+        ">${text}</div>`,
         iconSize: [38, 38], iconAnchor: [19, 19],
       });
       const marker = L.marker([st.lat, st.lon], { icon }).addTo(map);
       marker.bindPopup(buildPopupHtml(st), { minWidth: 230 });
       return marker;
     });
-  }, [stations]);
+  }, [stations, metric]);
 
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       <LastUpdated updatedAt={updatedAt} />
       <BasemapSwitcher basemap={basemap} onChange={setBasemap} />
+      <MetricSwitcher metric={metric} onChange={setMetric} />
       <div ref={divRef} style={{ height: '100%' }} />
     </div>
   );
