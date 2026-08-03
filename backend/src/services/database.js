@@ -428,7 +428,8 @@ function _migrate() {
   `);
 
   // Strip leading zeros from numeric alias capcodes so they match decoder output.
-  // Decoders (multimon-ng) emit addresses as plain integers with no leading zeros.
+  // POCSAG addresses are never zero-padded; FLEX capcodes can be, but are normalized
+  // at ingestion time in sdr.js so stored message capcodes are unpadded too.
   const stripped = db.prepare(`
     UPDATE aliases
     SET capcode = CAST(CAST(capcode AS INTEGER) AS TEXT)

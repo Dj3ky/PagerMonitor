@@ -1,7 +1,7 @@
 const { spawn }  = require('child_process');
 const { PassThrough } = require('stream');
 const iconv      = require('iconv-lite');
-const { insertMessage, getSetting } = require('./database');
+const { insertMessage, getSetting, normCapcode } = require('./database');
 const { broadcast }          = require('./websocket');
 const { broadcastAll, notifyAll } = require('./fanout');
 const { recordMessage, registerSource, unregisterSource } = require('./deadair');
@@ -376,19 +376,19 @@ function parseLine(line) {
     const [, proto, capcode, funcStr, msgRaw] = pm;
     const protocol = proto.toUpperCase();
     return { protocol, baud: parseInt((protocol.match(/\d+/) || ['0'])[0], 10),
-      capcode: capcode.trim(), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw), raw: line };
+      capcode: normCapcode(capcode.trim()), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw), raw: line };
   }
   // Try old format first, then new pipe-delimited format
   const fmOld = FLEX_RE_OLD.exec(line);
   if (fmOld) {
     const [, capcode, funcStr, , msgRaw] = fmOld;
-    return { protocol: 'FLEX', baud: null, capcode: capcode.trim(),
+    return { protocol: 'FLEX', baud: null, capcode: normCapcode(capcode.trim()),
       funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw), raw: line };
   }
   const fmNew = FLEX_RE_NEW.exec(line);
   if (fmNew) {
     const [, capcode, msgType, msgRaw] = fmNew;
-    return { protocol: 'FLEX', baud: null, capcode: capcode.trim(),
+    return { protocol: 'FLEX', baud: null, capcode: normCapcode(capcode.trim()),
       funcbits: FLEX_TYPE_FUNC[msgType] ?? 3, message: cleanMessage(msgRaw), raw: line };
   }
   return null;
@@ -405,18 +405,18 @@ function handleLine(line, sourceId = 'sdr') {
     const [, proto, capcode, funcStr, msgRaw] = pm;
     const protocol = proto.toUpperCase();
     const baud     = parseInt((protocol.match(/\d+/) || ['0'])[0], 10);
-    parsed = { protocol, baud, capcode: capcode.trim(), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw) };
+    parsed = { protocol, baud, capcode: normCapcode(capcode.trim()), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw) };
   }
 
   const fmOld = !parsed && FLEX_RE_OLD.exec(line);
   if (fmOld) {
     const [, capcode, funcStr, , msgRaw] = fmOld;
-    parsed = { protocol: 'FLEX', baud: null, capcode: capcode.trim(), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw) };
+    parsed = { protocol: 'FLEX', baud: null, capcode: normCapcode(capcode.trim()), funcbits: parseInt(funcStr, 10), message: cleanMessage(msgRaw) };
   }
   const fmNew = !parsed && FLEX_RE_NEW.exec(line);
   if (fmNew) {
     const [, capcode, msgType, msgRaw] = fmNew;
-    parsed = { protocol: 'FLEX', baud: null, capcode: capcode.trim(), funcbits: FLEX_TYPE_FUNC[msgType] ?? 3, message: cleanMessage(msgRaw) };
+    parsed = { protocol: 'FLEX', baud: null, capcode: normCapcode(capcode.trim()), funcbits: FLEX_TYPE_FUNC[msgType] ?? 3, message: cleanMessage(msgRaw) };
   }
 
   if (!parsed) return;
