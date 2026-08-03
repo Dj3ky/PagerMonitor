@@ -9,8 +9,15 @@ const REFRESH_MS = 2 * 60 * 1000; // backend itself only refreshes every 10 min 
                                    // catches that update reasonably quickly, cost is a same-origin
                                    // read from the in-memory cache, not a new ARSO fetch.
 
-const TILE_URL  = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-const TILE_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+const OSM_ATTR   = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+const CARTO_ATTR = `${OSM_ATTR} © <a href="https://carto.com/attributions">CARTO</a>`;
+
+const BASEMAPS = {
+  streets: { label: 'Streets', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR },
+  dark:    { label: 'Dark',    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  attr: CARTO_ATTR },
+  light:   { label: 'Light',   url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: CARTO_ATTR },
+};
+const BASEMAP_STORAGE_KEY = 'pm_arso_basemap';
 
 const SEVERITY_LABEL = { yellow: 'Yellow', orange: 'Orange', red: 'Red' };
 const SEVERITY_HEX   = { yellow: '#d29922', orange: '#f0883e', red: '#f85149' };
@@ -54,6 +61,21 @@ function fmtAge(ms) {
   return `${hours}h ${mins % 60}m ago`;
 }
 
+const STALE_MS = 60 * 60 * 1000; // no reading for 1h+ → flagged as stale on the map
+
+function isStale(st) {
+  return !st.updatedMs || (Date.now() - st.updatedMs) > STALE_MS;
+}
+
+function fmtUpdatedAt(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch (_) { return iso; }
+}
+
 // ── Popup content ────────────────────────────────────────────────────────────
 function statCard(label, value) {
   return `<div style="background:var(--bg-3);border:1px solid var(--border);border-radius:0.5rem;padding:0.35rem 0.5rem">
@@ -79,6 +101,7 @@ function historyCard(label, unit, stat) {
 
 function buildPopupHtml(st) {
   const age = fmtAge(st.updatedMs);
+  const stale = isStale(st);
   const cards = [
     st.tempC     != null && statCard('Temperature', `${st.tempC}°C`),
     st.humidity  != null && statCard('Humidity', `${st.humidity}%`),
@@ -103,7 +126,9 @@ function buildPopupHtml(st) {
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.78rem;min-width:210px;color:var(--text-1)">
       <div style="font-weight:700;font-size:0.9rem">${st.name}${st.altitude != null ? ` <span style="font-weight:400;color:var(--text-3);font-size:0.72rem">(${st.altitude} m)</span>` : ''}</div>
-      <div style="color:var(--text-3);font-size:0.68rem;margin-bottom:0.5rem">Measured ${fmtTime(st.updated)}${age ? ` · ${age}` : ''}</div>
+      <div style="color:${stale ? 'var(--accent-red)' : 'var(--text-3)'};font-size:0.68rem;margin-bottom:0.5rem">
+        ${stale ? '⚠ Stale — ' : ''}Measured ${fmtTime(st.updated)}${age ? ` · ${age}` : ''}
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;margin-bottom:0.5rem">${cards}</div>
       <div style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.72rem;margin-bottom:0.4rem">${extraRows}</div>
       ${history ? `<div style="font-weight:600;font-size:0.72rem;color:var(--text-2);border-top:1px solid var(--border);padding-top:0.35rem">24h history</div>${history}` : ''}
@@ -157,20 +182,69 @@ function WarningsBanner({ alerts }) {
   );
 }
 
+// ── Basemap style switcher (Streets / Dark / Light) ─────────────────────────
+function BasemapSwitcher({ basemap, onChange }) {
+  return (
+    <div style={{
+      position: 'absolute', top: '0.5rem', right: '0.5rem', zIndex: 1000,
+      display: 'flex', gap: '0.2rem', padding: '0.2rem', borderRadius: '0.5rem',
+      background: 'var(--bg-1)', border: '1px solid var(--border)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
+    }}>
+      {Object.entries(BASEMAPS).map(([id, b]) => (
+        <button key={id} onClick={() => onChange(id)} title={b.label} style={{
+          padding: '0.2rem 0.5rem', borderRadius: '0.35rem', fontSize: '0.68rem', fontWeight: 500,
+          cursor: 'pointer', border: 'none', whiteSpace: 'nowrap',
+          background: basemap === id ? 'color-mix(in srgb, var(--accent-green) 16%, transparent)' : 'transparent',
+          color: basemap === id ? 'var(--accent-green)' : 'var(--text-2)',
+        }}>{b.label}</button>
+      ))}
+    </div>
+  );
+}
+
+// ── Last-updated label ───────────────────────────────────────────────────────
+function LastUpdated({ updatedAt }) {
+  if (!updatedAt) return null;
+  return (
+    <div style={{
+      position: 'absolute', top: '0.5rem', left: '0.5rem', zIndex: 1000,
+      padding: '0.3rem 0.55rem', borderRadius: '0.5rem', fontSize: '0.68rem',
+      background: 'var(--bg-1)', border: '1px solid var(--border)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
+      color: 'var(--text-2)', whiteSpace: 'nowrap',
+    }}>
+      Updated {fmtUpdatedAt(updatedAt)}
+    </div>
+  );
+}
+
 // ── Station map ──────────────────────────────────────────────────────────────
-function StationMap({ stations, visible }) {
+function StationMap({ stations, visible, updatedAt }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
+  const tileLayerRef = useRef(null);
+  const [basemap, setBasemap] = useState(
+    () => (localStorage.getItem(BASEMAP_STORAGE_KEY) in BASEMAPS ? localStorage.getItem(BASEMAP_STORAGE_KEY) : 'dark')
+  );
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
     const L = window.L;
     const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 9 });
-    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map);
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
   }, []);
+
+  // Swap the tile layer whenever the chosen basemap style changes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+    const L = window.L;
+    const style = BASEMAPS[basemap] || BASEMAPS.dark;
+    if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
+    tileLayerRef.current = L.tileLayer(style.url, { attribution: style.attr, maxZoom: 19, detectRetina: true }).addTo(map);
+    localStorage.setItem(BASEMAP_STORAGE_KEY, basemap);
+  }, [basemap]);
 
   useEffect(() => {
     if (visible) requestAnimationFrame(() => mapRef.current?.invalidateSize());
@@ -182,17 +256,19 @@ function StationMap({ stations, visible }) {
     const L = window.L;
     markersRef.current.forEach(m => map.removeLayer(m));
     markersRef.current = stations.map(st => {
+      const stale = isStale(st);
       const icon = L.divIcon({
         className: '',
         html: `<div style="
           width:38px;height:38px;border-radius:50%;
-          background:${tempColor(st.tempC)};
+          background:${stale ? '#1a1a1a' : tempColor(st.tempC)};
           display:flex;align-items:center;justify-content:center;
-          font-weight:700;font-size:0.64rem;color:#fff;
-          border:2px solid rgba(255,255,255,0.9);
+          font-weight:700;font-size:0.64rem;color:${stale ? '#888' : '#fff'};
+          border:2px solid ${stale ? '#555' : 'rgba(255,255,255,0.9)'};
           box-shadow:0 1px 4px rgba(0,0,0,0.45);
           font-family:system-ui,sans-serif;
           white-space:nowrap;
+          opacity:${stale ? 0.75 : 1};
         ">${st.tempC != null ? st.tempC.toFixed(1) + '°' : '—'}</div>`,
         iconSize: [38, 38], iconAnchor: [19, 19],
       });
@@ -202,7 +278,13 @@ function StationMap({ stations, visible }) {
     });
   }, [stations]);
 
-  return <div ref={divRef} style={{ flex: 1, minHeight: 0 }} />;
+  return (
+    <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+      <LastUpdated updatedAt={updatedAt} />
+      <BasemapSwitcher basemap={basemap} onChange={setBasemap} />
+      <div ref={divRef} style={{ height: '100%' }} />
+    </div>
+  );
 }
 
 // ── Forecast strip ───────────────────────────────────────────────────────────
@@ -295,7 +377,7 @@ export default function ArsoWeatherPanel({ visible }) {
         </div>
       ) : (
         <>
-          <StationMap stations={current.stations} visible={visible} />
+          <StationMap stations={current.stations} visible={visible} updatedAt={current.updatedAt} />
           <ForecastStrip regions={forecast.regions} />
         </>
       )}
