@@ -185,15 +185,16 @@ function StationMap({ stations, visible }) {
       const icon = L.divIcon({
         className: '',
         html: `<div style="
-          width:32px;height:32px;border-radius:50%;
+          width:38px;height:38px;border-radius:50%;
           background:${tempColor(st.tempC)};
           display:flex;align-items:center;justify-content:center;
-          font-weight:700;font-size:0.68rem;color:#fff;
+          font-weight:700;font-size:0.64rem;color:#fff;
           border:2px solid rgba(255,255,255,0.9);
           box-shadow:0 1px 4px rgba(0,0,0,0.45);
           font-family:system-ui,sans-serif;
-        ">${st.tempC != null ? Math.round(st.tempC) + '°' : '—'}</div>`,
-        iconSize: [32, 32], iconAnchor: [16, 16],
+          white-space:nowrap;
+        ">${st.tempC != null ? st.tempC.toFixed(1) + '°' : '—'}</div>`,
+        iconSize: [38, 38], iconAnchor: [19, 19],
       });
       const marker = L.marker([st.lat, st.lon], { icon }).addTo(map);
       marker.bindPopup(buildPopupHtml(st), { minWidth: 230 });

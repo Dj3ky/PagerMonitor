@@ -227,3 +227,21 @@
     margin-bottom: 0.75rem;
   }
 }
+
+/* ── Leaflet popup theming ────────────────────────────────────────────────
+   Leaflet's own chrome (wrapper, tip, close button) ships with a hardcoded
+   white background. Popups that use var(--text-1)/var(--text-3) etc. for
+   their content (e.g. the ARSO station popup) need the chrome itself themed
+   too, or dark-theme text (near-white) reads on white — nearly invisible. */
+.leaflet-popup-content-wrapper {
+  background: var(--bg-1);
+  color: var(--text-1);
+  box-shadow: 0 3px 14px rgba(0,0,0,0.3);
+}
+.leaflet-popup-tip { background: var(--bg-1); }
+.leaflet-popup-close-button {
+  color: var(--text-3) !important;
+}
+.leaflet-popup-close-button:hover {
+  color: var(--text-1) !important;
+}
