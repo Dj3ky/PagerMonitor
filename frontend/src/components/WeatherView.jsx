@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader, Gauge, MapPin, Droplet } from 'lucide-react';
+import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader, Gauge, MapPin, Droplet, Activity } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
 import ArsoWeatherPanel from './ArsoWeatherPanel.jsx';
 import SmokWaterPanel from './SmokWaterPanel.jsx';
+import QuakePanel from './QuakePanel.jsx';
 
 // Iframe embed layers (radar is real-time data, works great in iframe mode)
 const LAYERS = [
@@ -26,6 +27,8 @@ const API_LAYERS = [
 const ARSO_LAYER  = { id: 'arso',  label: 'ARSO',  icon: <MapPin size={13}/>,  desc: 'Live Slovenia stations, forecast & warnings' };
 // SMOK (Uprava RS za zascito in resevanje) river/water-level monitoring network.
 const WATER_LAYER = { id: 'water', label: 'Water', icon: <Droplet size={13}/>, desc: 'Live Slovenia river & water level stations' };
+// ARSO seismology — recent earthquakes in and around Slovenia.
+const QUAKE_LAYER = { id: 'quakes', label: 'Quakes', icon: <Activity size={13}/>, desc: 'Recent earthquakes near Slovenia' };
 
 // Module-level refs — survive component remounts and cross-effect communication.
 // Captures are done once; cleared on page reload.
@@ -307,28 +310,35 @@ export default function WeatherView({ visible, locationSharing }) {
 
   const layers = useMemo(() => {
     const base = useApi ? API_LAYERS : LAYERS;
-    return geocodeCountry === 'si' ? [...base, ARSO_LAYER, WATER_LAYER] : base;
+    return geocodeCountry === 'si' ? [...base, ARSO_LAYER, WATER_LAYER, QUAKE_LAYER] : base;
   }, [useApi, geocodeCountry]);
 
-  // The ARSO/Water layers aren't Windy overlays — if the site's country changes
-  // away from Slovenia while one is selected, fall back to something that still exists.
+  // These layers aren't Windy overlays — if the site's country changes away
+  // from Slovenia while one is selected, fall back to something that still exists.
+  const isSloveniaLayer = overlay === 'arso' || overlay === 'water' || overlay === 'quakes';
   useEffect(() => {
-    if ((overlay === 'arso' || overlay === 'water') && geocodeCountry !== 'si') setOverlay('radar');
-  }, [overlay, geocodeCountry]);
+    if (isSloveniaLayer && geocodeCountry !== 'si') setOverlay('radar');
+  }, [isSloveniaLayer, geocodeCountry]);
 
-  const CREDITS = { arso: { label: 'ARSO', url: 'https://www.arso.gov.si' }, water: { label: 'SMOK', url: 'https://smok.sos112.si' } };
+  const CREDITS = {
+    arso:   { label: 'ARSO', url: 'https://www.arso.gov.si' },
+    water:  { label: 'SMOK', url: 'https://smok.sos112.si' },
+    quakes: { label: 'ARSO', url: 'https://potresi.arso.gov.si' },
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
       <Toolbar overlay={overlay} onOverlayChange={setOverlay}
         geoState={geoState} userPos={userPos} locationSharing={locationSharing}
-        layers={layers} showLocation={overlay !== 'arso' && overlay !== 'water'}
+        layers={layers} showLocation={!isSloveniaLayer}
         credit={CREDITS[overlay]} />
 
       {overlay === 'arso' ? (
         <ArsoWeatherPanel visible={visible} />
       ) : overlay === 'water' ? (
         <SmokWaterPanel visible={visible} />
+      ) : overlay === 'quakes' ? (
+        <QuakePanel visible={visible} />
       ) : useApi ? (
         <ApiMap
           windyApiKey={windyApiKey}

@@ -387,4 +387,8 @@ router.get('/weather/arso/warnings', requireAuth, (_req, res) => res.json(arsoWe
 const smokWater = require('../services/smokWater');
 router.get('/weather/smok/stations', requireAuth, (_req, res) => res.json(smokWater.getStations()));
 
+// ── ARSO earthquakes (Slovenia) ────────────────────────────────────────────────
+const arsoQuakes = require('../services/arsoQuakes');
+router.get('/weather/arso/quakes', requireAuth, (_req, res) => res.json(arsoQuakes.getQuakes()));
+
 module.exports = router;

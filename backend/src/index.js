@@ -11,6 +11,7 @@ const { startDeadAirCheck }     = require('./services/deadair');
 const { startArchiveScheduler } = require('./services/archive');
 const arsoWeather               = require('./services/arsoWeather');
 const smokWater                 = require('./services/smokWater');
+const arsoQuakes                = require('./services/arsoQuakes');
 const { loadSdrConfigIntoEnv } = require('./services/config');
 const { ensureDefaultAdmin, initSessions } = require('./services/auth');
 const { initWebPush } = require('./services/webpush');
@@ -171,12 +172,14 @@ async function main() {
   startArchiveScheduler();
   arsoWeather.start();
   smokWater.start();
+  arsoQuakes.start();
 
   const shutdown = sig => {
     logger.info(`${sig} received`);
     stopSdrPipeline();
     arsoWeather.stop();
     smokWater.stop();
+    arsoQuakes.stop();
     closeWebSocket();
     server.close(() => process.exit(0));
     setTimeout(() => { logger.warn('Forced exit after 5s'); process.exit(0); }, 5000).unref();
