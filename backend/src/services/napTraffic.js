@@ -53,4 +53,10 @@ function restart() { stop(); start(); }
 function getCameras() { return cache.cameras; }
 function getStatus() { return { configured: !!getCredentials(), updatedAt: cache.updatedAt }; }
 
-module.exports = { start, stop, restart, getCameras, getStatus };
+// GeoJSON plus updatedAt/configured tacked on — extra top-level fields are
+// harmless to any GeoJSON consumer and let the frontend show staleness/setup state.
+function getCamerasResponse() {
+  return { ...cache.cameras, updatedAt: cache.updatedAt, configured: !!getCredentials() };
+}
+
+module.exports = { start, stop, restart, getCameras, getStatus, getCamerasResponse };

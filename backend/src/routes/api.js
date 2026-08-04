@@ -397,6 +397,6 @@ router.get('/aircraft', requireAuth, (_req, res) => res.json(openskyAircraft.get
 
 // ── Traffic data (NAP / b2b.nap.si) ─────────────────────────────────────────────
 const napTraffic = require('../services/napTraffic');
-router.get('/traffic/cameras', requireAuth, (_req, res) => res.json(napTraffic.getCameras()));
+router.get('/traffic/cameras', requireAuth, (_req, res) => res.json(napTraffic.getCamerasResponse()));
 
 module.exports = router;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Radio, Search, Volume2, VolumeX, Settings, Rss, Sun, Moon, LogOut, User, Menu, X, Bell, BellOff, Map, Archive, CloudRain, Plane } from 'lucide-react';
+import { Radio, Search, Volume2, VolumeX, Settings, Rss, Sun, Moon, LogOut, User, Menu, X, Bell, BellOff, Map, Archive, CloudRain, Plane, Camera } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useAuth }  from '../context/AuthContext.jsx';
 import { useSite }  from '../context/SiteContext.jsx';
@@ -96,6 +96,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             <NavBtn active={view==='archive'} onClick={() => nav('archive')} icon={<Archive size={13}/>} label="Archive" />
             <NavBtn active={view==='weather'} onClick={() => nav('weather')} icon={<CloudRain size={13}/>} label="Weather" />
             <NavBtn active={view==='aircraft'} onClick={() => nav('aircraft')} icon={<Plane size={13}/>} label="Aircraft" />
+            <NavBtn active={view==='traffic'} onClick={() => nav('traffic')} icon={<Camera size={13}/>} label="Traffic" />
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
               <NavBtn active={view==='admin'} onClick={() => nav('admin')} icon={<Settings size={13}/>} label="Settings" />
             )}
@@ -198,6 +199,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             <MenuRow icon={<Archive size={16}/>} label="Archive" active={view==='archive'} onClick={() => nav('archive')} />
             <MenuRow icon={<CloudRain size={16}/>} label="Weather" active={view==='weather'} onClick={() => nav('weather')} />
             <MenuRow icon={<Plane size={16}/>} label="Aircraft" active={view==='aircraft'} onClick={() => nav('aircraft')} />
+            <MenuRow icon={<Camera size={16}/>} label="Traffic" active={view==='traffic'} onClick={() => nav('traffic')} />
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
               <MenuRow icon={<Settings size={16}/>} label="Settings" active={view==='admin'} onClick={() => nav('admin')} />
             )}

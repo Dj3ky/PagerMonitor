@@ -102,7 +102,6 @@ export const fetchMap = (limit = 10000, maxAgeDays = 30, fromDate = null, toDate
 };
 export const saveMessageLocation  = (id, lat, lng) => req('POST',   `/api/messages/${id}/location`, { lat, lng });
 export const clearMessageLocation = (id)           => req('DELETE', `/api/messages/${id}/location`);
-export const fetchCameras   = () => req('GET', '/api/traffic/cameras');
 export const fetchLastSeen  = () => req('GET', '/api/last-seen', undefined, true);
 export const saveLastSeen   = (id) => req('POST', '/api/last-seen', { lastSeenId: id }, true);
 export const authLogout     = () => req('POST', '/auth/logout', undefined, true);
