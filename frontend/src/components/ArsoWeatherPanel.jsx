@@ -43,6 +43,35 @@ function windColor(v) {
   return `hsl(${130 - frac * 130}, 75%, 50%)`;
 }
 
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  const [r1, g1, b1] =
+    h < 60  ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] :
+    h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return [(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255];
+}
+
+// Picks black-ish or white label text based on the marker's actual background
+// brightness — a single fixed color (e.g. always white) loses contrast against
+// the lighter end of these gradients (pale blues, yellows, etc).
+function contrastText(bg) {
+  let r, g, b;
+  const hsl = bg.match(/^hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/);
+  if (hsl) {
+    [r, g, b] = hslToRgb(+hsl[1], +hsl[2] / 100, +hsl[3] / 100);
+  } else {
+    const hex = bg.replace('#', '');
+    const full = hex.length === 3 ? hex.split('').map(c => c + c).join('') : hex;
+    r = parseInt(full.slice(0, 2), 16);
+    g = parseInt(full.slice(2, 4), 16);
+    b = parseInt(full.slice(4, 6), 16);
+  }
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? '#12151a' : '#fff';
+}
+
 // Map metric definitions — value getter, marker color, and compact in-circle label.
 const METRICS = {
   temp: {
@@ -289,13 +318,14 @@ function StationMap({ stations, visible, updatedAt, regions, alerts }) {
       const val = m.get(st);
       const color = val != null ? m.color(val) : NO_DATA_COLOR;
       const text = val != null ? m.display(val) : '—';
+      const textColor = stale ? '#888' : contrastText(color);
       const icon = L.divIcon({
         className: '',
         html: `<div style="
           width:38px;height:38px;border-radius:50%;
           background:${stale ? '#1a1a1a' : color};
           display:flex;align-items:center;justify-content:center;
-          font-weight:700;font-size:0.64rem;color:${stale ? '#888' : '#fff'};
+          font-weight:700;font-size:0.64rem;color:${textColor};
           border:2px solid ${stale ? '#555' : 'rgba(255,255,255,0.9)'};
           box-shadow:0 1px 4px rgba(0,0,0,0.45);
           font-family:system-ui,sans-serif;
