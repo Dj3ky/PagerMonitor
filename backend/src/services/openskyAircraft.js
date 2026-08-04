@@ -64,9 +64,13 @@ const KNOWN = [
   { reg: 'S5-BZU', callsign: 'S5BZU' },
 ];
 
+// Flown path per aircraft, shown when its marker is clicked on the frontend.
+const MAX_TRACK_POINTS  = 500;
+const TRACK_GAP_RESET_MS = 30 * 60 * 1000; // gap this long = new sortie, don't draw a line across it
+
 function emptyAircraft(k) {
   return { ...k, icao24: null, lat: null, lon: null, altitude: null,
-    velocity: null, heading: null, onGround: null, live: false, lastSeen: null };
+    velocity: null, heading: null, onGround: null, live: false, lastSeen: null, track: [] };
 }
 
 let cache = { aircraft: KNOWN.map(emptyAircraft), updatedAt: null };
@@ -88,21 +92,28 @@ async function refresh() {
   cache = {
     aircraft: KNOWN.map(k => {
       const s = byCallsign.get(k.callsign);
-      if (!s) {
-        const prev = cache.aircraft.find(a => a.callsign === k.callsign);
-        return { ...(prev || emptyAircraft(k)), live: false };
+      const prev = cache.aircraft.find(a => a.callsign === k.callsign) || emptyAircraft(k);
+      if (!s) return { ...prev, live: false };
+
+      const lat = s[6], lon = s[5];
+      let track = prev.track || [];
+      const lastPoint = track[track.length - 1];
+      if (lastPoint && Date.now() - new Date(lastPoint.time).getTime() > TRACK_GAP_RESET_MS) track = [];
+      if (!lastPoint || lastPoint.lat !== lat || lastPoint.lon !== lon) {
+        track = [...track, { lat, lon, time: now }].slice(-MAX_TRACK_POINTS);
       }
+
       return {
         ...k,
         icao24: s[0],
-        lon: s[5],
-        lat: s[6],
+        lon, lat,
         altitude: s[7],
         onGround: s[8],
         velocity: s[9],
         heading: s[10],
         live: true,
         lastSeen: now,
+        track,
       };
     }),
     updatedAt: now,

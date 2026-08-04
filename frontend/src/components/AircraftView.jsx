@@ -2,7 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader, Plane } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
 
-const REFRESH_MS = 60 * 1000; // backend itself only refreshes every 5 min — see comment there
+// This just re-reads our own backend's in-memory cache (no OpenSky cost), so we
+// poll much faster than the backend's own 1-5 min OpenSky cycle — otherwise the
+// two independent timers drift out of phase and a new position can sit unseen
+// for almost a full extra backend cycle before this catches it.
+const REFRESH_MS = 15 * 1000;
 const BASEMAP_STORAGE_KEY = 'pm_aircraft_basemap';
 
 function fmtAge(iso) {
@@ -39,8 +43,23 @@ function buildPopupHtml(a) {
         <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Speed</span><span style="color:var(--text-1)">${a.velocity != null ? `${Math.round(a.velocity * 3.6)} km/h` : '—'}</span></div>
         <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Heading</span><span style="color:var(--text-1)">${a.heading != null ? `${Math.round(a.heading)}°` : '—'}</span></div>
       </div>
+      ${a.track && a.track.length > 1 ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.45rem">Click marker to toggle flight path</div>` : ''}
     </div>
   `;
+}
+
+// Top-down plane silhouette, drawn pointing north — rotated per-marker to match heading.
+const PLANE_SVG_PATH = 'M12 2c.6 0 1 .4 1 1v6.5l7.5 4.5c.5.3.5 1.7 0 2l-7.5-2.5V18l3 2v1l-4-1-4 1v-1l3-2v-4.5L3.5 16c-.5-.3-.5-1.7 0-2L11 9.5V3c0-.6.4-1 1-1Z';
+
+function planeIcon(L, a) {
+  const color = statusColor(a);
+  const opacity = a.live ? 1 : 0.45;
+  const rotation = a.heading != null ? a.heading : 0;
+  const html = `
+    <div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;transform:rotate(${rotation}deg);opacity:${opacity}">
+      <svg width="22" height="22" viewBox="0 0 24 24"><path d="${PLANE_SVG_PATH}" fill="${color}" stroke="#fff" stroke-width="1"/></svg>
+    </div>`;
+  return L.divIcon({ html, className: 'pm-aircraft-icon', iconSize: [28, 28], iconAnchor: [14, 14] });
 }
 
 // ── Airborne-now strip ───────────────────────────────────────────────────────
@@ -66,14 +85,17 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const tileLayerRef = useRef(null);
+  const trackLayerRef = useRef(null);
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
+  const [selectedCallsign, setSelectedCallsign] = useState(null);
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
     const L = window.L;
     const map = L.map(divRef.current, { center: [45.85, 14.2], zoom: 8 }); // Slovenian coast — usual scooping grounds
+    map.on('click', () => setSelectedCallsign(null));
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; trackLayerRef.current = null; };
   }, []);
 
   useEffect(() => {
@@ -98,14 +120,26 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
     markersRef.current = aircraft
       .filter(a => a.lat != null && a.lon != null)
       .map(a => {
-        const marker = L.circleMarker([a.lat, a.lon], {
-          radius: 8, weight: 2, color: '#fff',
-          fillColor: statusColor(a), fillOpacity: a.live ? 0.85 : 0.35,
-        }).addTo(map);
+        const marker = L.marker([a.lat, a.lon], { icon: planeIcon(L, a) }).addTo(map);
         marker.bindPopup(buildPopupHtml(a), { minWidth: 210 });
+        marker.on('click', () => setSelectedCallsign(prev => (prev === a.callsign ? null : a.callsign)));
         return marker;
       });
   }, [aircraft]);
+
+  // Flight path for the selected aircraft — cleared on deselect or when it goes out of range.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+    const L = window.L;
+    if (trackLayerRef.current) { map.removeLayer(trackLayerRef.current); trackLayerRef.current = null; }
+    const selected = aircraft.find(a => a.callsign === selectedCallsign);
+    if (selected?.track?.length > 1) {
+      trackLayerRef.current = L.polyline(selected.track.map(p => [p.lat, p.lon]), {
+        color: statusColor(selected), weight: 3, opacity: 0.8,
+      }).addTo(map);
+    }
+  }, [aircraft, selectedCallsign]);
 
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
