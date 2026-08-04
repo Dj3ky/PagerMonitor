@@ -400,5 +400,6 @@ const napTraffic = require('../services/napTraffic');
 router.get('/traffic/cameras', requireAuth, (_req, res) => res.json(napTraffic.getCamerasResponse()));
 router.get('/traffic/roadworks', requireAuth, (_req, res) => res.json(napTraffic.getRoadworksResponse()));
 router.get('/traffic/events', requireAuth, (_req, res) => res.json(napTraffic.getEventsResponse()));
+router.get('/traffic/vms', requireAuth, (_req, res) => res.json(napTraffic.getVmsResponse()));
 
 module.exports = router;

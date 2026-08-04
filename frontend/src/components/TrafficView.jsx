@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader, X, Camera as CameraIcon, TriangleAlert, Siren } from 'lucide-react';
+import { Loader, X, Camera as CameraIcon, TriangleAlert, Siren, Monitor } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
 
 // Our own backend's in-memory cache (napTraffic polls b2b.nap.si — every 10 min for
@@ -11,11 +11,13 @@ const BASEMAP_STORAGE_KEY = 'pm_traffic_basemap';
 const CAMERA_COLOR = '#0ea5e9';
 const ROADWORK_COLOR = '#f59e0b';
 const EVENT_COLOR = '#a855f7'; // fallback for event categories that don't match a known cause below
+const VMS_COLOR = '#14b8a6';
 
 const LAYERS = [
   { id: 'cameras',   label: 'Cameras',    icon: <CameraIcon size={13}/> },
   { id: 'roadworks', label: 'Road works', icon: <TriangleAlert size={13}/> },
   { id: 'events',    label: 'Events',     icon: <Siren size={13}/> },
+  { id: 'vms',       label: 'Signs',      icon: <Monitor size={13}/> },
 ];
 
 function escAttr(s) {
@@ -31,7 +33,7 @@ function fmtDate(iso) {
 // ── Cameras: popup content + icon ────────────────────────────────────────────
 // data-src holds the real snapshot URL; src starts cache-busted so the very
 // first paint is fresh too, not whatever the browser had cached from before.
-// Clicking an image calls window.__pmOpenCamera (bridged from React below) to
+// Clicking an image calls window.__pmOpenImage (bridged from React below) to
 // open a bigger, independently-refreshing view — Leaflet popup content is raw
 // HTML, so a plain global-function call is the simplest way back into React.
 function buildCameraPopupHtml(feature) {
@@ -43,7 +45,7 @@ function buildCameraPopupHtml(feature) {
     return `
     <div style="margin-top:0.4rem">
       ${items.length > 1 ? `<div style="color:var(--text-3);font-size:0.68rem;margin-bottom:0.2rem">${label}</div>` : ''}
-      ${it.image ? `<img class="pm-cam-img" data-src="${it.image}" data-title="${escAttr(label)}" src="${it.image}?t=${Date.now()}" loading="lazy" title="Click to enlarge" style="width:100%;max-width:260px;border-radius:4px;display:block;cursor:zoom-in" onclick="window.__pmOpenCamera && window.__pmOpenCamera(this.dataset.src, this.dataset.title)" onerror="this.style.display='none'"/>` : ''}
+      ${it.image ? `<img class="pm-cam-img" data-src="${it.image}" data-title="${escAttr(label)}" src="${it.image}?t=${Date.now()}" loading="lazy" title="Click to enlarge" style="width:100%;max-width:260px;border-radius:4px;display:block;cursor:zoom-in" onclick="window.__pmOpenImage && window.__pmOpenImage(this.dataset.src, this.dataset.title)" onerror="this.style.display='none'"/>` : ''}
     </div>`;
   }).join('');
   return `
@@ -125,20 +127,55 @@ function eventIcon(L, vzrok) {
   });
 }
 
-// ── Enlarged camera view ─────────────────────────────────────────────────────
-function CameraLightbox({ camera, onClose }) {
+// ── VMS (variable message signs): popup content + icon ───────────────────────
+// Locations carry no road name, only a linear-element code + distance along
+// it — that's all NAP's location table exposes, so the popup shows that raw
+// reference rather than pretending we have a street name.
+function buildVmsPopupHtml(feature) {
+  const p = feature.properties || {};
+  const km = p.distanceAlong != null ? (p.distanceAlong / 1000).toFixed(2) : null;
+  const images = p.images || [];
+  const body = images.map((src, i) => `
+    <img class="pm-vms-img" data-title="${escAttr(`Sign ${p.id} — page ${i + 1}`)}" src="${src}"
+      title="Click to enlarge" style="width:100%;max-width:220px;border-radius:4px;display:block;margin-top:0.3rem;cursor:zoom-in;background:#fff"
+      onclick="window.__pmOpenImage && window.__pmOpenImage(this.src, this.dataset.title)"/>`).join('');
+  return `
+    <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:200px;color:var(--text-1)">
+      <div style="font-weight:700;color:${VMS_COLOR}">${p.id || 'Sign'}</div>
+      ${p.roadId ? `<div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">Segment ${p.roadId}${km ? ` · km ${km}` : ''}</div>` : ''}
+      ${body || `<div style="color:var(--text-3);font-size:0.72rem;margin-top:0.3rem">No message currently displayed</div>`}
+      ${p.updated ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">Updated ${fmtDate(p.updated)}</div>` : ''}
+    </div>`;
+}
+
+function vmsIcon(L) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:16px;height:16px;border-radius:50%;background:${VMS_COLOR};border:2px solid #fff;box-shadow:0 0 6px ${VMS_COLOR};display:flex;align-items:center;justify-content:center;font-size:9px;">🪧</div>`,
+    iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8],
+  });
+}
+
+// ── Enlarged image view (camera snapshots and VMS sign pictograms) ──────────
+// Camera images are fetched URLs, so they get a cache-busting timestamp on an
+// interval to keep showing the current frame; VMS pictograms are already
+// fully-embedded base64 data URIs from the last poll, so there's nothing to
+// re-fetch — appending a query string to a data: URI would just break it.
+function ImageLightbox({ image, onClose }) {
   const [, forceTick] = useState(0);
+  const isData = image?.src?.startsWith('data:');
 
   useEffect(() => {
-    if (!camera) return;
-    const iv = setInterval(() => forceTick(t => t + 1), IMG_REFRESH_MS);
+    if (!image) return;
     const onKey = e => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
+    if (isData) return () => window.removeEventListener('keydown', onKey);
+    const iv = setInterval(() => forceTick(t => t + 1), IMG_REFRESH_MS);
     return () => { clearInterval(iv); window.removeEventListener('keydown', onKey); };
-  }, [camera, onClose]);
+  }, [image, onClose, isData]);
 
-  if (!camera) return null;
-  const src = `${camera.src}${camera.src.includes('?') ? '&' : '?'}t=${Date.now()}`;
+  if (!image) return null;
+  const src = isData ? image.src : `${image.src}${image.src.includes('?') ? '&' : '?'}t=${Date.now()}`;
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 2000,
@@ -148,13 +185,14 @@ function CameraLightbox({ camera, onClose }) {
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#fff',
           fontFamily: 'monospace', fontSize: '0.85rem' }}>
-          <span>{camera.title}</span>
+          <span>{image.title}</span>
           <button onClick={onClose} title="Close" style={{ display: 'flex', padding: '0.2rem',
             border: '1px solid rgba(255,255,255,0.3)', borderRadius: '0.3rem', background: 'transparent',
             color: '#fff', cursor: 'pointer' }}><X size={14} /></button>
         </div>
-        <img src={src} alt={camera.title}
-          style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: '6px', boxShadow: '0 4px 24px rgba(0,0,0,0.5)' }} />
+        <img src={src} alt={image.title}
+          style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: '6px', boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+            background: isData ? '#fff' : 'transparent' }} />
       </div>
     </div>
   );
@@ -190,7 +228,7 @@ function Toolbar({ activeLayer, onChange }) {
 }
 
 // ── Traffic map ──────────────────────────────────────────────────────────────
-function TrafficMap({ layer, features, visible, updatedAt, onOpenCamera }) {
+function TrafficMap({ layer, features, visible, updatedAt, onOpenImage }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
@@ -220,9 +258,9 @@ function TrafficMap({ layer, features, visible, updatedAt, onOpenCamera }) {
   }, [visible]);
 
   useEffect(() => {
-    window.__pmOpenCamera = (src, title) => onOpenCamera?.({ src, title });
-    return () => { delete window.__pmOpenCamera; };
-  }, [onOpenCamera]);
+    window.__pmOpenImage = (src, title) => onOpenImage?.({ src, title });
+    return () => { delete window.__pmOpenImage; };
+  }, [onOpenImage]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -247,6 +285,11 @@ function TrafficMap({ layer, features, visible, updatedAt, onOpenCamera }) {
         if (layer === 'roadworks') {
           const marker = L.marker([lat, lon], { icon: roadworkIcon(L) }).addTo(map);
           marker.bindPopup(buildRoadworkPopupHtml(f), { maxWidth: 300 });
+          return marker;
+        }
+        if (layer === 'vms') {
+          const marker = L.marker([lat, lon], { icon: vmsIcon(L) }).addTo(map);
+          marker.bindPopup(buildVmsPopupHtml(f), { maxWidth: 260 });
           return marker;
         }
         const marker = L.marker([lat, lon], { icon: eventIcon(L, f.properties?.vzrok) }).addTo(map);
@@ -274,21 +317,24 @@ export default function TrafficView({ visible }) {
   const [cameras, setCameras] = useState(EMPTY);
   const [roadworks, setRoadworks] = useState(EMPTY);
   const [events, setEvents] = useState(EMPTY);
+  const [vms, setVms] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [lightboxCamera, setLightboxCamera] = useState(null);
+  const [lightboxImage, setLightboxImage] = useState(null);
   const loadedOnce = useRef(false);
 
   const load = useCallback(async () => {
     try {
-      const [c, r, e] = await Promise.all([
+      const [c, r, e, v] = await Promise.all([
         getJson('/api/traffic/cameras'),
         getJson('/api/traffic/roadworks'),
         getJson('/api/traffic/events'),
+        getJson('/api/traffic/vms'),
       ]);
       setCameras(c);
       setRoadworks(r);
       setEvents(e);
+      setVms(v);
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -306,7 +352,7 @@ export default function TrafficView({ visible }) {
 
   if (!visible) return null;
 
-  const data = activeLayer === 'cameras' ? cameras : activeLayer === 'roadworks' ? roadworks : events;
+  const data = { cameras, roadworks, events, vms }[activeLayer];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -330,9 +376,9 @@ export default function TrafficView({ visible }) {
         </div>
       ) : (
         <TrafficMap layer={activeLayer} features={data.features || []} visible={visible} updatedAt={data.updatedAt}
-          onOpenCamera={setLightboxCamera} />
+          onOpenImage={setLightboxImage} />
       )}
-      <CameraLightbox camera={lightboxCamera} onClose={() => setLightboxCamera(null)} />
+      <ImageLightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
     </div>
   );
 }
