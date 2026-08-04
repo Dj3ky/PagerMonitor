@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, LocateFixed, Users, Loader } from 'lucide-react';
-import { fetchMap, saveMessageLocation, clearMessageLocation, fetchUserLocations } from '../utils/api.js';
+import { ChevronLeft, ChevronRight, LocateFixed, Users, Loader, Camera as CameraIcon } from 'lucide-react';
+import { fetchMap, saveMessageLocation, clearMessageLocation, fetchUserLocations, fetchCameras } from '../utils/api.js';
 import { geocodeAddress, parseLocation } from '../utils/parseLocation.js';
 import { useSite } from '../context/SiteContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -64,6 +64,11 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
   const [showUsers,    setShowUsers]    = useState(false);
   const userMarkersRef = useRef({});
   const usersIntervalRef = useRef(null);
+
+  // ── Road cameras (NAP / b2b.nap.si) ───────────────────────────────────────
+  const [showCameras,  setShowCameras]  = useState(false);
+  const camerasLayerRef    = useRef(null); // L.layerGroup
+  const camerasIntervalRef = useRef(null);
   // Ref so the visible top-up effect always reads current fetch params without stale closure
   const fetchParamsRef = useRef({ mapMaxAgeDays, dateFrom: '', dateTo: '' });
 
@@ -212,6 +217,57 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     }
     return () => clearInterval(usersIntervalRef.current);
   }, [showUsers, isAdmin]);
+
+  // ── Road cameras layer ─────────────────────────────────────────────────────
+  const refreshCameras = useCallback(() => {
+    if (!mapRef.current || !window.L || !camerasLayerRef.current) return;
+    const L = window.L;
+    fetchCameras().then(geojson => {
+      const layer = camerasLayerRef.current;
+      layer.clearLayers();
+      (geojson?.features || []).forEach(f => {
+        const coords = f.geometry?.coordinates;
+        const items  = f.properties?.items || [];
+        if (!coords || !items.length) return;
+        const [lon, lat] = coords;
+        const group = f.properties?.group || {};
+
+        const body = items.map(it => `
+          <div style="margin-top:6px">
+            ${items.length > 1 ? `<div style="color:#888;font-size:0.68rem;margin-bottom:2px">${it.text_slo || it.title_slo || ''}</div>` : ''}
+            ${it.image ? `<img src="${it.image}" loading="lazy" style="width:100%;max-width:260px;border-radius:4px;display:block" onerror="this.style.display='none'"/>` : ''}
+          </div>`).join('');
+
+        const marker = L.marker([lat, lon], {
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="width:16px;height:16px;border-radius:50%;background:#0ea5e9;border:2px solid #fff;box-shadow:0 0 6px #0ea5e9;display:flex;align-items:center;justify-content:center;font-size:9px;">📷</div>`,
+            iconSize:[16,16], iconAnchor:[8,8], popupAnchor:[0,-8],
+          }),
+        }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem;min-width:200px">
+          <strong style="color:#0ea5e9">${group.title_slo || group.name || 'Camera'}</strong>
+          ${body}
+        </div>`, { maxWidth: 300 });
+
+        layer.addLayer(marker);
+      });
+    }).catch(e => console.warn('[MapView] fetchCameras failed:', e));
+  }, []);
+
+  useEffect(() => {
+    if (!mapReady || !window.L) return;
+    if (!camerasLayerRef.current) camerasLayerRef.current = window.L.layerGroup();
+
+    if (showCameras) {
+      camerasLayerRef.current.addTo(mapRef.current);
+      refreshCameras();
+      camerasIntervalRef.current = setInterval(refreshCameras, 5 * 60_000);
+    } else {
+      clearInterval(camerasIntervalRef.current);
+      try { mapRef.current?.removeLayer(camerasLayerRef.current); } catch (_) {}
+    }
+    return () => clearInterval(camerasIntervalRef.current);
+  }, [showCameras, mapReady, refreshCameras]);
 
   // When map tab becomes visible, top-up any coordinates saved after the last fetch
   useEffect(() => {
@@ -483,6 +539,23 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
             <Users size={11}/> Users
           </button>
         )}
+        <button
+          onClick={() => setShowCameras(s => !s)}
+          title="Show road cameras on map"
+          style={{
+            display:'flex', alignItems:'center', gap:'0.3rem',
+            padding:'0.22rem 0.5rem', borderRadius:'0.35rem', fontSize:'0.72rem',
+            fontWeight:500, cursor:'pointer', transition:'all 0.15s',
+            border: showCameras
+              ? '1px solid color-mix(in srgb, #0ea5e9 40%, transparent)'
+              : '1px solid var(--border)',
+            background: showCameras
+              ? 'color-mix(in srgb, #0ea5e9 12%, transparent)'
+              : 'var(--bg-3)',
+            color: showCameras ? '#0ea5e9' : 'var(--text-2)',
+          }}>
+          <CameraIcon size={11}/> Cameras
+        </button>
       </div>
       {/* Date range picker */}
       <div style={{ padding:'0.4rem 0.5rem', borderBottom:'1px solid var(--border)',

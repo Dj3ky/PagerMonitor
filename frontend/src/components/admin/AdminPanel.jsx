@@ -3,7 +3,7 @@ import { usePtrScroll } from '../../hooks/usePtrScroll.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
-         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane } from 'lucide-react';
+         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
@@ -29,6 +29,7 @@ import UserNotifPrefs  from './UserNotifPrefs.jsx';
 import ArchiveConfig   from './ArchiveConfig.jsx';
 import AiGeocodeConfig from './AiGeocodeConfig.jsx';
 import AircraftConfig  from './AircraftConfig.jsx';
+import NapTrafficConfig from './NapTrafficConfig.jsx';
 import UpdatePanel    from './UpdatePanel.jsx';
 import FeedFilter          from './FeedFilter.jsx';
 import MsgNormalizations   from './MsgNormalizations.jsx';
@@ -75,6 +76,7 @@ const TABS = [
   { id:'site',        label:'Site Settings',  icon:<Settings2 size={14}/>,  platformOnly: true },
   { id:'aigeocode',   label:'AI Geocode',     icon:<Brain size={14}/>,      platformOnly: true },
   { id:'aircraft',    label:'Aircraft Tracking', icon:<Plane size={14}/>,  platformOnly: true },
+  { id:'traffic',     label:'Traffic Data (NAP)', icon:<Camera size={14}/>, platformOnly: true },
   { id:'users',       label:'Users',          icon:<Users size={14}/> },
   { id:'userlocations', label:'User Locations', icon:<MapPin size={14}/> },
 
@@ -90,6 +92,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'db':          return <DbTools />;
     case 'aigeocode':   return <AiGeocodeConfig />;
     case 'aircraft':    return <AircraftConfig />;
+    case 'traffic':     return <NapTrafficConfig />;
     case 'stats':       return <StatsDashboard />;
     case 'notif':       return <NotifConfig />;
     case 'keyword':     return <KeywordAlerts />;

@@ -395,4 +395,8 @@ router.get('/weather/arso/quakes', requireAuth, (_req, res) => res.json(arsoQuak
 const openskyAircraft = require('../services/openskyAircraft');
 router.get('/aircraft', requireAuth, (_req, res) => res.json(openskyAircraft.getAircraft()));
 
+// ── Traffic data (NAP / b2b.nap.si) ─────────────────────────────────────────────
+const napTraffic = require('../services/napTraffic');
+router.get('/traffic/cameras', requireAuth, (_req, res) => res.json(napTraffic.getCameras()));
+
 module.exports = router;

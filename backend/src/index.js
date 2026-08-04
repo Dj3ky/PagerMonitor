@@ -13,6 +13,7 @@ const arsoWeather               = require('./services/arsoWeather');
 const smokWater                 = require('./services/smokWater');
 const arsoQuakes                = require('./services/arsoQuakes');
 const openskyAircraft           = require('./services/openskyAircraft');
+const napTraffic                = require('./services/napTraffic');
 const { loadSdrConfigIntoEnv } = require('./services/config');
 const { ensureDefaultAdmin, initSessions } = require('./services/auth');
 const { initWebPush } = require('./services/webpush');
@@ -175,6 +176,7 @@ async function main() {
   smokWater.start();
   arsoQuakes.start();
   openskyAircraft.start();
+  napTraffic.start();
 
   const shutdown = sig => {
     logger.info(`${sig} received`);
@@ -183,6 +185,7 @@ async function main() {
     smokWater.stop();
     arsoQuakes.stop();
     openskyAircraft.stop();
+    napTraffic.stop();
     closeWebSocket();
     server.close(() => process.exit(0));
     setTimeout(() => { logger.warn('Forced exit after 5s'); process.exit(0); }, 5000).unref();

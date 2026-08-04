@@ -510,6 +510,25 @@ router.put('/opensky/config', platformOnly, (req, res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
+// ── NAP (b2b.nap.si) traffic data credentials (instance-wide) ──────────────────
+const napTraffic = require('../services/napTraffic');
+router.get('/nap/config', platformOnly, (_req, res) => {
+  try {
+    const cfg = _gs('nap_config', { username:'', password:'' });
+    res.json({ ...cfg, status: napTraffic.getStatus() });
+  } catch(e){ res.status(500).json({error:e.message}); }
+});
+router.put('/nap/config', platformOnly, (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '').trim();
+    _ss('nap_config', { username, password });
+    napTraffic.restart();
+    addAuditLog(req.session?.username||'admin', 'nap.config', null);
+    res.json({ ok: true });
+  } catch(e){ res.status(500).json({error:e.message}); }
+});
+
 // ── Webhooks (org-scoped) ───────────────────────────────────────────────────────
 router.get('/webhooks', adminOnly, (_req,res) => { try{ res.json(getWebhooks(_req.session.orgId)); } catch(e){ res.status(500).json({error:e.message}); }});
 router.put('/webhooks', adminOnly, (req,res) => { try{ const { id } = upsertWebhook(req.session.orgId, req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});
