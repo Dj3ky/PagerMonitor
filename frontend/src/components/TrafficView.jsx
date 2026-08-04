@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader, X, Camera as CameraIcon, TriangleAlert } from 'lucide-react';
+import { Loader, X, Camera as CameraIcon, TriangleAlert, Siren } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
 
 // Our own backend's in-memory cache (napTraffic polls b2b.nap.si — every 10 min for
@@ -10,10 +10,12 @@ const IMG_REFRESH_MS = 12 * 1000; // only runs while a camera's popup is open
 const BASEMAP_STORAGE_KEY = 'pm_traffic_basemap';
 const CAMERA_COLOR = '#0ea5e9';
 const ROADWORK_COLOR = '#f59e0b';
+const EVENT_COLOR = '#a855f7'; // fallback for event categories that don't match a known cause below
 
 const LAYERS = [
   { id: 'cameras',   label: 'Cameras',    icon: <CameraIcon size={13}/> },
   { id: 'roadworks', label: 'Road works', icon: <TriangleAlert size={13}/> },
+  { id: 'events',    label: 'Events',     icon: <Siren size={13}/> },
 ];
 
 function escAttr(s) {
@@ -85,6 +87,40 @@ function roadworkIcon(L) {
   return L.divIcon({
     className: '',
     html: `<div style="width:16px;height:16px;border-radius:50%;background:${ROADWORK_COLOR};border:2px solid #fff;box-shadow:0 0 6px ${ROADWORK_COLOR};display:flex;align-items:center;justify-content:center;font-size:9px;">🚧</div>`,
+    iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8],
+  });
+}
+
+// ── Events (live incidents): popup content + icon ────────────────────────────
+// Color-coded by cause so severity reads at a glance: accidents in red stand
+// out from mere congestion or obstacles without opening every popup.
+function eventColor(vzrok) {
+  const v = (vzrok || '').toLowerCase();
+  if (v.includes('nesreč')) return '#ef4444'; // accident
+  if (v.includes('zastoj')) return '#f97316'; // congestion
+  if (v.includes('ovir'))   return '#eab308'; // obstacle
+  return EVENT_COLOR;
+}
+
+function buildEventPopupHtml(feature) {
+  const p = feature.properties || {};
+  const color = eventColor(p.vzrok);
+  return `
+    <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:220px;max-width:280px;color:var(--text-1)">
+      <div style="font-weight:700;color:${color}">${p.vzrok || 'Event'} — ${p.cesta || ''}</div>
+      <div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">
+        ${p.kategorija || ''}${p.IsConfirmed === false ? ' · unconfirmed' : ''}
+      </div>
+      ${p.opis ? `<div style="margin-top:0.4rem;line-height:1.4">${p.opis}</div>` : ''}
+      ${p.updated ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">Updated ${fmtDate(p.updated)}</div>` : ''}
+    </div>`;
+}
+
+function eventIcon(L, vzrok) {
+  const color = eventColor(vzrok);
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 6px ${color};display:flex;align-items:center;justify-content:center;font-size:9px;">⚠️</div>`,
     iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8],
   });
 }
@@ -208,8 +244,13 @@ function TrafficMap({ layer, features, visible, updatedAt, onOpenCamera }) {
           marker.on('popupclose', () => clearInterval(marker._pmImgTimer));
           return marker;
         }
-        const marker = L.marker([lat, lon], { icon: roadworkIcon(L) }).addTo(map);
-        marker.bindPopup(buildRoadworkPopupHtml(f), { maxWidth: 300 });
+        if (layer === 'roadworks') {
+          const marker = L.marker([lat, lon], { icon: roadworkIcon(L) }).addTo(map);
+          marker.bindPopup(buildRoadworkPopupHtml(f), { maxWidth: 300 });
+          return marker;
+        }
+        const marker = L.marker([lat, lon], { icon: eventIcon(L, f.properties?.vzrok) }).addTo(map);
+        marker.bindPopup(buildEventPopupHtml(f), { maxWidth: 300 });
         return marker;
       });
 
@@ -232,6 +273,7 @@ export default function TrafficView({ visible }) {
   const [activeLayer, setActiveLayer] = useState('cameras');
   const [cameras, setCameras] = useState(EMPTY);
   const [roadworks, setRoadworks] = useState(EMPTY);
+  const [events, setEvents] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lightboxCamera, setLightboxCamera] = useState(null);
@@ -239,12 +281,14 @@ export default function TrafficView({ visible }) {
 
   const load = useCallback(async () => {
     try {
-      const [c, r] = await Promise.all([
+      const [c, r, e] = await Promise.all([
         getJson('/api/traffic/cameras'),
         getJson('/api/traffic/roadworks'),
+        getJson('/api/traffic/events'),
       ]);
       setCameras(c);
       setRoadworks(r);
+      setEvents(e);
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -262,7 +306,7 @@ export default function TrafficView({ visible }) {
 
   if (!visible) return null;
 
-  const data = activeLayer === 'cameras' ? cameras : roadworks;
+  const data = activeLayer === 'cameras' ? cameras : activeLayer === 'roadworks' ? roadworks : events;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>

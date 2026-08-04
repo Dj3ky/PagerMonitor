@@ -57,10 +57,10 @@ export default function NapTrafficConfig() {
         <Camera size={16} style={{ color:'var(--accent-blue)' }} /> Traffic Data (NAP)
       </h2>
       <p style={{ fontSize:'0.82rem', color:'var(--text-3)', marginBottom:'1.25rem', lineHeight:1.6 }}>
-        Road cameras and road works (DARS/DRSI) from the National Access Point B2B feed at{' '}
-        <code style={{ fontSize:'0.75rem' }}>b2b.nap.si</code>. Enter the B2B account credentials
-        issued by NAP below — the same account will also cover variable message signs and
-        traffic info feeds as they're added.
+        Road cameras, road works and live traffic events (DARS/DRSI) from the National Access
+        Point B2B feed at <code style={{ fontSize:'0.75rem' }}>b2b.nap.si</code>. Enter the B2B
+        account credentials issued by NAP below — the same account will also cover variable
+        message signs and traffic info feeds as they're added.
       </p>
 
       {msg && (
@@ -79,6 +79,7 @@ export default function NapTrafficConfig() {
           {configured ? 'Configured' : 'Not configured — traffic layers stay empty until credentials are saved'}
           {status?.cameras?.updatedAt && <> · cameras refreshed {new Date(status.cameras.updatedAt).toLocaleString()}</>}
           {status?.roadworks?.updatedAt && <> · road works refreshed {new Date(status.roadworks.updatedAt).toLocaleString()}</>}
+          {status?.events?.updatedAt && <> · events refreshed {new Date(status.events.updatedAt).toLocaleString()}</>}
         </div>
 
         <label style={{ fontSize:'0.75rem', color:'var(--text-3)', display:'block', marginBottom:'0.3rem' }}>Username</label>

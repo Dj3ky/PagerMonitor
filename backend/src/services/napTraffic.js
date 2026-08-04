@@ -1,16 +1,17 @@
 'use strict';
 // NAP (National Access Point / b2b.nap.si) — Slovenian road traffic data: DARS/DRSI
-// cameras and road works today, with room to add VMS / traffic-info feeds later since
-// they all share the same B2B account. Credentials come from the `nap_config` setting
-// (Admin → Traffic Data), falling back to NAP_B2B_USER/NAP_B2B_PASS env vars.
+// cameras, road works and events today, with room to add VMS / traffic-info feeds
+// later since they all share the same B2B account. Credentials come from the
+// `nap_config` setting (Admin → Traffic Data), falling back to
+// NAP_B2B_USER/NAP_B2B_PASS env vars.
 const logger = require('../utils/logger');
 const { getSetting } = require('./database');
 
-const CAMERAS_URL   = 'https://b2b.nap.si/data/b2b.cameras.geojson';
-const ROADWORKS_URL = 'https://b2b.nap.si/data/b2b.roadworks.geojson.sl_SI';
-
-const CAMERAS_REFRESH_MS   = 10 * 60 * 1000; // camera locations/URLs change rarely — poll gently
-const ROADWORKS_REFRESH_MS = 5  * 60 * 1000; // entries carry same-day end times — needs to stay current
+const FEEDS = {
+  cameras:   { url: 'https://b2b.nap.si/data/b2b.cameras.geojson',           refreshMs: 10 * 60 * 1000 }, // locations/URLs change rarely — poll gently
+  roadworks: { url: 'https://b2b.nap.si/data/b2b.roadworks.geojson.sl_SI',   refreshMs: 5  * 60 * 1000 }, // entries carry same-day end times — needs to stay current
+  events:    { url: 'https://b2b.nap.si/data/b2b.events.geojson.sl_SI',      refreshMs: 3  * 60 * 1000 }, // live incidents (accidents/congestion) — freshest of the three
+};
 
 function getCredentials() {
   const stored = getSetting('nap_config', null);
@@ -28,49 +29,32 @@ function authHeader(creds) {
 }
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
-let cache = {
-  cameras:   { data: EMPTY_FC, updatedAt: null },
-  roadworks: { data: EMPTY_FC, updatedAt: null },
-};
-let camerasTimer = null;
-let roadworksTimer = null;
+const cache  = Object.fromEntries(Object.keys(FEEDS).map(k => [k, { data: EMPTY_FC, updatedAt: null }]));
+const timers = Object.fromEntries(Object.keys(FEEDS).map(k => [k, null]));
 
-async function fetchGeojson(url) {
+async function refresh(key) {
   const creds = getCredentials();
-  if (!creds) return null; // not configured yet
-  const res = await fetch(url, { headers: authHeader(creds), signal: AbortSignal.timeout(20000) });
+  if (!creds) return; // not configured yet
+  const res = await fetch(FEEDS[key].url, { headers: authHeader(creds), signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-async function refreshCameras() {
-  const geojson = await fetchGeojson(CAMERAS_URL);
-  if (!geojson) return;
-  cache.cameras = { data: geojson, updatedAt: new Date().toISOString() };
-}
-
-async function refreshRoadworks() {
-  const geojson = await fetchGeojson(ROADWORKS_URL);
-  if (!geojson) return;
-  cache.roadworks = { data: geojson, updatedAt: new Date().toISOString() };
+  const geojson = await res.json();
+  cache[key] = { data: geojson, updatedAt: new Date().toISOString() };
 }
 
 function start() {
-  if (camerasTimer || roadworksTimer) return;
+  if (Object.values(timers).some(Boolean)) return;
   const authenticated = !!getCredentials();
   logger.info(`NAP traffic data: ${authenticated ? 'starting' : 'no credentials configured, idle'}`);
   if (!authenticated) return;
 
-  refreshCameras().catch(e => logger.warn(`NAP cameras initial refresh: ${e.message}`));
-  camerasTimer = setInterval(() => refreshCameras().catch(e => logger.warn(`NAP cameras refresh: ${e.message}`)), CAMERAS_REFRESH_MS);
-
-  refreshRoadworks().catch(e => logger.warn(`NAP roadworks initial refresh: ${e.message}`));
-  roadworksTimer = setInterval(() => refreshRoadworks().catch(e => logger.warn(`NAP roadworks refresh: ${e.message}`)), ROADWORKS_REFRESH_MS);
+  for (const key of Object.keys(FEEDS)) {
+    refresh(key).catch(e => logger.warn(`NAP ${key} initial refresh: ${e.message}`));
+    timers[key] = setInterval(() => refresh(key).catch(e => logger.warn(`NAP ${key} refresh: ${e.message}`)), FEEDS[key].refreshMs);
+  }
 }
 
 function stop() {
-  clearInterval(camerasTimer); camerasTimer = null;
-  clearInterval(roadworksTimer); roadworksTimer = null;
+  for (const key of Object.keys(timers)) { clearInterval(timers[key]); timers[key] = null; }
 }
 
 // Re-reads credentials and restarts the poll loops — call after saving new config.
@@ -79,18 +63,17 @@ function restart() { stop(); start(); }
 function getStatus() {
   return {
     configured: !!getCredentials(),
-    cameras:    { updatedAt: cache.cameras.updatedAt },
-    roadworks:  { updatedAt: cache.roadworks.updatedAt },
+    ...Object.fromEntries(Object.keys(FEEDS).map(k => [k, { updatedAt: cache[k].updatedAt }])),
   };
 }
 
 // GeoJSON plus updatedAt/configured tacked on — extra top-level fields are
 // harmless to any GeoJSON consumer and let the frontend show staleness/setup state.
-function getCamerasResponse() {
-  return { ...cache.cameras.data, updatedAt: cache.cameras.updatedAt, configured: !!getCredentials() };
+function getResponse(key) {
+  return { ...cache[key].data, updatedAt: cache[key].updatedAt, configured: !!getCredentials() };
 }
-function getRoadworksResponse() {
-  return { ...cache.roadworks.data, updatedAt: cache.roadworks.updatedAt, configured: !!getCredentials() };
-}
+const getCamerasResponse   = () => getResponse('cameras');
+const getRoadworksResponse = () => getResponse('roadworks');
+const getEventsResponse    = () => getResponse('events');
 
-module.exports = { start, stop, restart, getStatus, getCamerasResponse, getRoadworksResponse };
+module.exports = { start, stop, restart, getStatus, getCamerasResponse, getRoadworksResponse, getEventsResponse };
