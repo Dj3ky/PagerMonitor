@@ -56,10 +56,10 @@ function planeIcon(L, a) {
   const opacity = a.live ? 1 : 0.45;
   const rotation = a.heading != null ? a.heading : 0;
   const html = `
-    <div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;transform:rotate(${rotation}deg);opacity:${opacity}">
-      <svg width="22" height="22" viewBox="0 0 24 24"><path d="${PLANE_SVG_PATH}" fill="${color}" stroke="#fff" stroke-width="1"/></svg>
+    <div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;transform:rotate(${rotation}deg);opacity:${opacity}">
+      <svg width="36" height="36" viewBox="0 0 24 24"><path d="${PLANE_SVG_PATH}" fill="${color}" stroke="#fff" stroke-width="0.8"/></svg>
     </div>`;
-  return L.divIcon({ html, className: 'pm-aircraft-icon', iconSize: [28, 28], iconAnchor: [14, 14] });
+  return L.divIcon({ html, className: 'pm-aircraft-icon', iconSize: [40, 40], iconAnchor: [20, 20] });
 }
 
 // ── Airborne-now strip ───────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
     const selected = aircraft.find(a => a.callsign === selectedCallsign);
     if (selected?.track?.length > 1) {
       trackLayerRef.current = L.polyline(selected.track.map(p => [p.lat, p.lon]), {
-        color: statusColor(selected), weight: 3, opacity: 0.8,
+        color: '#ffd700', weight: 3, opacity: 0.9,
       }).addTo(map);
     }
   }, [aircraft, selectedCallsign]);
