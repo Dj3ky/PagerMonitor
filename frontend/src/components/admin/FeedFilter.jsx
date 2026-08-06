@@ -12,7 +12,13 @@ const MODES = [
   { id: 'only_aliases',    label: 'Only aliased',        desc: 'Only process messages from capcodes that have an alias. Unaliased capcodes are dropped. Optionally restrict to specific aliases.' },
 ];
 
-const DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [], text_strings: [], text_regex: [] };
+const MESSAGE_TYPES = [
+  { id: 'all',     label: 'All' },
+  { id: 'alpha',   label: 'Alpha only' },
+  { id: 'numeric', label: 'Numeric only' },
+];
+
+const DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [], text_strings: [], text_regex: [], message_type: 'all' };
 
 function sanitise(raw) {
   if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
@@ -22,6 +28,7 @@ function sanitise(raw) {
     group_ids:    Array.isArray(raw.group_ids)    ? raw.group_ids.map(Number) : [],
     text_strings: Array.isArray(raw.text_strings) ? raw.text_strings : [],
     text_regex:   Array.isArray(raw.text_regex)   ? raw.text_regex : [],
+    message_type: MESSAGE_TYPES.map(t => t.id).includes(raw.message_type) ? raw.message_type : 'all',
   };
 }
 
@@ -57,7 +64,7 @@ export default function FeedFilter() {
   );
 
   const safe        = sanitise(filter);
-  const isFiltering = safe.mode !== 'show_all' || safe.text_strings.length > 0 || safe.text_regex.length > 0;
+  const isFiltering = safe.mode !== 'show_all' || safe.text_strings.length > 0 || safe.text_regex.length > 0 || safe.message_type !== 'all';
 
   return (
     <div style={{ maxWidth: '640px' }}>
@@ -273,6 +280,38 @@ export default function FeedFilter() {
           }
         </div>
       )}
+
+      {/* Message type — alpha vs numeric, independent of mode above */}
+      <div className="pm-card" style={{ marginBottom: '1rem' }}>
+        <div className="pm-section-title">Message type</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.6rem', lineHeight: 1.55 }}>
+          Runs <strong>after</strong> the selected mode above. Based on the POCSAG/FLEX function bits multimon-ng
+          already decodes — no numeric messages are mis-decoded, they're just dropped before reaching the feed.
+        </div>
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          {MESSAGE_TYPES.map(t => (
+            <label key={t.id} onClick={() => setFilter(f => ({ ...sanitise(f), message_type: t.id }))}
+              style={{
+                flex: 1, textAlign: 'center', padding: '0.4rem 0.5rem', borderRadius: '0.4rem', cursor: 'pointer',
+                fontSize: '0.8rem', fontWeight: 600, border: '1px solid',
+                color: safe.message_type === t.id ? 'var(--accent-blue)' : 'var(--text-2)',
+                background: safe.message_type === t.id
+                  ? 'color-mix(in srgb,var(--accent-blue) 12%,transparent)'
+                  : 'var(--bg-3)',
+                borderColor: safe.message_type === t.id
+                  ? 'color-mix(in srgb,var(--accent-blue) 35%,transparent)'
+                  : 'var(--border)',
+                transition: 'all 0.12s',
+              }}>
+              <input type="radio" name="feed_filter_message_type" value={t.id}
+                checked={safe.message_type === t.id}
+                onChange={() => setFilter(f => ({ ...sanitise(f), message_type: t.id }))}
+                style={{ display: 'none' }} />
+              {t.label}
+            </label>
+          ))}
+        </div>
+      </div>
 
       <div className="pm-card" style={{ marginBottom: '1rem' }}>
         <div className="pm-section-title">Message content filters</div>

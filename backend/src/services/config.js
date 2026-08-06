@@ -131,8 +131,21 @@ function saveDedupConfig(cfg) {
 // Controls which messages are broadcast to the live feed and returned in history.
 // mode: 'show_all' | 'ignore_capcodes' | 'only_capcodes' | 'only_groups' | 'only_aliases'
 const FEED_FILTER_MODES    = ['show_all', 'ignore_capcodes', 'only_capcodes', 'only_groups', 'only_aliases'];
-const FEED_FILTER_DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [], text_strings: [], text_regex: [] };
+// message_type: 'all' | 'alpha' | 'numeric' — independent of mode, same as the text filters below.
+// Only meaningful for POCSAG/FLEX, whose funcbits distinguish numeric-only pages from
+// alphanumeric ones (multimon-ng's default "standard" decode: POCSAG func 0 = numeric,
+// func != 0 = alpha; FLEX NUM = numeric). Anything else (unknown protocol) always passes.
+const MESSAGE_TYPES        = ['all', 'alpha', 'numeric'];
+const FEED_FILTER_DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [], text_strings: [], text_regex: [], message_type: 'all' };
 const MAX_TEXT_FILTERS     = 100; // text_strings/text_regex run on every incoming message — bound the list size
+
+function isNumericMessage(msg) {
+  const protocol = String(msg.protocol || '').toUpperCase();
+  const funcbits = Number(msg.funcbits);
+  if (protocol.startsWith('POCSAG')) return funcbits === 0;
+  if (protocol === 'FLEX')           return funcbits === 1; // FLEX_TYPE_FUNC.NUM (see services/sdr.js)
+  return false;
+}
 
 // Rejects patterns shaped for catastrophic backtracking (e.g. `(a+)+`), since
 // text_regex patterns run synchronously on every incoming message.
@@ -150,6 +163,7 @@ function getFeedFilter(orgId) {
     group_ids:    Array.isArray(raw.group_ids)    ? raw.group_ids.map(Number)     : [],
     text_strings: Array.isArray(raw.text_strings) ? raw.text_strings.map(String)  : [],
     text_regex:   Array.isArray(raw.text_regex)   ? raw.text_regex.map(String)    : [],
+    message_type: MESSAGE_TYPES.includes(raw.message_type) ? raw.message_type : 'all',
   };
 }
 
@@ -171,6 +185,7 @@ function saveFeedFilter(orgId, cfg) {
     group_ids:    Array.isArray(cfg.group_ids)    ? cfg.group_ids.map(Number)  : [],
     text_strings: textStrings,
     text_regex:   textRegex,
+    message_type: MESSAGE_TYPES.includes(cfg.message_type) ? cfg.message_type : 'all',
   });
   logger.info(`Feed filter saved (org=${orgId})`);
 }
@@ -203,6 +218,12 @@ function passesFeedFilter(msg, orgId) {
       if (!hasAlias) return false;
       // If specific capcodes listed — require capcode to be in that list too
       if (filter.capcodes.length > 0 && !filter.capcodes.includes(msgCapcode)) return false;
+    }
+
+    if (filter.message_type !== 'all') {
+      const numeric = isNumericMessage(msg);
+      if (filter.message_type === 'alpha'   && numeric)  return false;
+      if (filter.message_type === 'numeric' && !numeric) return false;
     }
 
     const text = String(msg.message || '');
