@@ -504,7 +504,11 @@ function createPipeline(baseCfg, index) {
       let lastRtlMs = Date.now();
       tap.on('data', () => {
         lastRtlMs = Date.now();
-        if (!pipelineRunning) pipelineRunning = true;
+        // Only reset backoff once real data actually flows — resetting on spawn alone (as
+        // this used to do) meant a process that fails immediately after every spawn (e.g.
+        // "device busy") retried at a flat 5s forever instead of backing off, which can
+        // itself starve the OS of the time it needs to actually release a stuck USB handle.
+        if (!pipelineRunning) { pipelineRunning = true; consecutiveFails = 0; }
       });
       tap.on('error', () => {});
       dataStream.pipe(tap);
@@ -556,7 +560,6 @@ function createPipeline(baseCfg, index) {
       rtlProc.on('error',  e => { if (myGen !== generation) return; log('error', `${label} ${sourceName} error: ${e.message}`);  pipelineRunning = false; if (!stopping) scheduleRestart(); });
       mmonProc.on('error', e => { if (myGen !== generation) return; log('error', `${label} mmon error: ${e.message}`);     pipelineRunning = false; if (!stopping) scheduleRestart(); });
 
-      consecutiveFails = 0;
       log('info', `${label} Pipeline spawned — waiting for audio data`);
     } catch (e) {
       log('error', `${label} Spawn failed: ${e.message}`);
