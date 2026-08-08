@@ -7,11 +7,18 @@ const http  = require('http');
 const https = require('https');
 const path  = require('path');
 const fs    = require('fs');
+const os    = require('os');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const SERVER_URL = (process.env.SERVER_URL || 'http://192.168.1.100:3000').replace(/\/$/, '');
 const CLIENT_KEY = process.env.CLIENT_KEY  || '';
 const CLIENT_ID  = process.env.CLIENT_ID   || 'rpi-1';
+
+// Icecast lives alongside the main server — voice channels stream outbound to it (same
+// direction as /client/message posts), never accepting inbound connections on this Pi.
+const ICECAST_HOST = process.env.ICECAST_HOST || (() => { try { return new URL(SERVER_URL).hostname; } catch (_) { return 'localhost'; } })();
+const ICECAST_PORT = process.env.ICECAST_PORT || '8000';
+const ICECAST_SOURCE_PASSWORD = process.env.ICECAST_SOURCE_PASSWORD || '';
 
 // ── Git version (reported to server so admin UI can show update availability) ─
 let CLIENT_GIT_HASH = null;
@@ -104,6 +111,93 @@ function buildMmonArgs(cfg) {
   if (cfg.charset)               args.push('-C', cfg.charset);
   args.push('-');
   return args;
+}
+
+// ── rtl_airband (multi-channel: POCSAG + voice, one dongle) ───────────────────
+// Mirrors backend/src/services/sdr.js's airband support. voiceChannels here are already
+// resolved (freq/mode/squelch/description) by the server's GET /client/config handler,
+// since this client has no DB of its own — see routes/client.js.
+function parseFreqHz(freq) {
+  const m = /^([\d.]+)\s*([kMG])?$/i.exec(String(freq).trim());
+  if (!m) return NaN;
+  const mult = { k: 1e3, m: 1e6, g: 1e9 }[(m[2] || '').toLowerCase()] || 1;
+  return Math.round(parseFloat(m[1]) * mult);
+}
+
+function fifoPathForDongle(device) {
+  return path.join(os.tmpdir(), `pagermonitor-airband-${device}.fifo`);
+}
+
+function ensureFifo(fifoPath) {
+  const st = fs.existsSync(fifoPath) ? fs.statSync(fifoPath) : null;
+  if (st && !st.isFIFO()) fs.unlinkSync(fifoPath);
+  if (!st || !st.isFIFO()) execSync(`mkfifo "${fifoPath}"`);
+}
+
+// NOTE: verify against the installed rtl_airband version's TOML schema (see server-side
+// sdr.js's identical note) before relying on this in production.
+function buildAirbandConfig(cfg, voiceChannels, fifoPath) {
+  const pocsagHz = parseFreqHz(cfg.freq);
+  const voiceHz  = voiceChannels.map(c => parseFreqHz(c.freq));
+  const allHz    = [pocsagHz, ...voiceHz];
+  const minHz = Math.min(...allHz), maxHz = Math.max(...allHz);
+  const span  = maxHz - minHz;
+  const sampleRate = Math.min(2_880_000, Math.max(1_000_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 2_400_000));
+  if (span > sampleRate * 0.9) {
+    log('warn', `airband dongle ${cfg.device}: channel spread (${span}Hz) is close to or exceeds capture bandwidth (${sampleRate}Hz) — some channels may not decode`);
+  }
+  const centerHz = Math.round((minHz + maxHz) / 2);
+  const fifoEscaped = fifoPath.replace(/\\/g, '\\\\');
+
+  const pocsagChannel = `
+[[devices.channels]]
+freqs = [${pocsagHz}]
+modulation = "nfm"
+outputs = [{ type = "file", filename = "${fifoEscaped}", continuous = true }]
+`;
+
+  const voiceBlocks = voiceChannels.map(c => {
+    const hz = parseFreqHz(c.freq);
+    const squelchLine = c.squelch ? `squelch_threshold = ${c.squelch}\n` : '';
+    const name = String(c.description || '').replace(/"/g, '');
+    return `
+[[devices.channels]]
+freqs = [${hz}]
+modulation = "${c.mode === 'am' ? 'am' : 'nfm'}"
+${squelchLine}outputs = [{ type = "icecast", server = "${ICECAST_HOST}", port = ${ICECAST_PORT}, mountpoint = "/ch${c.id}", username = "source", password = "${ICECAST_SOURCE_PASSWORD}", name = "${name}", format = "mp3" }]
+`;
+  }).join('\n');
+
+  return `[general]
+fft_size = 2048
+
+[[devices]]
+index = ${cfg.device ?? 0}
+gain = ${cfg.gain || '40'}
+correction = ${cfg.ppm || '0'}
+centerfreq = ${centerHz}
+sample_rate = ${sampleRate}
+${pocsagChannel}${voiceBlocks}
+`;
+}
+
+function spawnAudioSource(cfg, label) {
+  if (cfg.mode === 'airband') {
+    const fifoPath = fifoPathForDongle(cfg.device);
+    ensureFifo(fifoPath);
+    const voiceChannels = Array.isArray(cfg.voiceChannels) ? cfg.voiceChannels : [];
+    const configText = buildAirbandConfig(cfg, voiceChannels, fifoPath);
+    const configPath = path.join(os.tmpdir(), `pagermonitor-airband-${cfg.device}.conf`);
+    fs.writeFileSync(configPath, configText);
+    log('info', `${label} rtl_airband -c ${configPath} (POCSAG + ${voiceChannels.length} voice channel(s))`);
+    const proc = spawn('rtl_airband', ['-f', '-c', configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const dataStream = fs.createReadStream(fifoPath);
+    dataStream.on('error', () => {});
+    return { proc, dataStream, fifoPath };
+  }
+  const rtlArgs = buildRtlArgs(cfg);
+  const proc = spawn('rtl_fm', rtlArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+  return { proc, dataStream: proc.stdout };
 }
 
 // ── POCSAG/FLEX parser ────────────────────────────────────────────────────────
@@ -213,12 +307,24 @@ async function pollConfig(pipelines) {
     const { config, version } = r.body;
     if (!config || version === globalConfigVersion) return;
 
-    log('info', `Remote config updated (v${version}) — applying to all dongles`);
     globalOverrideCfg   = config;
     globalConfigVersion = version;
 
-    // Restart all pipelines with merged config
-    for (const p of pipelines) p.applyRemoteConfig(config);
+    // A `dongles` array targets specific pipelines by device index (used for airband
+    // mode/voiceChannels — server resolves voiceChannelIds into full channel data before
+    // sending, see routes/client.js). Anything else is the older flat override applied
+    // identically to every pipeline.
+    if (Array.isArray(config.dongles)) {
+      log('info', `Remote config updated (v${version}) — applying per-dongle overrides`);
+      for (const d of config.dongles) {
+        const p = pipelines.find(p => p.getCfg().device === String(d.device));
+        if (p) p.applyRemoteConfig(d);
+        else log('warn', `Remote config references device ${d.device} — no matching local pipeline, ignoring`);
+      }
+    } else {
+      log('info', `Remote config updated (v${version}) — applying to all dongles`);
+      for (const p of pipelines) p.applyRemoteConfig(config);
+    }
   } catch (e) {
     log('debug', `Config poll failed: ${e.message}`);
   }
@@ -274,6 +380,8 @@ function createPipeline(baseCfg, index) {
   let cfg      = { ...baseCfg };
   let rtlProc  = null;
   let mmonProc = null;
+  let dataStream = null;
+  let fifoPath   = null;
   let stopping = false;
   let restartTimer    = null;
   let consecutiveFails = 0;
@@ -287,10 +395,11 @@ function createPipeline(baseCfg, index) {
   function kill() {
     pipelineRunning = false;
     clearInterval(watchdogTimer); watchdogTimer = null;
-    try { if (rtlProc) rtlProc.stdout?.unpipe(); } catch (_) {}
+    try { dataStream?.unpipe(); dataStream?.destroy(); } catch (_) {}
     try { if (mmonProc) mmonProc.kill('SIGTERM'); } catch (_) {}
     try { if (rtlProc)  rtlProc.kill('SIGTERM'); } catch (_) {}
-    rtlProc = null; mmonProc = null;
+    try { if (fifoPath) fs.unlinkSync(fifoPath); } catch (_) {}
+    rtlProc = null; mmonProc = null; dataStream = null; fifoPath = null;
   }
 
   async function start() {
@@ -302,12 +411,15 @@ function createPipeline(baseCfg, index) {
     await sleep(3000);
     if (stopping || myGen !== generation) return;
 
-    const rtlArgs  = buildRtlArgs(cfg);
     const mmonArgs = buildMmonArgs(cfg);
-    log('info', `${label} rtl_fm -d ${cfg.device} -f ${cfg.freq} → multimon-ng ${cfg.protocols}`);
+    const sourceName = cfg.mode === 'airband' ? 'rtl_airband' : 'rtl_fm';
+    log('info', `${label} ${sourceName} -d ${cfg.device} -f ${cfg.freq} → multimon-ng ${cfg.protocols}`);
 
     try {
-      rtlProc  = spawn('rtl_fm',      rtlArgs,  { stdio: ['ignore', 'pipe', 'pipe'] });
+      const source = spawnAudioSource(cfg, label);
+      rtlProc    = source.proc;
+      dataStream = source.dataStream;
+      fifoPath   = source.fifoPath || null;
       mmonProc = spawn('multimon-ng', mmonArgs, { stdio: ['pipe',   'pipe', 'pipe'] });
 
       const tap = new PassThrough();
@@ -317,21 +429,21 @@ function createPipeline(baseCfg, index) {
         if (!pipelineRunning) pipelineRunning = true;
       });
       tap.on('error', () => {});
-      rtlProc.stdout.pipe(tap);
+      dataStream.pipe(tap);
       tap.pipe(mmonProc.stdin);
-      rtlProc.stdout.on('error', () => {});
+      dataStream.on('error', () => {});
       mmonProc.stdin.on('error',  () => {});
       watchdogTimer = setInterval(() => {
         if (stopping || myGen !== generation) { clearInterval(watchdogTimer); watchdogTimer = null; return; }
         if (Date.now() - lastRtlMs > 20000) {
           clearInterval(watchdogTimer); watchdogTimer = null;
-          log('warn', `${label} rtl_fm watchdog: no audio data for 20s — restarting`);
+          log('warn', `${label} ${sourceName} watchdog: no audio data for 20s — restarting`);
           if (!stopping) scheduleRestart();
         }
       }, 10000);
 
       rtlProc.stderr.on('data', d =>
-        d.toString().split('\n').forEach(l => { if (l.trim()) log('debug', `${label} rtl_fm: ${l.trim()}`); })
+        d.toString().split('\n').forEach(l => { if (l.trim()) log('debug', `${label} ${sourceName}: ${l.trim()}`); })
       );
       mmonProc.stderr.on('data', d =>
         d.toString().split('\n').forEach(l => { if (l.trim()) log('debug', `${label} mmon: ${l.trim()}`); })
@@ -361,9 +473,9 @@ function createPipeline(baseCfg, index) {
         pipelineRunning = false;
         if (!stopping) scheduleRestart();
       };
-      rtlProc.on('exit',  onExit('rtl_fm'));
+      rtlProc.on('exit',  onExit(sourceName));
       mmonProc.on('exit', onExit('multimon-ng'));
-      rtlProc.on('error',  e => { if (myGen !== generation) return; log('error', `${label} rtl_fm error: ${e.message}`);  pipelineRunning = false; if (!stopping) scheduleRestart(); });
+      rtlProc.on('error',  e => { if (myGen !== generation) return; log('error', `${label} ${sourceName} error: ${e.message}`);  pipelineRunning = false; if (!stopping) scheduleRestart(); });
       mmonProc.on('error', e => { if (myGen !== generation) return; log('error', `${label} mmon error: ${e.message}`);     pipelineRunning = false; if (!stopping) scheduleRestart(); });
 
       consecutiveFails = 0;
@@ -388,7 +500,10 @@ function createPipeline(baseCfg, index) {
     for (const [k, v] of Object.entries(remote)) {
       if (v !== '' && v != null) newCfg[k] = v;
     }
-    const changed = Object.keys(newCfg).some(k => newCfg[k] !== cfg[k]);
+    // JSON-compare rather than !== — voiceChannels (and any other array/object field) is a
+    // fresh reference on every poll even when its content is identical, which would
+    // otherwise look "changed" every cycle and restart the pipeline every 60s forever.
+    const changed = Object.keys(newCfg).some(k => JSON.stringify(newCfg[k]) !== JSON.stringify(cfg[k]));
     if (!changed) return;
     log('info', `${label} Applying remote config — restarting`);
     Object.assign(cfg, newCfg);

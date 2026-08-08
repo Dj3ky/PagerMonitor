@@ -1,0 +1,20 @@
+# PagerMonitor — Icecast relay for voice channels
+# Receives continuous audio pushed from rtl_airband (local dongles or remote RPi
+# clients) and serves it to browsers. See INSTALL.md's "Voice channels" section.
+
+FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="PagerMonitor Icecast"
+LABEL org.opencontainers.image.description="Icecast relay for PagerMonitor voice channels"
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends icecast2 gettext-base && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY docker/icecast.xml.template /etc/icecast2/icecast.xml.template
+COPY docker/icecast-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8000
+
+ENTRYPOINT ["/entrypoint.sh"]

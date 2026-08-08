@@ -323,6 +323,22 @@ function _migrate() {
     }
   }
 
+  // Voice channels — listenable audio channels (e.g. firefighter dispatch), org-scoped like
+  // aliases/groups (NULL org_id = global/shared default). Deliberately separate from SDR/dongle
+  // config: this table only ever holds channels a user can choose to listen to, never the
+  // POCSAG decode frequency itself.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS voice_channels (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id      INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+      description TEXT    NOT NULL,
+      freq        TEXT    NOT NULL,
+      mode        TEXT    NOT NULL DEFAULT 'nfm',
+      squelch     TEXT    NOT NULL DEFAULT '',
+      sort_order  INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
   // Message notes
   db.exec(`
     CREATE TABLE IF NOT EXISTS message_notes (
@@ -823,6 +839,27 @@ function upsertKeywordAlert(orgId, alert) {
 }
 function deleteKeywordAlert(id, orgId) { return getDb().prepare('DELETE FROM keyword_alerts WHERE id=? AND org_id=?').run(id, orgId).changes; }
 
+// ── Voice channels (org-scoped; separate from SDR/dongle POCSAG config) ────────
+function getVoiceChannels(orgId) {
+  if (orgId == null) return getDb().prepare('SELECT * FROM voice_channels ORDER BY sort_order ASC, id ASC').all();
+  return getDb().prepare('SELECT * FROM voice_channels WHERE org_id=? ORDER BY sort_order ASC, id ASC').all(orgId);
+}
+function upsertVoiceChannel(orgId, ch) {
+  if (ch.id) {
+    const changes = getDb().prepare('UPDATE voice_channels SET description=?,freq=?,mode=?,squelch=?,sort_order=? WHERE id=? AND org_id=?')
+      .run(ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.sort_order || 0, ch.id, orgId).changes;
+    return { id: ch.id, changes };
+  }
+  const id = getDb().prepare('INSERT INTO voice_channels (org_id,description,freq,mode,squelch,sort_order) VALUES (?,?,?,?,?,?)')
+    .run(orgId, ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.sort_order || 0).lastInsertRowid;
+  return { id, changes: 1 };
+}
+function deleteVoiceChannel(id, orgId) { return getDb().prepare('DELETE FROM voice_channels WHERE id=? AND org_id=?').run(id, orgId).changes; }
+// Unscoped lookup for internal SDR pipeline use — dongle_configs (instance-wide, not org-scoped)
+// stores raw channel ids, so generating a dongle's rtl_airband config needs the row regardless
+// of which org owns it.
+function getVoiceChannelById(id) { return getDb().prepare('SELECT * FROM voice_channels WHERE id=?').get(id); }
+
 // ── Webhooks ──────────────────────────────────────────────────────────────────
 function getWebhooks(orgId) { return getDb().prepare('SELECT * FROM webhooks WHERE org_id=? ORDER BY id').all(orgId); }
 function upsertWebhook(orgId, w) {
@@ -970,6 +1007,7 @@ module.exports = {
   getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode,
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,
   getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
+  getVoiceChannels, upsertVoiceChannel, deleteVoiceChannel, getVoiceChannelById,
   getWebhooks, upsertWebhook, deleteWebhook,
   addAuditLog, getAuditLog,
   getStats,

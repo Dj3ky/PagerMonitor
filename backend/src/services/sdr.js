@@ -1,7 +1,10 @@
-const { spawn }  = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { PassThrough } = require('stream');
+const fs   = require('fs');
+const path = require('path');
+const os   = require('os');
 const iconv      = require('iconv-lite');
-const { insertMessage, getSetting, normCapcode } = require('./database');
+const { insertMessage, getSetting, normCapcode, getVoiceChannelById } = require('./database');
 const { broadcast }          = require('./websocket');
 const { broadcastAll, notifyAll } = require('./fanout');
 const { recordMessage, registerSource, unregisterSource } = require('./deadair');
@@ -127,6 +130,106 @@ function buildMmonArgsForDongle(dongle) {
   if (charset) args.push('-C', charset);
   args.push('-');
   return args;
+}
+
+// ── rtl_airband (multi-channel: POCSAG + voice, one dongle) ───────────────────
+// Only used by multi-dongle entries with mode:'airband'. Plain rtl_fm dongles (mode:'single',
+// the default) are completely untouched by any of this.
+function parseFreqHz(freq) {
+  const m = /^([\d.]+)\s*([kMG])?$/i.exec(String(freq).trim());
+  if (!m) return NaN;
+  const mult = { k: 1e3, m: 1e6, g: 1e9 }[(m[2] || '').toLowerCase()] || 1;
+  return Math.round(parseFloat(m[1]) * mult);
+}
+
+function fifoPathForDongle(device) {
+  return path.join(os.tmpdir(), `pagermonitor-airband-${device}.fifo`);
+}
+
+// Named pipe rtl_airband writes the POCSAG channel's raw audio into, which we then read
+// and pipe into multimon-ng's stdin — the fifo stands in for rtl_fm's stdout in single mode.
+function ensureFifo(fifoPath) {
+  const st = fs.existsSync(fifoPath) ? fs.statSync(fifoPath) : null;
+  if (st && !st.isFIFO()) fs.unlinkSync(fifoPath);
+  if (!st || !st.isFIFO()) execSync(`mkfifo "${fifoPath}"`);
+}
+
+// NOTE: rtl_airband's TOML config schema varies by version — verify this against the
+// installed version's documentation/`--help` before relying on it (see plan's "practical
+// validation" step). This targets the modern (v5+) TOML format.
+function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
+  const e = process.env;
+  const pocsagHz = parseFreqHz(dongle.freq || e.RTL_FM_FREQ || '173.250M');
+  const voiceHz  = voiceChannels.map(c => parseFreqHz(c.freq));
+  const allHz    = [pocsagHz, ...voiceHz];
+  const minHz = Math.min(...allHz), maxHz = Math.max(...allHz);
+  const span  = maxHz - minHz;
+  // Capture bandwidth needs headroom over the raw channel spread — round up to a supported rate.
+  const sampleRate = Math.min(2_880_000, Math.max(1_000_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 2_400_000));
+  if (span > sampleRate * 0.9) {
+    logger.warn(`airband dongle ${dongle.device}: channel spread (${span}Hz) is close to or exceeds capture bandwidth (${sampleRate}Hz) — some channels may not decode`);
+  }
+  const centerHz = Math.round((minHz + maxHz) / 2);
+
+  const icecastHost = dongle.icecastHost || e.ICECAST_HOST || 'localhost';
+  const icecastPort = dongle.icecastPort || e.ICECAST_PORT || '8000';
+  const icecastPass = dongle.icecastPassword || e.ICECAST_SOURCE_PASSWORD || '';
+  const fifoEscaped = fifoPath.replace(/\\/g, '\\\\');
+
+  const pocsagChannel = `
+[[devices.channels]]
+freqs = [${pocsagHz}]
+modulation = "nfm"
+outputs = [{ type = "file", filename = "${fifoEscaped}", continuous = true }]
+`;
+
+  const voiceBlocks = voiceChannels.map(c => {
+    const hz = parseFreqHz(c.freq);
+    const squelchLine = c.squelch ? `squelch_threshold = ${c.squelch}\n` : '';
+    const name = String(c.description || '').replace(/"/g, '');
+    return `
+[[devices.channels]]
+freqs = [${hz}]
+modulation = "${c.mode === 'am' ? 'am' : 'nfm'}"
+${squelchLine}outputs = [{ type = "icecast", server = "${icecastHost}", port = ${icecastPort}, mountpoint = "/ch${c.id}", username = "source", password = "${icecastPass}", name = "${name}", format = "mp3" }]
+`;
+  }).join('\n');
+
+  return `[general]
+fft_size = 2048
+
+[[devices]]
+index = ${dongle.device ?? 0}
+gain = ${dongle.gain || e.RTL_FM_GAIN || '40'}
+correction = ${dongle.ppm || e.RTL_FM_PPM || '0'}
+centerfreq = ${centerHz}
+sample_rate = ${sampleRate}
+${pocsagChannel}${voiceBlocks}
+`;
+}
+
+// Spawns whichever process feeds POCSAG audio for this dongle, returning a uniform
+// { proc, dataStream } shape regardless of mode — proc is what gets tracked/killed,
+// dataStream is what gets piped into multimon-ng's stdin.
+function spawnAudioSource(dongle, label) {
+  if (dongle.mode === 'airband') {
+    const fifoPath = fifoPathForDongle(dongle.device);
+    ensureFifo(fifoPath);
+    const voiceChannels = (Array.isArray(dongle.voiceChannelIds) ? dongle.voiceChannelIds : [])
+      .map(id => getVoiceChannelById(id))
+      .filter(Boolean);
+    const configText = buildAirbandConfig(dongle, voiceChannels, fifoPath);
+    const configPath = path.join(os.tmpdir(), `pagermonitor-airband-${dongle.device}.conf`);
+    fs.writeFileSync(configPath, configText);
+    logger.info(`${label} rtl_airband -c ${configPath} (POCSAG + ${voiceChannels.length} voice channel(s))`);
+    const proc = spawn('rtl_airband', ['-f', '-c', configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const dataStream = fs.createReadStream(fifoPath);
+    dataStream.on('error', () => {});
+    return { proc, dataStream, fifoPath, configPath };
+  }
+  const rtlArgs = buildRtlFmArgsForDongle(dongle);
+  const proc = spawn('rtl_fm', rtlArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+  return { proc, dataStream: proc.stdout, rtlArgs };
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -462,14 +565,14 @@ function handleLine(line, sourceId = 'sdr') {
 function spawnDonglePipeline(dongle, label, myGen) {
   const dongleSourceId = `dongle-${dongle.device}`;
   registerSource(dongleSourceId);
-  const rtlArgs  = buildRtlFmArgsForDongle(dongle);
   const mmonArgs = buildMmonArgsForDongle(dongle);
-  logger.info(`${label} Starting: device=${dongle.device} freq=${dongle.freq || process.env.RTL_FM_FREQ}`);
+  const sourceName = dongle.mode === 'airband' ? 'rtl_airband' : 'rtl_fm';
+  logger.info(`${label} Starting: device=${dongle.device} freq=${dongle.freq || process.env.RTL_FM_FREQ} mode=${dongle.mode || 'single'}`);
 
   const state = { running: false, error: null, restarts: 0, lastMessage: null };
 
-  const rtl  = spawn('rtl_fm',      rtlArgs,  { stdio: ['ignore', 'pipe', 'pipe'] });
-  const mmon = spawn('multimon-ng', mmonArgs, { stdio: ['pipe',   'pipe', 'pipe'] });
+  const { proc: rtl, dataStream, rtlArgs, fifoPath, configPath } = spawnAudioSource(dongle, label);
+  const mmon = spawn('multimon-ng', mmonArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
   const tap = new PassThrough();
   let lastRtlMs = Date.now();
   tap.on('data', () => {
@@ -480,20 +583,20 @@ function spawnDonglePipeline(dongle, label, myGen) {
     }
   });
   tap.on('error', () => {});
-  rtl.stdout.pipe(tap);
+  dataStream.pipe(tap);
   tap.pipe(mmon.stdin);
-  rtl.stdout.on('error', () => {});
+  dataStream.on('error', () => {});
   mmon.stdin.on('error',  () => {});
   const watchdog = setInterval(() => {
     if (myGen !== generation) { clearInterval(watchdog); return; }
     if (Date.now() - lastRtlMs > 20000) {
       clearInterval(watchdog);
       logger.warn(`${label} watchdog: no audio data for 20s — restarting`);
-      if (!stopping) onFail('watchdog', 'rtl_fm stalled');
+      if (!stopping) onFail('watchdog', `${sourceName} stalled`);
     }
   }, 10000);
 
-  rtl.stderr.on('data',  d => d.toString().split('\n').forEach(l => { if (l.trim()) addLog('rtl_fm',  `${label} ${l.trim()}`); }));
+  rtl.stderr.on('data',  d => d.toString().split('\n').forEach(l => { if (l.trim()) addLog(sourceName,  `${label} ${l.trim()}`); }));
   mmon.stderr.on('data', d => d.toString().split('\n').forEach(l => { if (l.trim()) addLog('mmon',    `${label} ${l.trim()}`); }));
 
   let buf = '';
@@ -542,12 +645,12 @@ function spawnDonglePipeline(dongle, label, myGen) {
     logger.info(`${label} ${src} exited (${c}/${s})`);
     if (!stopping) onFail(src, `${src} exited (${c}/${s})`);
   };
-  rtl.on('exit',  onExit('rtl_fm'));
+  rtl.on('exit',  onExit(sourceName));
   mmon.on('exit', onExit('multimon-ng'));
-  rtl.on('error',  e => { if (myGen !== generation) return; logger.error(`${label} rtl_fm: ${e.message}`);  if (!stopping) onFail('rtl_fm',  e.message); });
+  rtl.on('error',  e => { if (myGen !== generation) return; logger.error(`${label} ${sourceName}: ${e.message}`);  if (!stopping) onFail(sourceName,  e.message); });
   mmon.on('error', e => { if (myGen !== generation) return; logger.error(`${label} mmon: ${e.message}`);     if (!stopping) onFail('mmon',    e.message); });
 
-  return { rtlProc: rtl, mmonProc: mmon, cfg: dongle, label, state, watchdog, rtlArgs, mmonArgs };
+  return { rtlProc: rtl, mmonProc: mmon, dataStream, cfg: dongle, label, state, watchdog, rtlArgs, mmonArgs, fifoPath, configPath };
 }
 
 function broadcastDongleStatus() {
@@ -570,10 +673,11 @@ function broadcastDongleStatus() {
 function stopMultiDonglePipelines() {
   for (const p of donglePipelines) {
     try { clearInterval(p.watchdog); } catch (_) {}
-    try { if (p.rtlProc) p.rtlProc.stdout?.unpipe(); } catch (_) {}
+    try { p.dataStream?.unpipe(); p.dataStream?.destroy(); } catch (_) {}
     try { p.mmonProc?.kill('SIGTERM'); } catch (_) {}
     try { p.rtlProc?.kill('SIGTERM'); } catch (_) {}
     try { unregisterSource(`dongle-${p.cfg.device}`); } catch (_) {}
+    try { if (p.fifoPath) fs.unlinkSync(p.fifoPath); } catch (_) {}
   }
   donglePipelines = [];
 }

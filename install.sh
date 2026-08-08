@@ -160,6 +160,27 @@ if [ ! -f "$PAGEMON_DIR/backend/.env" ]; then
   echo "  ✓ Created — edit $PAGEMON_DIR/backend/.env to set RTL_FM_FREQ"
 fi
 
+# ── Icecast (voice channels — only needed if you assign a dongle to airband mode) ──
+echo ""
+echo "► Setting up Icecast (voice channel relay)…"
+ICECAST_PW="$(grep -oP '^ICECAST_SOURCE_PASSWORD=\K.*' "$PAGEMON_DIR/backend/.env" 2>/dev/null || true)"
+if [ -z "$ICECAST_PW" ] || [ "$ICECAST_PW" = "change-me" ]; then
+  ICECAST_PW="$(head -c 18 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 20)"
+  if grep -q '^ICECAST_SOURCE_PASSWORD=' "$PAGEMON_DIR/backend/.env" 2>/dev/null; then
+    sed -i "s|^ICECAST_SOURCE_PASSWORD=.*|ICECAST_SOURCE_PASSWORD=$ICECAST_PW|" "$PAGEMON_DIR/backend/.env"
+  else
+    echo "ICECAST_SOURCE_PASSWORD=$ICECAST_PW" >> "$PAGEMON_DIR/backend/.env"
+  fi
+  echo "  ✓ Generated ICECAST_SOURCE_PASSWORD and saved to backend/.env"
+fi
+echo icecast2 icecast2/icecast-setup boolean true | $SUDO debconf-set-selections
+echo "icecast2 icecast2/sourcepassword password $ICECAST_PW" | $SUDO debconf-set-selections
+echo "icecast2 icecast2/relaypassword password $ICECAST_PW" | $SUDO debconf-set-selections
+echo "icecast2 icecast2/adminpassword password $ICECAST_PW" | $SUDO debconf-set-selections
+$SUDO apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" icecast2
+$SUDO systemctl enable icecast2 && $SUDO systemctl restart icecast2
+echo "  ✓ Icecast installed and running on port 8000"
+
 # ── Frontend ──────────────────────────────────────────────────────────────────
 echo ""
 echo "► Building frontend…"

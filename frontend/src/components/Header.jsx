@@ -3,6 +3,7 @@ import { Radio, Search, Volume2, VolumeX, Settings, Rss, Sun, Moon, LogOut, User
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useAuth }  from '../context/AuthContext.jsx';
 import { useSite }  from '../context/SiteContext.jsx';
+import LiveChannels from './LiveChannels.jsx';
 
 export default function Header({ wsStatus, soundEnabled, onToggleSound, browserNotif, onSearch, searching, view, setView, isGuest, onGuestLogin, onProfileOpen }) {
   const [query, setQuery]       = useState('');
@@ -100,6 +101,9 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
               <NavBtn active={view==='admin'} onClick={() => nav('admin')} icon={<Settings size={13}/>} label="Settings" />
             )}
+
+            {/* Live voice channels (firefighter dispatch etc.) — hidden if none configured */}
+            <LiveChannels />
 
             {/* Sound + browser notifications + theme */}
             <IconBtn title={soundEnabled ? 'Mute sound alerts' : 'Enable sound alerts'} onClick={onToggleSound} active={soundEnabled}>

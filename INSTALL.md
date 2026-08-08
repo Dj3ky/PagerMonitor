@@ -228,6 +228,28 @@ DONGLES=[{"device":0,"freq":"173.250M","gain":"40","protocols":"POCSAG1200"},{"d
 
 Or configure per-dongle in **Admin → SDR Control → Multiple SDR dongles**.
 
+### Voice channels (listen live alongside POCSAG)
+
+If your local pager frequency and a voice frequency (e.g. firefighter dispatch) sit within
+~2MHz of each other, one dongle can decode POCSAG *and* stream voice channels live to the
+browser at the same time, using [rtl_airband](https://github.com/szpajder/RTLSDR-Airband)
+instead of `rtl_fm` for that dongle. Voice audio streams continuously (regardless of whether
+anyone's listening) to a shared Icecast server, and browsers just press play.
+
+1. Install `rtl_airband` on the machine with the dongle (native install: build from source —
+   not automated by `install.sh`, since the exact build steps vary by version; Docker/native
+   server installs already get an Icecast relay via `install.sh`/`docker-compose.yml`).
+2. Add your voice channels in **Admin → Voice Channels** (description, frequency, mode, squelch).
+3. In **Admin → SDR Control → Multiple SDR dongles**, set a dongle's mode to *Multi
+   (rtl_airband)* and check which channels it should decode alongside POCSAG.
+4. For remote RPi clients, set `ICECAST_SOURCE_PASSWORD` in `client/.env` to match the
+   server's, and the assigned channels are pushed down automatically via the existing
+   remote-config mechanism — no inbound ports needed on the Pi.
+
+`ICECAST_SOURCE_PASSWORD` (`backend/.env`) is generated automatically by `install.sh`;
+Docker deployments set it in the top-level `.env`. See `backend/.env.example` for all
+`ICECAST_*` variables.
+
 ---
 
 ## Admin panel

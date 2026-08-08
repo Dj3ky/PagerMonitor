@@ -42,6 +42,10 @@ services:
     environment:
       - MODE=single
       - DISABLE_SDR=${DISABLE_SDR:-false}
+      # Docker service-name DNS, not localhost — icecast runs in its own container.
+      - ICECAST_HOST=icecast
+    depends_on:
+      - icecast
     devices:
       # RTL-SDR dongle — comment out if not connected
       - /dev/bus/usb:/dev/bus/usb
@@ -96,12 +100,38 @@ services:
     environment:
       - MODE=server
       - DISABLE_SDR=true
+      - ICECAST_HOST=icecast
+    depends_on:
+      - icecast
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Icecast relay (voice channels) ────────────────────────────────────────
+  # Runs alongside the backend on either profile — receives audio pushed outbound from
+  # rtl_airband (local dongles or remote RPi clients) and serves it to browsers.
+  # Only needed if you assign voice channels to a dongle in Admin → SDR Control.
+  icecast:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.icecast
+    image: pagermonitor-icecast:latest
+    container_name: pagermonitor-icecast
+    restart: unless-stopped
+    profiles: ["single", "server", ""]
+    ports:
+      - "${ICECAST_PORT:-8000}:8000"
+    environment:
+      - ICECAST_SOURCE_PASSWORD=${ICECAST_SOURCE_PASSWORD:-change-me}
+      - ICECAST_ADMIN_PASSWORD=${ICECAST_ADMIN_PASSWORD:-change-me-too}
     logging:
       driver: "json-file"
       options:

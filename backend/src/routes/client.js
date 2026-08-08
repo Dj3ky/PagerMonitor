@@ -17,6 +17,7 @@ const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
 const { recordMessage, unregisterSource } = require('../services/deadair');
 const { recordClientMessage, recordClientPing, recordClientOffline, getClientConfig, popPendingCommand } = require('../services/clientTracker');
 const { getDedupConfig } = require('../services/config');
+const { getVoiceChannelById } = require('../services/database');
 const logger                    = require('../utils/logger');
 
 // Dedup cache (same logic as sdr.js but for remote messages)
@@ -157,6 +158,18 @@ router.get('/config', requireClientKey, (req, res) => {
   const command = popPendingCommand(clientId); // one-shot — cleared after this read
 
   if (!cfg) return res.json({ config: null, version: null, command: command || null });
+
+  // The client has no DB of its own — resolve each airband dongle's voiceChannelIds into
+  // full channel rows (freq/mode/squelch/description) here so it can build rtl_airband's
+  // config directly, mirroring what sdr.js does locally via getVoiceChannelById.
+  if (Array.isArray(cfg.config?.dongles)) {
+    cfg.config = {
+      ...cfg.config,
+      dongles: cfg.config.dongles.map(d => d.mode === 'airband'
+        ? { ...d, voiceChannels: (Array.isArray(d.voiceChannelIds) ? d.voiceChannelIds : []).map(getVoiceChannelById).filter(Boolean) }
+        : d),
+    };
+  }
 
   res.json({ ...cfg, command: command || null });
 });

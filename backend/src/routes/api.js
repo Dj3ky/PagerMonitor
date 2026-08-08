@@ -8,7 +8,7 @@ const ROOT_DIR = path.join(__dirname, '../../..');
 
 const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, deleteAlias,
         getGroups, getHighlightRules, getLastSeenId, setLastSeenId,
-        upsertUserLocation, deleteUserLocation,
+        upsertUserLocation, deleteUserLocation, getVoiceChannels,
         ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL } = require('../services/database');
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
@@ -80,6 +80,12 @@ router.get('/status', requireAuth, (_req, res) => {
 });
 
 router.get('/aliases', requireAuth, (req, res) => res.json(getAliases(req.session.orgId)));
+
+// Listenable voice channels for this org — mount name is derived from the channel's id
+// (a channel should only ever be assigned to one dongle at a time; see sdr.js airband config).
+router.get('/voice-channels', requireAuth, (req, res) => {
+  res.json(getVoiceChannels(req.session.orgId).map(ch => ({ ...ch, mount: `ch${ch.id}` })));
+});
 router.put('/aliases/:capcode', requireEditor, (req, res) => {
   const { name, color, notes, group_id } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });

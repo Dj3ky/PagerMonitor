@@ -12,6 +12,7 @@ const { getDb, getStats, getMessageStats,
         getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
         getHighlightRules, upsertHighlightRule, deleteHighlightRule,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
+        getVoiceChannels, upsertVoiceChannel, deleteVoiceChannel,
         getWebhooks, upsertWebhook, deleteWebhook,
         addAuditLog, getAuditLog,
         deleteMessage, getUserLocations, getUserById,
@@ -482,6 +483,17 @@ router.delete('/keyword-alerts/:id', (req,res) => {
   try {
     const changes = deleteKeywordAlert(parseInt(req.params.id), req.session.orgId);
     if (!changes) return res.status(404).json({ error: 'Alert not found, or not yours to delete' });
+    res.json({ok:true});
+  } catch(e){ res.status(500).json({error:e.message}); }
+});
+
+// ── Voice channels (org-scoped) — listenable audio channels, separate from SDR/POCSAG config ──
+router.get('/voice-channels',        (req,res) => { try{ res.json(getVoiceChannels(req.session.orgId)); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/voice-channels',        (req,res) => { try{ const { id } = upsertVoiceChannel(req.session.orgId, req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});
+router.delete('/voice-channels/:id', (req,res) => {
+  try {
+    const changes = deleteVoiceChannel(parseInt(req.params.id), req.session.orgId);
+    if (!changes) return res.status(404).json({ error: 'Channel not found, or not yours to delete' });
     res.json({ok:true});
   } catch(e){ res.status(500).json({error:e.message}); }
 });

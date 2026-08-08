@@ -35,6 +35,7 @@ import FeedFilter          from './FeedFilter.jsx';
 import MsgNormalizations   from './MsgNormalizations.jsx';
 import UserLocations       from './UserLocations.jsx';
 import Organizations       from './Organizations.jsx';
+import VoiceChannels       from './VoiceChannels.jsx';
 
 // platformOnly tabs are instance-wide infrastructure (shared by every org) — gated to
 // the platform admin, distinct from the org-admin `role==='admin'` used elsewhere.
@@ -45,6 +46,7 @@ const TABS = [
   { id:'sdrclients',  label:'SDR Clients',    icon:<Activity size={14}/>,   serverOnly: true, platformOnly: true },
   { id:'client',      label:'Client Key',     icon:<Wifi size={14}/>,       serverOnly: true, platformOnly: true },
   { id:'deadair',     label:'Dead Air',       icon:<Radio size={14}/>,      platformOnly: true },
+  { id:'voicechannels', label:'Voice Channels', icon:<Radio size={14}/>,    sdrOnly: true },
 
   { group: 'Messages' },
   { id:'db',          label:'Database',       icon:<Database size={14}/>,   platformOnly: true },
@@ -97,6 +99,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'notif':       return <NotifConfig />;
     case 'keyword':     return <KeywordAlerts />;
     case 'deadair':     return <DeadAirConfig />;
+    case 'voicechannels': return <VoiceChannels />;
     case 'webhooks':    return <Webhooks />;
     case 'email':       return <EmailConfig />;
     case 'usernotif':   return <UserNotifPrefs />;

@@ -22,6 +22,7 @@ const DONGLE_DEFAULTS = {
   gain:'40', ppm:'0', squelch:'0', resampleRate:'', lowpass:'',
   tunerBandwidth:'', directSampling:'0', offsetTuning:'0',
   protocols:'POCSAG1200', verbosity:'', quiet:'1', inputFormat:'', pocsagSpecial:'0', charset:'',
+  mode:'single', voiceChannelIds:[],
 };
 const DONGLE_FIELDS = [
   { key:'device',         label:'Device index (-d)',   hint:'0 = first dongle, 1 = second, …',                      group:'rtl' },
@@ -85,16 +86,19 @@ export default function SdrControl({ sdrStatus }) {
   const [open, setOpen]       = useState({ 0: true, 1: true });
   const [dongles, setDongles] = useState([]);   // [] = single dongle mode
   const [multiMode, setMultiMode] = useState(false);
+  const [channels, setChannels] = useState([]); // voice channel catalog, for airband mode's checklist
 
   const load = () => {
     setLoading(true);
     Promise.all([
       adminFetchSdrConfig(),
       api('GET', '/admin/sdr/dongles'),
-    ]).then(([cfg, d]) => {
+      api('GET', '/admin/voice-channels'),
+    ]).then(([cfg, d, ch]) => {
       setConfig(cfg && typeof cfg === 'object' ? cfg : {});
       const arr = Array.isArray(d) && d.length > 0 ? d : [];
       setDongles(arr);
+      setChannels(Array.isArray(ch) ? ch : []);
       const isMulti = arr.length > 1;
       setMultiMode(isMulti);
       // Collapse default single-dongle settings when multi-dongle mode is already active
@@ -136,6 +140,12 @@ export default function SdrControl({ sdrStatus }) {
   });
   const removeDongle = (i) => setDongles(d => d.filter((_, j) => j !== i));
   const updateDongle = (i, key, val) => setDongles(d => d.map((x, j) => j === i ? { ...x, [key]: val } : x));
+  const toggleDongleChannel = (i, channelId) => setDongles(d => d.map((x, j) => {
+    if (j !== i) return x;
+    const ids = Array.isArray(x.voiceChannelIds) ? x.voiceChannelIds : [];
+    const next = ids.includes(channelId) ? ids.filter(id => id !== channelId) : [...ids, channelId];
+    return { ...x, voiceChannelIds: next };
+  }));
 
   const running = sdrStatus?.running;
 
@@ -328,6 +338,44 @@ export default function SdrControl({ sdrStatus }) {
                         </button>
                       )}
                     </div>
+
+                    {/* Mode: plain rtl_fm (POCSAG only) vs rtl_airband (POCSAG + voice channels) */}
+                    <div style={{ marginBottom:'0.65rem' }}>
+                      <label className="pm-label">Mode</label>
+                      <select className="pm-input" value={d.mode || 'single'}
+                        onChange={e => updateDongle(i, 'mode', e.target.value)}>
+                        <option value="single">Single (rtl_fm — POCSAG only)</option>
+                        <option value="airband">Multi (rtl_airband — POCSAG + voice channels)</option>
+                      </select>
+                    </div>
+
+                    {d.mode === 'airband' && (
+                      <div style={{ marginBottom:'0.65rem', padding:'0.5rem 0.6rem',
+                        background:'var(--bg-3)', borderRadius:'0.4rem' }}>
+                        <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
+                          textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
+                          Voice channels to decode alongside POCSAG
+                        </div>
+                        {channels.length === 0 ? (
+                          <div style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>
+                            No channels defined yet — add some in Admin → Voice Channels.
+                          </div>
+                        ) : (
+                          <div style={{ display:'grid', gap:'0.3rem' }}>
+                            {channels.map(c => (
+                              <label key={c.id} style={{ display:'flex', alignItems:'center', gap:'0.5rem',
+                                fontSize:'0.8rem', cursor:'pointer', color:'var(--text-1)' }}>
+                                <input type="checkbox"
+                                  checked={(d.voiceChannelIds || []).includes(c.id)}
+                                  onChange={() => toggleDongleChannel(i, c.id)} />
+                                <span style={{ fontFamily:'monospace', color:'var(--accent-amber)' }}>{c.freq}</span>
+                                {' — '}{c.description}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* rtl_fm settings */}
                     <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
