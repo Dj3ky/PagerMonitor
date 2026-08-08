@@ -252,6 +252,8 @@ function buildAirbandConfig(dongle, voiceChannels, udpPort) {
   return `general:
 {
     fft_size = 512;
+    multiple_demod_threads = true;
+    multiple_output_threads = true;
 };
 
 devices:

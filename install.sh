@@ -104,8 +104,8 @@ _airband_build() {
     --no-install-recommends cmake build-essential pkg-config git \
     libconfig++-dev libfftw3-dev librtlsdr-dev libshout3-dev libmp3lame-dev
   local tmp; tmp=$(mktemp -d)
-  git clone --depth 1 --branch "$ref" https://github.com/szpajder/RTLSDR-Airband.git "$tmp/src" 2>/dev/null \
-    || git clone --depth 1 https://github.com/szpajder/RTLSDR-Airband.git "$tmp/src"
+  git clone --depth 1 --branch "$ref" https://github.com/rtl-airband/RTLSDR-Airband.git "$tmp/src" 2>/dev/null \
+    || git clone --depth 1 https://github.com/rtl-airband/RTLSDR-Airband.git "$tmp/src"
   cmake -S "$tmp/src" -B "$tmp/src/build" -DCMAKE_BUILD_TYPE=Release -DNFM=ON
   make -C "$tmp/src/build" -j"$(nproc)"
   $SUDO make -C "$tmp/src/build" install
@@ -122,7 +122,7 @@ check_rtl_airband() {
     return
   fi
   local latest=""
-  latest=$(curl -sf --max-time 10 "https://api.github.com/repos/szpajder/RTLSDR-Airband/releases/latest" 2>/dev/null \
+  latest=$(curl -sf --max-time 10 "https://api.github.com/repos/rtl-airband/RTLSDR-Airband/releases/latest" 2>/dev/null \
     | grep -oP '"tag_name":\s*"\K[^"]+' | head -1)
   _airband_build "${latest:-master}"
 }
