@@ -217,8 +217,18 @@ echo "icecast2 icecast2/sourcepassword password $ICECAST_PW" | $SUDO debconf-set
 echo "icecast2 icecast2/relaypassword password $ICECAST_PW" | $SUDO debconf-set-selections
 echo "icecast2 icecast2/adminpassword password $ICECAST_PW" | $SUDO debconf-set-selections
 $SUDO apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" icecast2
+# Debian/Raspbian's icecast2 package ships with ENABLE=false in /etc/default/icecast2 —
+# the systemd unit silently refuses to actually start the daemon unless this is flipped,
+# even though `systemctl enable` and `status` both look normal.
+if [ -f /etc/default/icecast2 ]; then
+  $SUDO sed -i 's/^ENABLE=false/ENABLE=true/' /etc/default/icecast2
+fi
 $SUDO systemctl enable icecast2 && $SUDO systemctl restart icecast2
-echo "  ✓ Icecast installed and running on port 8000"
+if $SUDO systemctl is-active --quiet icecast2; then
+  echo "  ✓ Icecast installed and running on port 8000"
+else
+  echo "  ✗ Icecast installed but failed to start — check: sudo systemctl status icecast2"
+fi
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
 echo ""
