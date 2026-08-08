@@ -191,7 +191,10 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
 
   const minHz = Math.min(...allHz), maxHz = Math.max(...allHz);
   const span  = maxHz - minHz;
-  const sampleRate = Math.min(2_880_000, Math.max(1_000_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 2_400_000));
+  // Floor is 2.4Msps (not the RTL-SDR's practical minimum ~1Msps) — very low sample rates
+  // are a known RTL2832U stability quirk (the chip's hardware decimator doesn't handle some
+  // low rate ratios cleanly), which can show up as exactly this kind of periodic instability.
+  const sampleRate = Math.min(2_880_000, Math.max(2_400_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 2_400_000));
   if (span > sampleRate * 0.9) {
     log('warn', `airband dongle ${cfg.device}: channel spread (${span}Hz) is close to or exceeds capture bandwidth (${sampleRate}Hz) — some channels may not decode`);
   }
