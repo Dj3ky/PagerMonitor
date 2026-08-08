@@ -5,6 +5,9 @@ client/node_modules/
 
 # Build output
 frontend/dist/
+frontend/public/icon-192.png
+frontend/public/icon-512.png
+frontend/public/badge-96.png
 
 # Database and runtime data (exclude user data, but keep committed resources)
 backend/data/*
