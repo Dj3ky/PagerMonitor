@@ -102,9 +102,6 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
               <NavBtn active={view==='admin'} onClick={() => nav('admin')} icon={<Settings size={13}/>} label="Settings" />
             )}
 
-            {/* Live voice channels (firefighter dispatch etc.) — hidden if none configured */}
-            <LiveChannels />
-
             {/* Sound + browser notifications + theme */}
             <IconBtn title={soundEnabled ? 'Mute sound alerts' : 'Enable sound alerts'} onClick={onToggleSound} active={soundEnabled}>
               {soundEnabled ? <Volume2 size={14}/> : <VolumeX size={14}/>}
@@ -165,6 +162,9 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
               </IconBtn>
             )}
           </div>
+
+          {/* Live voice channels — always visible (not desktop-only), sits next to the hamburger */}
+          <LiveChannels />
 
           {/* ── Mobile hamburger — right side via CSS order ───────────────────────────── */}
           <button onClick={() => setMenuOpen(m => !m)}
