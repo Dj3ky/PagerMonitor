@@ -46,7 +46,7 @@ const TABS = [
   { id:'sdrclients',  label:'SDR Clients',    icon:<Activity size={14}/>,   serverOnly: true, platformOnly: true },
   { id:'client',      label:'Client Key',     icon:<Wifi size={14}/>,       serverOnly: true, platformOnly: true },
   { id:'deadair',     label:'Dead Air',       icon:<Radio size={14}/>,      platformOnly: true },
-  { id:'voicechannels', label:'Voice Channels', icon:<Radio size={14}/>,    sdrOnly: true },
+  { id:'voicechannels', label:'Voice Channels', icon:<Radio size={14}/> },
 
   { group: 'Messages' },
   { id:'db',          label:'Database',       icon:<Database size={14}/>,   platformOnly: true },

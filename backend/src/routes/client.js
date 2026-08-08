@@ -159,15 +159,22 @@ router.get('/config', requireClientKey, (req, res) => {
 
   if (!cfg) return res.json({ config: null, version: null, command: command || null });
 
-  // The client has no DB of its own — resolve each airband dongle's voiceChannelIds into
-  // full channel rows (freq/mode/squelch/description) here so it can build rtl_airband's
-  // config directly, mirroring what sdr.js does locally via getVoiceChannelById.
+  // The client has no DB of its own — resolve airband voiceChannelIds into full channel
+  // rows (freq/mode/squelch/description) here so it can build rtl_airband's config
+  // directly, mirroring what sdr.js does locally via getVoiceChannelById. Two shapes:
+  // a per-device `dongles` array (multi-dongle Pis), or the flat single-dongle config
+  // pushed from Admin → SDR Clients (the common case — one dongle per Pi).
   if (Array.isArray(cfg.config?.dongles)) {
     cfg.config = {
       ...cfg.config,
       dongles: cfg.config.dongles.map(d => d.mode === 'airband'
         ? { ...d, voiceChannels: (Array.isArray(d.voiceChannelIds) ? d.voiceChannelIds : []).map(getVoiceChannelById).filter(Boolean) }
         : d),
+    };
+  } else if (cfg.config?.mode === 'airband') {
+    cfg.config = {
+      ...cfg.config,
+      voiceChannels: (Array.isArray(cfg.config.voiceChannelIds) ? cfg.config.voiceChannelIds : []).map(getVoiceChannelById).filter(Boolean),
     };
   }
 

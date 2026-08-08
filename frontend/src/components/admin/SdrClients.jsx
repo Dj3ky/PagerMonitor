@@ -66,7 +66,7 @@ function Flash({ msg }) {
   }}>{msg.text}</div>;
 }
 
-function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, flash }) {
+function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, flash }) {
   const { locale, hour12 } = useSite();
   const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
@@ -93,6 +93,12 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
     try { await onSetColor(client.id, color); }
     catch (e) { flashCfg('err', e.message); }
   };
+
+  const toggleChannel = (channelId) => setForm(f => {
+    const ids = Array.isArray(f.voiceChannelIds) ? f.voiceChannelIds : [];
+    const next = ids.includes(channelId) ? ids.filter(id => id !== channelId) : [...ids, channelId];
+    return { ...f, voiceChannelIds: next };
+  });
 
   const save = async () => {
     setSaving(true);
@@ -275,6 +281,47 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
               {' · '}Updated: {fmtTime(existingCfg.updatedAt, locale, hour12)}
             </div>
           )}
+          {/* Mode: plain rtl_fm (POCSAG only) vs rtl_airband (POCSAG + voice channels) */}
+          <div style={{ marginBottom:'0.65rem' }}>
+            <label className="pm-label">Mode</label>
+            <select className="pm-input" value={form.mode || 'single'}
+              onChange={e => setForm(p => ({ ...p, mode: e.target.value }))}>
+              <option value="single">Single (rtl_fm — POCSAG only)</option>
+              <option value="airband">Multi (rtl_airband — POCSAG + voice channels)</option>
+            </select>
+          </div>
+
+          {form.mode === 'airband' && (
+            <div style={{ marginBottom:'0.65rem', padding:'0.5rem 0.6rem',
+              background:'var(--bg-3)', borderRadius:'0.4rem' }}>
+              <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
+                textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
+                Voice channels to decode alongside POCSAG
+              </div>
+              {(!channels || channels.length === 0) ? (
+                <div style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>
+                  No channels defined yet — add some in Admin → Voice Channels.
+                </div>
+              ) : (
+                <div style={{ display:'grid', gap:'0.3rem' }}>
+                  {channels.map(c => (
+                    <label key={c.id} style={{ display:'flex', alignItems:'center', gap:'0.5rem',
+                      fontSize:'0.8rem', cursor:'pointer', color:'var(--text-1)' }}>
+                      <input type="checkbox"
+                        checked={(form.voiceChannelIds || []).includes(c.id)}
+                        onChange={() => toggleChannel(c.id)} />
+                      <span style={{ fontFamily:'monospace', color:'var(--accent-amber)' }}>{c.freq}</span>
+                      {' — '}{c.description}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginTop:'0.4rem' }}>
+                rtl_airband must be installed on this Pi — see INSTALL.md's "Voice channels" section.
+              </div>
+            </div>
+          )}
+
           {/* rtl_fm settings */}
           <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
             textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
@@ -323,6 +370,7 @@ function ClientCard({ client, configs, latestSha, onRemove, onSaveConfig, onSend
 export default function SdrClients() {
   const [clients, setClients]     = useState([]);
   const [configs, setConfigs]     = useState([]);
+  const [channels, setChannels]   = useState([]); // voice channel catalog, for airband mode's checklist
   const [loading, setLoading]     = useState(true);
   const [msg, setMsg]             = useState(null);
   const [latestSha, setLatestSha] = useState(null); // latest GitHub commit SHA
@@ -334,9 +382,11 @@ export default function SdrClients() {
     Promise.all([
       api('GET', '/admin/sdr-clients'),
       api('GET', '/admin/sdr-clients/configs'),
-    ]).then(([c, cfgs]) => {
+      api('GET', '/admin/voice-channels'),
+    ]).then(([c, cfgs, ch]) => {
       setClients(Array.isArray(c) ? c : []);
       setConfigs(Array.isArray(cfgs) ? cfgs : []);
+      setChannels(Array.isArray(ch) ? ch : []);
       setLoading(false);
     }).catch(() => setLoading(false));
   };
@@ -414,7 +464,7 @@ export default function SdrClients() {
       )}
 
       {!loading && clients.map(c => (
-        <ClientCard key={c.id} client={c} configs={configs} latestSha={latestSha}
+        <ClientCard key={c.id} client={c} configs={configs} channels={channels} latestSha={latestSha}
           onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} onRename={rename} onSetColor={setColor} flash={flash} />
       ))}
 
