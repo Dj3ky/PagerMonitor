@@ -163,6 +163,16 @@ function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
   const pocsagHz = parseFreqHz(dongle.freq || e.RTL_FM_FREQ || '173.250M');
   const voiceHz  = voiceChannels.map(c => parseFreqHz(c.freq));
   const allHz    = [pocsagHz, ...voiceHz];
+
+  // A frequency string missing its k/M/G suffix (e.g. "173.4875" instead of "173.4875M")
+  // parses as a near-zero Hz value and silently wrecks the center-frequency math below —
+  // catch it loudly here instead of producing a nonsense capture window.
+  const tooLow = [{ label: 'POCSAG', hz: pocsagHz }, ...voiceChannels.map((c, i) => ({ label: c.description || `voice channel #${i}`, hz: voiceHz[i] }))]
+    .filter(x => x.hz < 1_000_000);
+  if (tooLow.length) {
+    logger.warn(`airband dongle ${dongle.device}: suspiciously low frequency (missing M suffix?) for: ${tooLow.map(x => `${x.label}=${x.hz}Hz`).join(', ')}`);
+  }
+
   const minHz = Math.min(...allHz), maxHz = Math.max(...allHz);
   const span  = maxHz - minHz;
   // Capture bandwidth needs headroom over the raw channel spread — round up to a supported rate.
@@ -175,7 +185,8 @@ function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
   const icecastHost = dongle.icecastHost || e.ICECAST_HOST || 'localhost';
   const icecastPort = dongle.icecastPort || e.ICECAST_PORT || '8000';
   const icecastPass = dongle.icecastPassword || e.ICECAST_SOURCE_PASSWORD || '';
-  const fifoEscaped = fifoPath.replace(/\\/g, '\\\\');
+  const fifoDir  = path.dirname(fifoPath).replace(/\\/g, '\\\\');
+  const fifoName = path.basename(fifoPath).replace(/\\/g, '\\\\');
   const gainRaw = String(dongle.gain || e.RTL_FM_GAIN || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
 
@@ -184,7 +195,7 @@ function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
             modulation = "nfm";
             outputs:
             (
-                { type = "file"; filename = "${fifoEscaped}"; continuous = true; }
+                { type = "file"; directory = "${fifoDir}"; filename_template = "${fifoName}"; continuous = true; }
             );
         }`;
 

@@ -141,6 +141,16 @@ function buildAirbandConfig(cfg, voiceChannels, fifoPath) {
   const pocsagHz = parseFreqHz(cfg.freq);
   const voiceHz  = voiceChannels.map(c => parseFreqHz(c.freq));
   const allHz    = [pocsagHz, ...voiceHz];
+
+  // A frequency string missing its k/M/G suffix (e.g. "173.4875" instead of "173.4875M")
+  // parses as a near-zero Hz value and silently wrecks the center-frequency math below —
+  // catch it loudly here instead of producing a nonsense capture window.
+  const tooLow = [{ label: 'POCSAG', hz: pocsagHz }, ...voiceChannels.map((c, i) => ({ label: c.description || `voice channel #${i}`, hz: voiceHz[i] }))]
+    .filter(x => x.hz < 1_000_000);
+  if (tooLow.length) {
+    log('warn', `airband dongle ${cfg.device}: suspiciously low frequency (missing M suffix?) for: ${tooLow.map(x => `${x.label}=${x.hz}Hz`).join(', ')}`);
+  }
+
   const minHz = Math.min(...allHz), maxHz = Math.max(...allHz);
   const span  = maxHz - minHz;
   const sampleRate = Math.min(2_880_000, Math.max(1_000_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 2_400_000));
@@ -148,7 +158,8 @@ function buildAirbandConfig(cfg, voiceChannels, fifoPath) {
     log('warn', `airband dongle ${cfg.device}: channel spread (${span}Hz) is close to or exceeds capture bandwidth (${sampleRate}Hz) — some channels may not decode`);
   }
   const centerHz = Math.round((minHz + maxHz) / 2);
-  const fifoEscaped = fifoPath.replace(/\\/g, '\\\\');
+  const fifoDir  = path.dirname(fifoPath).replace(/\\/g, '\\\\');
+  const fifoName = path.basename(fifoPath).replace(/\\/g, '\\\\');
   const gainRaw = String(cfg.gain || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
 
@@ -157,7 +168,7 @@ function buildAirbandConfig(cfg, voiceChannels, fifoPath) {
             modulation = "nfm";
             outputs:
             (
-                { type = "file"; filename = "${fifoEscaped}"; continuous = true; }
+                { type = "file"; directory = "${fifoDir}"; filename_template = "${fifoName}"; continuous = true; }
             );
         }`;
 
