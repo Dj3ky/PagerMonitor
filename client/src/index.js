@@ -500,8 +500,15 @@ function createPipeline(baseCfg, index) {
 
   async function start() {
     if (stopping) return;
-    await kill();
+    // Bump generation BEFORE awaiting kill() — the old process's 'exit' event now fires
+    // while we're inside that await, and its handler's staleness guard (myGen !== generation)
+    // only works if generation has already moved on by then. Incrementing after kill() (as
+    // this used to do, back when kill() didn't wait for real exit) left the exit handler
+    // thinking it was still current, so it fired scheduleRestart() on every intentional
+    // restart — a "ghost" restart timer stacked on top of the real one, compounding forever.
     const myGen = ++generation;
+    await kill();
+    if (stopping || myGen !== generation) return;
 
     log('info', `${label} Waiting 3s before starting...`);
     await sleep(3000);
