@@ -125,6 +125,45 @@ function parseFreqHz(freq) {
   return Math.round(parseFloat(m[1]) * mult);
 }
 
+// rtl_airband's udp_stream output always sends mono 32-bit float samples at a fixed rate
+// (16000Hz with NFM support, confirmed via the project's wiki — not configurable), but
+// multimon-ng's raw stdin input assumes 16-bit signed PCM at 22050Hz (same assumption the
+// existing rtl_fm path already relies on via `-s 22050`). Converts + resamples (simple
+// streaming linear interpolation — plenty for POCSAG's low baud rate) between UDP packets.
+const AIRBAND_UDP_SAMPLE_RATE = 16000;
+const MULTIMON_SAMPLE_RATE    = 22050;
+function createFloatToInt16Resampler(srcRate, dstRate) {
+  const ratio = srcRate / dstRate;
+  let carry = new Float32Array(0);
+  let phase = 0;
+  return function process(floatBuf) {
+    const nNew = floatBuf.length >> 2;
+    if (nNew === 0) return Buffer.alloc(0);
+    const combined = new Float32Array(carry.length + nNew);
+    combined.set(carry, 0);
+    for (let i = 0; i < nNew; i++) combined[carry.length + i] = floatBuf.readFloatLE(i * 4);
+
+    const out = [];
+    let pos = phase;
+    while (Math.floor(pos) + 1 < combined.length) {
+      const i0 = Math.floor(pos);
+      const frac = pos - i0;
+      out.push(combined[i0] + (combined[i0 + 1] - combined[i0]) * frac);
+      pos += ratio;
+    }
+    const consumed = Math.floor(pos);
+    carry = combined.slice(consumed);
+    phase = pos - consumed;
+
+    const outBuf = Buffer.alloc(out.length * 2);
+    for (let i = 0; i < out.length; i++) {
+      const v = Math.max(-1, Math.min(1, out[i]));
+      outBuf.writeInt16LE(Math.round(v * 32767), i * 2);
+    }
+    return outBuf;
+  };
+}
+
 // rtl_airband's "file" output turned out to be disk-archiving only (rotating, MP3-encoded
 // filenames — confirmed by real log output, not a raw stream at all), so the POCSAG leg
 // uses "udp_stream" instead: raw audio over a loopback UDP socket we bind and read directly.
@@ -165,7 +204,7 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
             modulation = "nfm";
             outputs:
             (
-                { type = "udp_stream"; dest_address = "127.0.0.1"; dest_port = ${udpPort}; }
+                { type = "udp_stream"; dest_address = "127.0.0.1"; dest_port = ${udpPort}; continuous = true; }
             );
         }`;
 
@@ -220,8 +259,9 @@ function spawnAudioSource(cfg, label) {
 
     // Bind before spawning so we're ready to receive the moment rtl_airband starts sending.
     const dataStream = new PassThrough();
+    const resample = createFloatToInt16Resampler(AIRBAND_UDP_SAMPLE_RATE, MULTIMON_SAMPLE_RATE);
     const socket = dgram.createSocket('udp4');
-    socket.on('message', msg => dataStream.write(msg));
+    socket.on('message', msg => dataStream.write(resample(msg)));
     socket.on('error', err => log('warn', `${label} UDP socket error: ${err.message}`));
     socket.bind(udpPort, '127.0.0.1');
 
