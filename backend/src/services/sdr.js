@@ -212,10 +212,13 @@ function buildAirbandConfig(dongle, voiceChannels, udpPort) {
   const minHz = Math.min(...allHz), maxHz = Math.max(...allHz);
   const span  = maxHz - minHz;
   // Capture bandwidth needs headroom over the raw channel spread — round up to a supported rate.
-  // Floor is 2.4Msps (not the RTL-SDR's practical minimum ~1Msps) — very low sample rates
-  // are a known RTL2832U stability quirk (the chip's hardware decimator doesn't handle some
-  // low rate ratios cleanly), which can show up as exactly this kind of periodic instability.
-  const sampleRate = Math.min(2_880_000, Math.max(2_400_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 2_400_000));
+  // Floor is 2.56Msps — RTLSDR-Airband's own documented default, not the RTL-SDR's practical
+  // minimum (~1Msps). Very low sample rates are a known RTL2832U stability quirk (the chip's
+  // hardware decimator doesn't handle some low rate ratios cleanly); confirmed on real
+  // hardware that raising the floor from ~1Msps to 2.4Msps measurably delayed (68s -> 88s,
+  // not yet eliminated) a periodic "buffer overflow" watchdog restart, so using the project's
+  // exact vetted default rather than an approximated value is the next reasonable step.
+  const sampleRate = Math.min(2_880_000, Math.max(2_560_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 2_560_000));
   if (span > sampleRate * 0.9) {
     logger.warn(`airband dongle ${dongle.device}: channel spread (${span}Hz) is close to or exceeds capture bandwidth (${sampleRate}Hz) — some channels may not decode`);
   }
