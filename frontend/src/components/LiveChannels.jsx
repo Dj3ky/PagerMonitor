@@ -44,21 +44,22 @@ export default function LiveChannels() {
   if (channels.length === 0) return null;
 
   return (
-    <div ref={panelRef} style={{ position:'relative' }}>
+    <div ref={panelRef} style={{ position:'relative', flexShrink:0 }}>
       <button title="Live voice channels" onClick={() => setOpen(o => !o)} style={{
         display:'flex', alignItems:'center', justifyContent:'center',
-        width:'30px', height:'30px', borderRadius:'0.4rem', border:'1px solid transparent',
-        cursor:'pointer', transition:'all 0.15s',
-        background: playingId != null ? 'color-mix(in srgb, var(--accent-red) 12%, transparent)' : 'transparent',
-        color: playingId != null ? 'var(--accent-red)' : 'var(--text-2)',
+        width:'36px', height:'36px', borderRadius:'0.4rem',
+        border:'1px solid var(--border)', cursor:'pointer', transition:'all 0.15s',
+        background: open ? 'var(--bg-4)' : playingId != null ? 'color-mix(in srgb, var(--accent-red) 12%, transparent)' : 'var(--bg-3)',
+        color: playingId != null ? 'var(--accent-red)' : 'var(--text-1)',
       }}>
-        <Radio size={14} />
+        <Radio size={18} />
       </button>
 
       {open && (
         <div style={{
           position:'absolute', top:'calc(100% + 6px)', right:0, zIndex:2000,
-          minWidth:'220px', background:'var(--bg-1)', border:'1px solid var(--border)',
+          width:'220px', maxWidth:'calc(100vw - 1.5rem)', boxSizing:'border-box',
+          background:'var(--bg-1)', border:'1px solid var(--border)',
           borderRadius:'0.5rem', boxShadow:'0 8px 24px rgba(0,0,0,0.5)', padding:'0.4rem',
         }}>
           <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
