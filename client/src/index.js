@@ -276,7 +276,8 @@ function spawnAudioSource(cfg, label) {
     socket.on('error', err => log('warn', `${label} UDP socket error: ${err.message}`));
     socket.bind(udpPort, '127.0.0.1');
 
-    const proc = spawn('rtl_airband', ['-f', '-c', configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn('rtl_airband', ['-F', '-c', configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stdout.on('data', () => {}); // never consumed elsewhere — drain so it can't block rtl_airband on a full pipe
     return { proc, dataStream, socket };
   }
   const rtlArgs = buildRtlArgs(cfg);
