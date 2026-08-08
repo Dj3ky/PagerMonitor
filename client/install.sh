@@ -87,7 +87,14 @@ _airband_build() {
   local tmp; tmp=$(mktemp -d)
   git clone --depth 1 --branch "$ref" https://github.com/rtl-airband/RTLSDR-Airband.git "$tmp/src" 2>/dev/null \
     || git clone --depth 1 https://github.com/rtl-airband/RTLSDR-Airband.git "$tmp/src"
-  cmake -S "$tmp/src" -B "$tmp/src/build" -DCMAKE_BUILD_TYPE=Release -DNFM=ON
+  # rtl_airband's own CMakeLists.txt calls its version-detection script via execute_process()
+  # with no WORKING_DIRECTORY set, so it inherits whatever directory we're in when cmake
+  # runs — and that script just calls plain `git describe` with no explicit repo path, which
+  # walks up from the CWD to find the nearest .git. If we invoke cmake from inside our own
+  # repo checkout (e.g. `cd ~/pagermonitor/client && bash update.sh`), it describes OUR repo,
+  # not the freshly cloned rtl_airband source — confirmed: a PagerMonitor commit hash showed
+  # up in "rtl_airband -v" output. Run cmake from inside $tmp/src so it can only see its own.
+  ( cd "$tmp/src" && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNFM=ON )
   make -C "$tmp/src/build" -j"$(nproc)"
   sudo make -C "$tmp/src/build" install
   sudo touch "$AIRBAND_NFM_MARK"
