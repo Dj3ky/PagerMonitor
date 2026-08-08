@@ -2,6 +2,7 @@
 
 const { spawn, execSync } = require('child_process');
 const { PassThrough }     = require('stream');
+const dgram = require('dgram');
 const iconv               = require('iconv-lite');
 const http  = require('http');
 const https = require('https');
@@ -124,20 +125,18 @@ function parseFreqHz(freq) {
   return Math.round(parseFloat(m[1]) * mult);
 }
 
-function fifoPathForDongle(device) {
-  return path.join(os.tmpdir(), `pagermonitor-airband-${device}.fifo`);
-}
-
-function ensureFifo(fifoPath) {
-  const st = fs.existsSync(fifoPath) ? fs.statSync(fifoPath) : null;
-  if (st && !st.isFIFO()) fs.unlinkSync(fifoPath);
-  if (!st || !st.isFIFO()) execSync(`mkfifo "${fifoPath}"`);
+// rtl_airband's "file" output turned out to be disk-archiving only (rotating, MP3-encoded
+// filenames — confirmed by real log output, not a raw stream at all), so the POCSAG leg
+// uses "udp_stream" instead: raw audio over a loopback UDP socket we bind and read directly.
+// Deterministic per-device port, well above the ephemeral range, to avoid collisions.
+function udpPortForDongle(device) {
+  return 18000 + Number(device ?? 0);
 }
 
 // NOTE: RTLSDR-Airband uses libconfig syntax, NOT TOML (confirmed via a real "syntax
 // error" on line 1 when this was first written as TOML — see server-side sdr.js's
 // identical note). Exact field names/types are still best-effort.
-function buildAirbandConfig(cfg, voiceChannels, fifoPath) {
+function buildAirbandConfig(cfg, voiceChannels, udpPort) {
   const pocsagHz = parseFreqHz(cfg.freq);
   const voiceHz  = voiceChannels.map(c => parseFreqHz(c.freq));
   const allHz    = [pocsagHz, ...voiceHz];
@@ -158,8 +157,6 @@ function buildAirbandConfig(cfg, voiceChannels, fifoPath) {
     log('warn', `airband dongle ${cfg.device}: channel spread (${span}Hz) is close to or exceeds capture bandwidth (${sampleRate}Hz) — some channels may not decode`);
   }
   const centerHz = Math.round((minHz + maxHz) / 2);
-  const fifoDir  = path.dirname(fifoPath).replace(/\\/g, '\\\\');
-  const fifoName = path.basename(fifoPath).replace(/\\/g, '\\\\');
   const gainRaw = String(cfg.gain || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
 
@@ -168,7 +165,7 @@ function buildAirbandConfig(cfg, voiceChannels, fifoPath) {
             modulation = "nfm";
             outputs:
             (
-                { type = "file"; directory = "${fifoDir}"; filename_template = "${fifoName}"; continuous = true; }
+                { type = "udp_stream"; dest_address = "127.0.0.1"; dest_port = ${udpPort}; }
             );
         }`;
 
@@ -181,7 +178,7 @@ function buildAirbandConfig(cfg, voiceChannels, fifoPath) {
             modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}
             outputs:
             (
-                { type = "icecast"; server = "${ICECAST_HOST}"; port = ${ICECAST_PORT}; mountpoint = "/ch${c.id}"; username = "source"; password = "${ICECAST_SOURCE_PASSWORD}"; name = "${name}"; }
+                { type = "icecast"; server = "${ICECAST_HOST}"; port = ${ICECAST_PORT}; mountpoint = "ch${c.id}"; username = "source"; password = "${ICECAST_SOURCE_PASSWORD}"; name = "${name}"; }
             );
         }`;
   });
@@ -214,17 +211,22 @@ ${allChannels}
 
 function spawnAudioSource(cfg, label) {
   if (cfg.mode === 'airband') {
-    const fifoPath = fifoPathForDongle(cfg.device);
-    ensureFifo(fifoPath);
+    const udpPort = udpPortForDongle(cfg.device);
     const voiceChannels = Array.isArray(cfg.voiceChannels) ? cfg.voiceChannels : [];
-    const configText = buildAirbandConfig(cfg, voiceChannels, fifoPath);
+    const configText = buildAirbandConfig(cfg, voiceChannels, udpPort);
     const configPath = path.join(os.tmpdir(), `pagermonitor-airband-${cfg.device}.conf`);
     fs.writeFileSync(configPath, configText);
     log('info', `${label} rtl_airband -c ${configPath} (POCSAG + ${voiceChannels.length} voice channel(s))`);
+
+    // Bind before spawning so we're ready to receive the moment rtl_airband starts sending.
+    const dataStream = new PassThrough();
+    const socket = dgram.createSocket('udp4');
+    socket.on('message', msg => dataStream.write(msg));
+    socket.on('error', err => log('warn', `${label} UDP socket error: ${err.message}`));
+    socket.bind(udpPort, '127.0.0.1');
+
     const proc = spawn('rtl_airband', ['-f', '-c', configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const dataStream = fs.createReadStream(fifoPath);
-    dataStream.on('error', () => {});
-    return { proc, dataStream, fifoPath };
+    return { proc, dataStream, socket };
   }
   const rtlArgs = buildRtlArgs(cfg);
   const proc = spawn('rtl_fm', rtlArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -412,7 +414,7 @@ function createPipeline(baseCfg, index) {
   let rtlProc  = null;
   let mmonProc = null;
   let dataStream = null;
-  let fifoPath   = null;
+  let udpSocket  = null;
   let stopping = false;
   let restartTimer    = null;
   let consecutiveFails = 0;
@@ -429,8 +431,8 @@ function createPipeline(baseCfg, index) {
     try { dataStream?.unpipe(); dataStream?.destroy(); } catch (_) {}
     try { if (mmonProc) mmonProc.kill('SIGTERM'); } catch (_) {}
     try { if (rtlProc)  rtlProc.kill('SIGTERM'); } catch (_) {}
-    try { if (fifoPath) fs.unlinkSync(fifoPath); } catch (_) {}
-    rtlProc = null; mmonProc = null; dataStream = null; fifoPath = null;
+    try { udpSocket?.close(); } catch (_) {}
+    rtlProc = null; mmonProc = null; dataStream = null; udpSocket = null;
   }
 
   async function start() {
@@ -450,7 +452,7 @@ function createPipeline(baseCfg, index) {
       const source = spawnAudioSource(cfg, label);
       rtlProc    = source.proc;
       dataStream = source.dataStream;
-      fifoPath   = source.fifoPath || null;
+      udpSocket  = source.socket || null;
       mmonProc = spawn('multimon-ng', mmonArgs, { stdio: ['pipe',   'pipe', 'pipe'] });
 
       const tap = new PassThrough();

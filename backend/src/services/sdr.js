@@ -1,5 +1,6 @@
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
 const { PassThrough } = require('stream');
+const dgram = require('dgram');
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
@@ -142,23 +143,19 @@ function parseFreqHz(freq) {
   return Math.round(parseFloat(m[1]) * mult);
 }
 
-function fifoPathForDongle(device) {
-  return path.join(os.tmpdir(), `pagermonitor-airband-${device}.fifo`);
-}
-
-// Named pipe rtl_airband writes the POCSAG channel's raw audio into, which we then read
-// and pipe into multimon-ng's stdin — the fifo stands in for rtl_fm's stdout in single mode.
-function ensureFifo(fifoPath) {
-  const st = fs.existsSync(fifoPath) ? fs.statSync(fifoPath) : null;
-  if (st && !st.isFIFO()) fs.unlinkSync(fifoPath);
-  if (!st || !st.isFIFO()) execSync(`mkfifo "${fifoPath}"`);
+// rtl_airband's "file" output turned out to be disk-archiving only (rotating, MP3-encoded
+// filenames — confirmed by real log output, not a raw stream at all), so the POCSAG leg
+// uses "udp_stream" instead: raw audio over a loopback UDP socket we bind and read directly.
+// Deterministic per-device port, well above the ephemeral range, to avoid collisions.
+function udpPortForDongle(device) {
+  return 18000 + Number(device ?? 0);
 }
 
 // NOTE: RTLSDR-Airband uses libconfig syntax, NOT TOML (confirmed via a real "syntax
 // error" on line 1 when this was first written as TOML — libconfig++ is one of its
 // actual build dependencies). Exact field names/types are still best-effort; watch
 // this dongle's log output after any config-generation change here.
-function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
+function buildAirbandConfig(dongle, voiceChannels, udpPort) {
   const e = process.env;
   const pocsagHz = parseFreqHz(dongle.freq || e.RTL_FM_FREQ || '173.250M');
   const voiceHz  = voiceChannels.map(c => parseFreqHz(c.freq));
@@ -185,8 +182,6 @@ function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
   const icecastHost = dongle.icecastHost || e.ICECAST_HOST || 'localhost';
   const icecastPort = dongle.icecastPort || e.ICECAST_PORT || '8000';
   const icecastPass = dongle.icecastPassword || e.ICECAST_SOURCE_PASSWORD || '';
-  const fifoDir  = path.dirname(fifoPath).replace(/\\/g, '\\\\');
-  const fifoName = path.basename(fifoPath).replace(/\\/g, '\\\\');
   const gainRaw = String(dongle.gain || e.RTL_FM_GAIN || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
 
@@ -195,7 +190,7 @@ function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
             modulation = "nfm";
             outputs:
             (
-                { type = "file"; directory = "${fifoDir}"; filename_template = "${fifoName}"; continuous = true; }
+                { type = "udp_stream"; dest_address = "127.0.0.1"; dest_port = ${udpPort}; }
             );
         }`;
 
@@ -208,7 +203,7 @@ function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
             modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}
             outputs:
             (
-                { type = "icecast"; server = "${icecastHost}"; port = ${icecastPort}; mountpoint = "/ch${c.id}"; username = "source"; password = "${icecastPass}"; name = "${name}"; }
+                { type = "icecast"; server = "${icecastHost}"; port = ${icecastPort}; mountpoint = "ch${c.id}"; username = "source"; password = "${icecastPass}"; name = "${name}"; }
             );
         }`;
   });
@@ -244,19 +239,24 @@ ${allChannels}
 // dataStream is what gets piped into multimon-ng's stdin.
 function spawnAudioSource(dongle, label) {
   if (dongle.mode === 'airband') {
-    const fifoPath = fifoPathForDongle(dongle.device);
-    ensureFifo(fifoPath);
+    const udpPort = udpPortForDongle(dongle.device);
     const voiceChannels = (Array.isArray(dongle.voiceChannelIds) ? dongle.voiceChannelIds : [])
       .map(id => getVoiceChannelById(id))
       .filter(Boolean);
-    const configText = buildAirbandConfig(dongle, voiceChannels, fifoPath);
+    const configText = buildAirbandConfig(dongle, voiceChannels, udpPort);
     const configPath = path.join(os.tmpdir(), `pagermonitor-airband-${dongle.device}.conf`);
     fs.writeFileSync(configPath, configText);
     logger.info(`${label} rtl_airband -c ${configPath} (POCSAG + ${voiceChannels.length} voice channel(s))`);
+
+    // Bind before spawning so we're ready to receive the moment rtl_airband starts sending.
+    const dataStream = new PassThrough();
+    const socket = dgram.createSocket('udp4');
+    socket.on('message', msg => dataStream.write(msg));
+    socket.on('error', err => logger.warn(`${label} UDP socket error: ${err.message}`));
+    socket.bind(udpPort, '127.0.0.1');
+
     const proc = spawn('rtl_airband', ['-f', '-c', configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const dataStream = fs.createReadStream(fifoPath);
-    dataStream.on('error', () => {});
-    return { proc, dataStream, fifoPath, configPath };
+    return { proc, dataStream, socket, configPath };
   }
   const rtlArgs = buildRtlFmArgsForDongle(dongle);
   const proc = spawn('rtl_fm', rtlArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -602,7 +602,7 @@ function spawnDonglePipeline(dongle, label, myGen) {
 
   const state = { running: false, error: null, restarts: 0, lastMessage: null };
 
-  const { proc: rtl, dataStream, rtlArgs, fifoPath, configPath } = spawnAudioSource(dongle, label);
+  const { proc: rtl, dataStream, rtlArgs, socket, configPath } = spawnAudioSource(dongle, label);
   const mmon = spawn('multimon-ng', mmonArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
   const tap = new PassThrough();
   let lastRtlMs = Date.now();
@@ -681,7 +681,7 @@ function spawnDonglePipeline(dongle, label, myGen) {
   rtl.on('error',  e => { if (myGen !== generation) return; logger.error(`${label} ${sourceName}: ${e.message}`);  if (!stopping) onFail(sourceName,  e.message); });
   mmon.on('error', e => { if (myGen !== generation) return; logger.error(`${label} mmon: ${e.message}`);     if (!stopping) onFail('mmon',    e.message); });
 
-  return { rtlProc: rtl, mmonProc: mmon, dataStream, cfg: dongle, label, state, watchdog, rtlArgs, mmonArgs, fifoPath, configPath };
+  return { rtlProc: rtl, mmonProc: mmon, dataStream, cfg: dongle, label, state, watchdog, rtlArgs, mmonArgs, socket, configPath };
 }
 
 function broadcastDongleStatus() {
@@ -708,7 +708,7 @@ function stopMultiDonglePipelines() {
     try { p.mmonProc?.kill('SIGTERM'); } catch (_) {}
     try { p.rtlProc?.kill('SIGTERM'); } catch (_) {}
     try { unregisterSource(`dongle-${p.cfg.device}`); } catch (_) {}
-    try { if (p.fifoPath) fs.unlinkSync(p.fifoPath); } catch (_) {}
+    try { p.socket?.close(); } catch (_) {}
   }
   donglePipelines = [];
 }
