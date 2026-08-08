@@ -198,6 +198,11 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
   const centerHz = Math.round((minHz + maxHz) / 2);
   const gainRaw = String(cfg.gain || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
+  // Pushed from Admin -> SDR Clients config takes priority over this Pi's local .env,
+  // so the icecast password can be set from the UI instead of editing .env over SSH.
+  const icecastHost = cfg.icecastHost || ICECAST_HOST;
+  const icecastPort = cfg.icecastPort || ICECAST_PORT;
+  const icecastPass = cfg.icecastPassword || ICECAST_SOURCE_PASSWORD;
 
   const pocsagChannel = `        {
             freq = ${pocsagHz};
@@ -217,7 +222,7 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
             modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}
             outputs:
             (
-                { type = "icecast"; server = "${ICECAST_HOST}"; port = ${ICECAST_PORT}; mountpoint = "ch${c.id}"; username = "source"; password = "${ICECAST_SOURCE_PASSWORD}"; name = "${name}"; }
+                { type = "icecast"; server = "${icecastHost}"; port = ${icecastPort}; mountpoint = "ch${c.id}"; username = "source"; password = "${icecastPass}"; name = "${name}"; }
             );
         }`;
   });

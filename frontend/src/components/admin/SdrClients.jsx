@@ -66,7 +66,7 @@ function Flash({ msg }) {
   }}>{msg.text}</div>;
 }
 
-function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, flash }) {
+function ClientCard({ client, configs, channels, icecastPassword, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, flash }) {
   const { locale, hour12 } = useSite();
   const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
@@ -316,6 +316,25 @@ function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConf
                   ))}
                 </div>
               )}
+              <div style={{ marginTop:'0.6rem' }}>
+                <label className="pm-label">Icecast source password</label>
+                <div style={{ display:'flex', gap:'0.4rem' }}>
+                  <input className="pm-input" type="text" value={form.icecastPassword || ''}
+                    onChange={e => setForm(p => ({ ...p, icecastPassword: e.target.value }))}
+                    placeholder="must match ICECAST_SOURCE_PASSWORD in the server's backend/.env" />
+                  {icecastPassword && (
+                    <button type="button" className="pm-btn" title="Fill in the server's current password"
+                      onClick={() => setForm(p => ({ ...p, icecastPassword }))}>
+                      Use server's
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginTop:'0.2rem' }}>
+                  Sent to this client instead of editing its .env over SSH. Leave empty to use the
+                  Pi's local .env value.
+                </div>
+              </div>
+
               <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginTop:'0.4rem' }}>
                 rtl_airband must be installed on this Pi — see INSTALL.md's "Voice channels" section.
               </div>
@@ -371,6 +390,7 @@ export default function SdrClients() {
   const [clients, setClients]     = useState([]);
   const [configs, setConfigs]     = useState([]);
   const [channels, setChannels]   = useState([]); // voice channel catalog, for airband mode's checklist
+  const [icecastPassword, setIcecastPassword] = useState(''); // server's actual password, for the "Use server's" button
   const [loading, setLoading]     = useState(true);
   const [msg, setMsg]             = useState(null);
   const [latestSha, setLatestSha] = useState(null); // latest GitHub commit SHA
@@ -383,10 +403,12 @@ export default function SdrClients() {
       api('GET', '/admin/sdr-clients'),
       api('GET', '/admin/sdr-clients/configs'),
       api('GET', '/admin/voice-channels'),
-    ]).then(([c, cfgs, ch]) => {
+      api('GET', '/admin/icecast-config'),
+    ]).then(([c, cfgs, ch, ic]) => {
       setClients(Array.isArray(c) ? c : []);
       setConfigs(Array.isArray(cfgs) ? cfgs : []);
       setChannels(Array.isArray(ch) ? ch : []);
+      setIcecastPassword(ic?.sourcePassword || '');
       setLoading(false);
     }).catch(() => setLoading(false));
   };
@@ -464,7 +486,7 @@ export default function SdrClients() {
       )}
 
       {!loading && clients.map(c => (
-        <ClientCard key={c.id} client={c} configs={configs} channels={channels} latestSha={latestSha}
+        <ClientCard key={c.id} client={c} configs={configs} channels={channels} icecastPassword={icecastPassword} latestSha={latestSha}
           onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} onRename={rename} onSetColor={setColor} flash={flash} />
       ))}
 
