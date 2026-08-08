@@ -470,19 +470,37 @@ function createPipeline(baseCfg, index) {
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  function kill() {
+  // Waits for a process to actually exit (SIGKILL-escalating after a timeout) rather than
+  // just firing SIGTERM and hoping — on slow hardware, rtl_airband's teardown (releasing the
+  // USB device, disconnecting Icecast, stopping FFT threads) can take longer than a fixed
+  // sleep, and starting a new instance before the old one actually released the dongle
+  // produces a "usb_claim_interface error -6" (device busy) loop.
+  function killProcess(proc, timeoutMs = 4000) {
+    return new Promise(resolve => {
+      if (!proc || proc.exitCode !== null || proc.signalCode !== null) { resolve(); return; }
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      proc.once('exit', finish);
+      try { proc.kill('SIGTERM'); } catch (_) { finish(); return; }
+      setTimeout(() => {
+        if (!done) { try { proc.kill('SIGKILL'); } catch (_) {} finish(); }
+      }, timeoutMs);
+    });
+  }
+
+  async function kill() {
     pipelineRunning = false;
     clearInterval(watchdogTimer); watchdogTimer = null;
     try { dataStream?.unpipe(); dataStream?.destroy(); } catch (_) {}
-    try { if (mmonProc) mmonProc.kill('SIGTERM'); } catch (_) {}
-    try { if (rtlProc)  rtlProc.kill('SIGTERM'); } catch (_) {}
     try { udpSocket?.close(); } catch (_) {}
+    const toKill = [mmonProc, rtlProc].filter(Boolean);
     rtlProc = null; mmonProc = null; dataStream = null; udpSocket = null;
+    await Promise.all(toKill.map(p => killProcess(p)));
   }
 
   async function start() {
     if (stopping) return;
-    kill();
+    await kill();
     const myGen = ++generation;
 
     log('info', `${label} Waiting 3s before starting...`);
@@ -596,7 +614,7 @@ function createPipeline(baseCfg, index) {
   function stop() {
     stopping = true;
     clearTimeout(restartTimer);
-    kill();
+    return kill();
   }
 
   return { start, stop, applyRemoteConfig, getCfg: () => ({ ...cfg }), isRunning: () => pipelineRunning, label };
@@ -622,16 +640,21 @@ async function startConfigPolling() {
 }
 setTimeout(startConfigPolling, 10_000);
 
-// Graceful shutdown
+// Graceful shutdown — waits (bounded) for pipelines to actually release their SDR devices
+// before exiting, so a systemd restart doesn't outrace kill()'s own SIGKILL escalation and
+// leave an orphaned rtl_fm/rtl_airband process holding the dongle for the next start.
 const shutdown = () => {
   log('info', 'Shutting down...');
   clearInterval(configTimer);
-  pipelines.forEach(p => p.stop());
-  // Notify server we're offline so it doesn't wait for the threshold to expire
-  httpRequest('POST', '/client/offline', {})
-    .catch(() => {})
-    .finally(() => process.exit(0));
-  setTimeout(() => process.exit(0), 3000); // safety exit if request hangs
+  const stopAll = Promise.all(pipelines.map(p => p.stop()));
+  const stopped = Promise.race([stopAll, new Promise(r => setTimeout(r, 4500))]);
+  stopped.finally(() => {
+    // Notify server we're offline so it doesn't wait for the threshold to expire
+    httpRequest('POST', '/client/offline', {})
+      .catch(() => {})
+      .finally(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000); // safety exit if the offline POST hangs
+  });
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT',  shutdown);
