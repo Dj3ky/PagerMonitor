@@ -225,6 +225,15 @@ $SUDO apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::
 # unit actually left behind. Sidestep that layer entirely: run the installed binary
 # ourselves via our own unit, same pattern as pagermonitor.service/pagermonitor-client.service.
 ICECAST_BIN="$(command -v icecast2 || echo /usr/bin/icecast2)"
+# icecast2 refuses to start as root unless privileges are dropped via a <changeowner>
+# config directive — simpler to just run it as the unprivileged system user/group the
+# Debian package already creates for this (confirmed: "You should not run icecast2 as
+# root" when the whole install runs under a root account, e.g. an LXC container).
+ICECAST_USER_LINES=""
+if id -u icecast2 &>/dev/null; then
+  ICECAST_USER_LINES="User=icecast2
+Group=$(id -gn icecast2)"
+fi
 $SUDO tee /etc/systemd/system/pagermonitor-icecast.service > /dev/null << EOF
 [Unit]
 Description=PagerMonitor Icecast — voice channel relay
@@ -232,6 +241,7 @@ After=network.target
 
 [Service]
 Type=simple
+$ICECAST_USER_LINES
 ExecStart=$ICECAST_BIN -c /etc/icecast2/icecast.xml
 Restart=on-failure
 RestartSec=5
