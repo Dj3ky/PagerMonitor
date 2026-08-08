@@ -191,13 +191,13 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
 
   const minHz = Math.min(...allHz), maxHz = Math.max(...allHz);
   const span  = maxHz - minHz;
-  // Floor is 2.56Msps — RTLSDR-Airband's own documented default, not the RTL-SDR's practical
-  // minimum (~1Msps). Very low sample rates are a known RTL2832U stability quirk (the chip's
-  // hardware decimator doesn't handle some low rate ratios cleanly); confirmed on real
-  // hardware that raising the floor from ~1Msps to 2.4Msps measurably delayed (68s -> 88s,
-  // not yet eliminated) a periodic "buffer overflow" watchdog restart, so using the project's
-  // exact vetted default rather than an approximated value is the next reasonable step.
-  const sampleRate = Math.min(2_880_000, Math.max(2_560_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 2_560_000));
+  // Floor is ~1.024Msps, matching rtl_fm's own empirically-proven-stable rate on this exact
+  // hardware (its logs show "Sampling at 1014300 S/s" — POCSAG has run reliably at that rate
+  // for a very long time). An earlier theory that *raising* the floor toward 2.56Msps (the
+  // project's documented default) would fix a periodic instability only delayed it (68s->88s,
+  // never eliminated) — worth testing the rate this hardware has actually demonstrated
+  // long-term stability at, rather than a higher one that was never proven here.
+  const sampleRate = Math.min(2_880_000, Math.max(1_024_000, Math.ceil((span * 1.4) / 48_000) * 48_000 || 1_024_000));
   if (span > sampleRate * 0.9) {
     log('warn', `airband dongle ${cfg.device}: channel spread (${span}Hz) is close to or exceeds capture bandwidth (${sampleRate}Hz) — some channels may not decode`);
   }
