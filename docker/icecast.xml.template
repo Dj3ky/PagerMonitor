@@ -5,12 +5,12 @@
     <limits>
         <clients>100</clients>
         <sources>20</sources>
-        <queue-size>524288</queue-size>
+        <queue-size>131072</queue-size>
         <client-timeout>30</client-timeout>
         <header-timeout>15</header-timeout>
         <source-timeout>10</source-timeout>
         <burst-on-connect>1</burst-on-connect>
-        <burst-size>65536</burst-size>
+        <burst-size>8192</burst-size>
     </limits>
 
     <authentication>
