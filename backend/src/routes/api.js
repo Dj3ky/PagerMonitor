@@ -14,7 +14,8 @@ const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
 const { getPublicKey, saveSubscription, removeSubscription } = require('../services/webpush');
-const { getFeedFilter, passesFeedFilter } = require('../services/config');
+const { getFeedFilter, passesFeedFilter, getDongleConfigs } = require('../services/config');
+const { getAllClientConfigs } = require('../services/clientTracker');
 
 router.get('/history', requireAuth, (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit || '200', 10), 1000);
@@ -81,10 +82,35 @@ router.get('/status', requireAuth, (_req, res) => {
 
 router.get('/aliases', requireAuth, (req, res) => res.json(getAliases(req.session.orgId)));
 
+// Which catalog channel IDs are actually assigned to some dongle right now (local or any
+// remote client) — the admin catalog (GET /admin/voice-channels) shows every channel for
+// management, but the public listen picker should only ever offer ones that will actually
+// produce audio, not ones sitting unused in the catalog.
+function getLinkedVoiceChannelIds() {
+  const ids = new Set();
+  const collect = (dongle) => {
+    if (dongle?.mode === 'airband' && Array.isArray(dongle.voiceChannelIds)) {
+      for (const id of dongle.voiceChannelIds) ids.add(Number(id));
+    }
+  };
+  const local = getDongleConfigs();
+  if (Array.isArray(local)) local.forEach(collect);
+  for (const { config } of getAllClientConfigs()) {
+    if (Array.isArray(config?.dongles)) config.dongles.forEach(collect);
+    else collect(config);
+  }
+  return ids;
+}
+
 // Listenable voice channels for this org — mount name is derived from the channel's id
 // (a channel should only ever be assigned to one dongle at a time; see sdr.js airband config).
+// Only channels actually linked to a dongle are returned — see getLinkedVoiceChannelIds above.
 router.get('/voice-channels', requireAuth, (req, res) => {
-  res.json(getVoiceChannels(req.session.orgId).map(ch => ({ ...ch, mount: `ch${ch.id}` })));
+  const linked = getLinkedVoiceChannelIds();
+  const rows = getVoiceChannels(req.session.orgId)
+    .filter(ch => linked.has(Number(ch.id)))
+    .map(ch => ({ ...ch, mount: `ch${ch.id}` }));
+  res.json(rows);
 });
 router.put('/aliases/:capcode', requireEditor, (req, res) => {
   const { name, color, notes, group_id } = req.body;
