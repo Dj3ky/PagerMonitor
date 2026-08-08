@@ -154,9 +154,10 @@ function ensureFifo(fifoPath) {
   if (!st || !st.isFIFO()) execSync(`mkfifo "${fifoPath}"`);
 }
 
-// NOTE: rtl_airband's TOML config schema varies by version — verify this against the
-// installed version's documentation/`--help` before relying on it (see plan's "practical
-// validation" step). This targets the modern (v5+) TOML format.
+// NOTE: RTLSDR-Airband uses libconfig syntax, NOT TOML (confirmed via a real "syntax
+// error" on line 1 when this was first written as TOML — libconfig++ is one of its
+// actual build dependencies). Exact field names/types are still best-effort; watch
+// this dongle's log output after any config-generation change here.
 function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
   const e = process.env;
   const pocsagHz = parseFreqHz(dongle.freq || e.RTL_FM_FREQ || '173.250M');
@@ -175,36 +176,55 @@ function buildAirbandConfig(dongle, voiceChannels, fifoPath) {
   const icecastPort = dongle.icecastPort || e.ICECAST_PORT || '8000';
   const icecastPass = dongle.icecastPassword || e.ICECAST_SOURCE_PASSWORD || '';
   const fifoEscaped = fifoPath.replace(/\\/g, '\\\\');
+  const gainRaw = String(dongle.gain || e.RTL_FM_GAIN || '40');
+  const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
 
-  const pocsagChannel = `
-[[devices.channels]]
-freqs = [${pocsagHz}]
-modulation = "nfm"
-outputs = [{ type = "file", filename = "${fifoEscaped}", continuous = true }]
-`;
+  const pocsagChannel = `        {
+            freq = ${pocsagHz};
+            modulation = "nfm";
+            outputs:
+            (
+                { type = "file"; filename = "${fifoEscaped}"; continuous = true; }
+            );
+        }`;
 
   const voiceBlocks = voiceChannels.map(c => {
     const hz = parseFreqHz(c.freq);
-    const squelchLine = c.squelch ? `squelch_threshold = ${c.squelch}\n` : '';
+    const squelchLine = c.squelch ? `\n            squelch_threshold = ${c.squelch};` : '';
     const name = String(c.description || '').replace(/"/g, '');
-    return `
-[[devices.channels]]
-freqs = [${hz}]
-modulation = "${c.mode === 'am' ? 'am' : 'nfm'}"
-${squelchLine}outputs = [{ type = "icecast", server = "${icecastHost}", port = ${icecastPort}, mountpoint = "/ch${c.id}", username = "source", password = "${icecastPass}", name = "${name}", format = "mp3" }]
-`;
-  }).join('\n');
+    return `        {
+            freq = ${hz};
+            modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}
+            outputs:
+            (
+                { type = "icecast"; server = "${icecastHost}"; port = ${icecastPort}; mountpoint = "/ch${c.id}"; username = "source"; password = "${icecastPass}"; name = "${name}"; }
+            );
+        }`;
+  });
 
-  return `[general]
-fft_size = 2048
+  const allChannels = [pocsagChannel, ...voiceBlocks].join(',\n');
 
-[[devices]]
-index = ${dongle.device ?? 0}
-gain = ${dongle.gain || e.RTL_FM_GAIN || '40'}
-correction = ${dongle.ppm || e.RTL_FM_PPM || '0'}
-centerfreq = ${centerHz}
-sample_rate = ${sampleRate}
-${pocsagChannel}${voiceBlocks}
+  return `general:
+{
+    fft_size = 2048;
+};
+
+devices:
+(
+    {
+        type = "rtlsdr";
+        index = ${dongle.device ?? 0};
+        gain = ${gainLit};
+        correction = ${dongle.ppm || e.RTL_FM_PPM || '0'};
+        sample_rate = ${sampleRate};
+        centerfreq = ${centerHz};
+
+        channels:
+        (
+${allChannels}
+        );
+    }
+);
 `;
 }
 
