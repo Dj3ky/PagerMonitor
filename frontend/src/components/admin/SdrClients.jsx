@@ -317,6 +317,18 @@ function ClientCard({ client, configs, channels, icecastPassword, latestSha, onR
                 </div>
               )}
               <div style={{ marginTop:'0.6rem' }}>
+                <label className="pm-label">Icecast host</label>
+                <input className="pm-input" type="text" value={form.icecastHost || ''}
+                  onChange={e => setForm(p => ({ ...p, icecastHost: e.target.value }))}
+                  placeholder="defaults to this server's own hostname from SERVER_URL" />
+                <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginTop:'0.2rem' }}>
+                  Set this to the server's <strong>local LAN IP</strong> (e.g. 192.168.x.x) if this Pi is on
+                  the same network as the server — using a public domain name for same-network clients
+                  often fails to connect (NAT hairpin). Only remote Pis (actually elsewhere) need the
+                  public domain, and only if port 8000 is forwarded on the server's router.
+                </div>
+              </div>
+              <div style={{ marginTop:'0.6rem' }}>
                 <label className="pm-label">Icecast source password</label>
                 <div style={{ display:'flex', gap:'0.4rem' }}>
                   <input className="pm-input" type="text" value={form.icecastPassword || ''}
