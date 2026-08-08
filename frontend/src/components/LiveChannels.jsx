@@ -54,7 +54,7 @@ export default function LiveChannels() {
     setStatus('connecting');
 
     const audio = audioRef.current;
-    audio.src = `${BACKEND_URL}/audio/${ch.mount}?_=${Date.now()}`; // cache-bust each (re)connect
+    audio.src = `${BACKEND_URL}/audio/${ch.mount}`;
 
     const fail = () => {
       if (attemptRef.current !== myAttempt) return;
@@ -76,8 +76,7 @@ export default function LiveChannels() {
         navigator.mediaSession.setActionHandler('stop',  () => stop());
       }
     };
-    audio.onerror   = fail;
-    audio.onstalled = fail;
+    audio.onerror = fail;
 
     audio.play().catch(fail);
   };
@@ -92,8 +91,11 @@ export default function LiveChannels() {
         display:'flex', alignItems:'center', justifyContent:'center',
         width:'36px', height:'36px', borderRadius:'0.4rem',
         border:'1px solid var(--border)', cursor:'pointer', transition:'all 0.15s',
-        background: open ? 'var(--bg-4)' : playingId != null ? 'color-mix(in srgb, var(--accent-red) 12%, transparent)' : 'var(--bg-3)',
-        color: playingId != null ? 'var(--accent-red)' : 'var(--text-1)',
+        background: open ? 'var(--bg-4)'
+          : status === 'error' ? 'color-mix(in srgb, var(--accent-amber) 12%, transparent)'
+          : status === 'playing' ? 'color-mix(in srgb, var(--accent-red) 12%, transparent)'
+          : 'var(--bg-3)',
+        color: status === 'error' ? 'var(--accent-amber)' : status === 'playing' ? 'var(--accent-red)' : 'var(--text-1)',
       }}>
         <Radio size={18} />
       </button>
@@ -114,15 +116,19 @@ export default function LiveChannels() {
             const chStatus = isActive ? status : null;
             const icon =
               chStatus === 'connecting' ? <Loader2 size={13} className="animate-spin" style={{ color:'var(--text-3)' }} /> :
-              chStatus === 'error'      ? <AlertCircle size={13} style={{ color:'var(--accent-red)' }} /> :
+              chStatus === 'error'      ? <AlertCircle size={13} style={{ color:'var(--accent-amber)' }} /> :
               chStatus === 'playing'    ? <Square size={13} style={{ color:'var(--accent-red)' }} /> :
               <Play size={13} style={{ color:'var(--accent-green)' }} />;
+            const rowBg =
+              chStatus === 'error'   ? 'color-mix(in srgb, var(--accent-amber) 10%, transparent)' :
+              chStatus === 'playing' ? 'color-mix(in srgb, var(--accent-red) 10%, transparent)' :
+              'transparent';
             return (
               <button key={ch.id} onClick={() => !isActive ? play(ch) : chStatus === 'error' ? play(ch) : stop()}
                 style={{
                   display:'flex', alignItems:'center', gap:'0.5rem', width:'100%',
                   padding:'0.4rem 0.5rem', borderRadius:'0.4rem', border:'none',
-                  background: isActive ? 'color-mix(in srgb, var(--accent-red) 10%, transparent)' : 'transparent',
+                  background: rowBg,
                   color:'var(--text-1)', cursor:'pointer', fontSize:'0.82rem', textAlign:'left',
                 }}>
                 {icon}
@@ -130,7 +136,7 @@ export default function LiveChannels() {
                   {ch.description}
                 </span>
                 {chStatus === 'error' && (
-                  <span style={{ fontSize:'0.68rem', color:'var(--accent-red)' }}>retry</span>
+                  <span style={{ fontSize:'0.68rem', color:'var(--accent-amber)' }}>retry</span>
                 )}
               </button>
             );
