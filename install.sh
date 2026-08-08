@@ -216,18 +216,38 @@ echo icecast2 icecast2/icecast-setup boolean true | $SUDO debconf-set-selections
 echo "icecast2 icecast2/sourcepassword password $ICECAST_PW" | $SUDO debconf-set-selections
 echo "icecast2 icecast2/relaypassword password $ICECAST_PW" | $SUDO debconf-set-selections
 echo "icecast2 icecast2/adminpassword password $ICECAST_PW" | $SUDO debconf-set-selections
-$SUDO apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" icecast2
-# Debian/Raspbian's icecast2 package ships with ENABLE=false in /etc/default/icecast2 —
-# the systemd unit silently refuses to actually start the daemon unless this is flipped,
-# even though `systemctl enable` and `status` both look normal.
-if [ -f /etc/default/icecast2 ]; then
-  $SUDO sed -i 's/^ENABLE=false/ENABLE=true/' /etc/default/icecast2
-fi
-$SUDO systemctl enable icecast2 && $SUDO systemctl restart icecast2
-if $SUDO systemctl is-active --quiet icecast2; then
+$SUDO apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" icecast2 || true
+
+# Debian's icecast2 package still ships an old SysV init.d script, not a native systemd
+# unit — in minimal/containerized environments (LXC, some Docker bases) its postinst
+# `update-rc.d` step can fail ("no runlevel symlinks to modify, aborting!"), leaving
+# `systemctl enable/restart icecast2` looking like it briefly worked with no persistent
+# unit actually left behind. Sidestep that layer entirely: run the installed binary
+# ourselves via our own unit, same pattern as pagermonitor.service/pagermonitor-client.service.
+ICECAST_BIN="$(command -v icecast2 || echo /usr/bin/icecast2)"
+$SUDO tee /etc/systemd/system/pagermonitor-icecast.service > /dev/null << EOF
+[Unit]
+Description=PagerMonitor Icecast — voice channel relay
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$ICECAST_BIN -c /etc/icecast2/icecast.xml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+$SUDO systemctl daemon-reload
+$SUDO systemctl disable icecast2 2>/dev/null || true
+$SUDO systemctl stop icecast2 2>/dev/null || true
+$SUDO systemctl enable pagermonitor-icecast
+$SUDO systemctl restart pagermonitor-icecast
+if $SUDO systemctl is-active --quiet pagermonitor-icecast; then
   echo "  ✓ Icecast installed and running on port 8000"
 else
-  echo "  ✗ Icecast installed but failed to start — check: sudo systemctl status icecast2"
+  echo "  ✗ Icecast installed but failed to start — check: sudo systemctl status pagermonitor-icecast"
 fi
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
