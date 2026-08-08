@@ -251,7 +251,7 @@ function buildAirbandConfig(dongle, voiceChannels, udpPort) {
 
   return `general:
 {
-    fft_size = 2048;
+    fft_size = 512;
 };
 
 devices:
