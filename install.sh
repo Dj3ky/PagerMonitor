@@ -93,6 +93,10 @@ check_multimon_ng() {
 # Best-effort build from source — package availability/build flags vary by
 # distro version, so check the output here (or Admin → System → Update's live
 # log) if this step fails. Skips instantly once installed.
+# NFM support requires -DNFM=ON at build time (not the cmake default) — the
+# marker file lets us tell a build from before this was added apart from one
+# that actually has NFM, and force exactly one rebuild for the former.
+AIRBAND_NFM_MARK="/usr/local/bin/.pagermonitor-airband-nfm-ok"
 _airband_build() {
   local ref="$1"
   echo "  ► Building rtl_airband (${ref}) from source…"
@@ -102,9 +106,10 @@ _airband_build() {
   local tmp; tmp=$(mktemp -d)
   git clone --depth 1 --branch "$ref" https://github.com/szpajder/RTLSDR-Airband.git "$tmp/src" 2>/dev/null \
     || git clone --depth 1 https://github.com/szpajder/RTLSDR-Airband.git "$tmp/src"
-  cmake -S "$tmp/src" -B "$tmp/src/build" -DCMAKE_BUILD_TYPE=Release
+  cmake -S "$tmp/src" -B "$tmp/src/build" -DCMAKE_BUILD_TYPE=Release -DNFM=ON
   make -C "$tmp/src/build" -j"$(nproc)"
   $SUDO make -C "$tmp/src/build" install
+  $SUDO touch "$AIRBAND_NFM_MARK"
   rm -rf "$tmp"
   echo "  ✓ rtl_airband installed from source"
 }
@@ -112,8 +117,8 @@ _airband_build() {
 check_rtl_airband() {
   echo ""
   echo "► Checking rtl_airband (only used if a dongle is set to multi/airband mode)…"
-  if command -v rtl_airband &>/dev/null; then
-    echo "  ✓ Already installed — delete /usr/local/bin/rtl_airband to force a rebuild"
+  if command -v rtl_airband &>/dev/null && [ -f "$AIRBAND_NFM_MARK" ]; then
+    echo "  ✓ Already installed — delete $AIRBAND_NFM_MARK to force a rebuild"
     return
   fi
   local latest=""
