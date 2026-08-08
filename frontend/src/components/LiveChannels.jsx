@@ -44,7 +44,7 @@ export default function LiveChannels() {
   if (channels.length === 0) return null;
 
   return (
-    <div ref={panelRef} style={{ position:'relative', flexShrink:0 }}>
+    <div ref={panelRef} style={{ position:'relative', flexShrink:0, marginLeft:'auto' }}>
       <button title="Live voice channels" onClick={() => setOpen(o => !o)} style={{
         display:'flex', alignItems:'center', justifyContent:'center',
         width:'36px', height:'36px', borderRadius:'0.4rem',

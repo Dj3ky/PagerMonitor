@@ -172,7 +172,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             style={{ display:'none', alignItems:'center', justifyContent:'center',
               width:'36px', height:'36px', borderRadius:'0.4rem', border:'1px solid var(--border)',
               background: menuOpen ? 'var(--bg-4)' : 'var(--bg-3)',
-              color:'var(--text-1)', cursor:'pointer', flexShrink:0, marginLeft:'auto' }}>
+              color:'var(--text-1)', cursor:'pointer', flexShrink:0 }}>
             {menuOpen ? <X size={18}/> : <Menu size={18}/>}
           </button>
         </div>
