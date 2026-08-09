@@ -12,7 +12,7 @@
  * the one place that per-org resolution now happens, called identically from both.
  */
 
-const { getDb, getOrganizations, getKeywordAlerts } = require('./database');
+const { getDb, getOrganizations, getKeywordAlerts, getLocalDongleLabel } = require('./database');
 const { broadcastToOrg } = require('./websocket');
 const { passesFeedFilter } = require('./config');
 const { sendNotifications } = require('./notifications');
@@ -39,6 +39,7 @@ function resolveAliasGroupForOrg(rawMsg, orgId) {
 
   return {
     ...rawMsg,
+    client_name: rawMsg.client_name || getLocalDongleLabel(rawMsg.client_id),
     alias: row?.alias_name || null,
     alias_name: row?.alias_name || null,
     alias_color: row?.alias_color || null,

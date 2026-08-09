@@ -474,12 +474,15 @@ function getLocalDongleLabelMap() {
   return map;
 }
 
+function getLocalDongleLabel(sourceId) {
+  return getLocalDongleLabelMap().get(sourceId) || null;
+}
+
 function enrichSourceLabels(rows) {
   const list = Array.isArray(rows) ? rows : [rows];
-  const localLabels = getLocalDongleLabelMap();
   for (const row of list) {
     if (!row || row.client_name) continue;
-    const label = localLabels.get(row.client_id);
+    const label = getLocalDongleLabel(row.client_id);
     if (label) row.client_name = label;
   }
   return rows;
@@ -1039,5 +1042,5 @@ module.exports = {
   getStats,
   getMessageNotes, addMessageNote, deleteMessageNote, getNoteCounts,
   saveDbSession, deleteDbSession, loadActiveSessions, pruneExpiredSessions,
-  upsertUserLocation, getUserLocations, deleteUserLocation, enrichSourceLabels,
+  upsertUserLocation, getUserLocations, deleteUserLocation, enrichSourceLabels, getLocalDongleLabel,
 };
