@@ -318,10 +318,12 @@ router.get('/archive/export', requireAuth, (req, res) => {
     const rows = filterArchiveRows(q ? searchArchive(q, 10000) : getArchiveHistory(10000), req.session.orgId);
 
     const escape = v => v == null ? '' : `"${String(v).replace(/"/g, '""')}"`;
-    const header = ['id','timestamp','capcode','alias','protocol','baud','funcbits','message','lat','lng'];
+    const header = ['id','timestamp','source','capcode','alias','protocol','baud','funcbits','message','lat','lng'];
     const lines  = [
       header.join(','),
-      ...rows.map(r => header.map(k => escape(r[k])).join(',')),
+      ...rows.map(r => header.map(k => escape(
+        k === 'source' ? (r.client_name || r.client_id || '') : r[k]
+      )).join(',')),
     ];
 
     const ts = new Date().toISOString().slice(0,10);
