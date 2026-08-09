@@ -4,7 +4,7 @@ import { fetchVoiceChannels } from '../utils/api.js';
 import { sendWsMessage, subscribeWsAudio } from '../hooks/useWebSocket.js';
 
 const SAMPLE_RATE = 16000; // rtl_airband's fixed udp_stream rate — raw passthrough, no resampling anywhere in this path
-const CONNECT_TIMEOUT_MS = 8000; // no audio frame within this long after pressing play -> treat as failed
+const STALL_TIMEOUT_MS = 8000; // no audio frame for this long (initial connect, or mid-playback) -> treat as failed
 const PLAY_AHEAD_SEC = 0.2; // small scheduling cushion so the first frame doesn't click
 
 // Live voice-channel listening (firefighter dispatch etc.) — separate from the POCSAG
@@ -64,13 +64,22 @@ export default function LiveChannels() {
     audioCtxRef.current = ctx;
     nextTimeRef.current = ctx.currentTime + PLAY_AHEAD_SEC;
 
-    timeoutRef.current = setTimeout(() => {
-      setStatus(s => s === 'connecting' ? 'error' : s);
-    }, CONNECT_TIMEOUT_MS);
+    // Ongoing watchdog, not just an initial-connect timeout — re-armed on every frame, so a
+    // source that goes offline mid-playback (client disconnects, rtl_airband dies, etc.) gets
+    // caught too, not just a stream that never started. Safe to use the same short timeout
+    // throughout: voice channels are continuous=true (always sending, even through real RF
+    // silence), so a healthy stream never actually goes this long between frames.
+    const armWatchdog = () => {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        if (audioCtxRef.current === ctx) setStatus('error');
+      }, STALL_TIMEOUT_MS);
+    };
+    armWatchdog();
 
     unsubRef.current = subscribeWsAudio((channelId, arrayBuffer) => {
       if (channelId !== ch.id || audioCtxRef.current !== ctx) return;
-      clearTimeout(timeoutRef.current);
+      armWatchdog();
 
       const floats = new Float32Array(arrayBuffer);
       if (floats.length === 0) return;
