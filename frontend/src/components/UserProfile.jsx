@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Save, X, Bell, Lock, Mail, Smartphone, Send } from 'lucide-react';
+import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
@@ -253,15 +253,6 @@ export default function UserProfile({ onClose }) {
             </div>
 
             <Flash msg={prefMsg} />
-            <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)' }}>
-              <div className="pm-section-title" style={{ marginBottom:'0.45rem' }}>Alias creation</div>
-              <label style={{ display:'flex', alignItems:'flex-start', gap:'0.5rem',
-                fontSize:'0.82rem', cursor:'pointer', color:'var(--text-1)', lineHeight:1.45 }}>
-                <input type="checkbox" checked={!!prefs.alias_color_from_group}
-                  onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
-                <span>When creating a new alias, automatically use the selected group's colour and keep it in sync while the group changes.</span>
-              </label>
-            </div>
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.25rem' }}>
               <Save size={13}/> Save preferences
@@ -396,6 +387,26 @@ export default function UserProfile({ onClose }) {
 
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.25rem' }}>
+              <Save size={13}/> Save preferences
+            </button>
+          </div>
+
+          {/* Alias creation prefs */}
+          <div className="pm-card">
+            <div className="pm-section-title"><Tag size={13}/> Alias creation</div>
+            <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
+              Controls how the alias form behaves when you create a new alias in the admin area.
+            </p>
+
+            <label style={{ display:'flex', alignItems:'flex-start', gap:'0.5rem',
+              fontSize:'0.82rem', cursor:'pointer', color:'var(--text-1)', lineHeight:1.45 }}>
+              <input type="checkbox" checked={!!prefs.alias_color_from_group}
+                onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
+              <span>Automatically use the selected group's colour and keep it in sync while the group changes.</span>
+            </label>
+
+            <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
+              style={{ marginTop:'0.75rem' }}>
               <Save size={13}/> Save preferences
             </button>
           </div>
