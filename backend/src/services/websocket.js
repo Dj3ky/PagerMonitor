@@ -24,7 +24,16 @@ function resolveConnectionOrg(token) {
 }
 
 function initWebSocket(server) {
-  wss = new WebSocketServer({ server, path: '/ws' });
+  // noServer + manual upgrade routing (not { server, path }) — two WebSocketServer
+  // instances both attached via { server, path } each fire their own internal upgrade
+  // handler for *every* upgrade request regardless of path, and the one that doesn't
+  // match aborts the raw socket — which can stomp on the other server's own request
+  // even when its path does match. Routing upgrades ourselves avoids that entirely.
+  wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (req, socket, head) => {
+    if (parse(req.url).pathname !== '/ws') return; // not ours — leave it for another handler
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  });
 
   wss.on('connection', (ws, req) => {
     // Browsers can't set custom headers on a WebSocket handshake, so the bearer token

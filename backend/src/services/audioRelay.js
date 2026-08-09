@@ -18,6 +18,7 @@
 // AudioBuffer handles rate conversion to the output device natively).
 
 const { WebSocketServer, WebSocket } = require('ws');
+const { parse } = require('url');
 const logger = require('../utils/logger');
 
 const FRAME_HEADER_BYTES = 4;
@@ -115,7 +116,13 @@ function handleBrowserDisconnect(ws) {
 
 // ── RPi audio-source connections ───────────────────────────────────────────────────────
 function initAudioSourceWs(server) {
-  sourceWss = new WebSocketServer({ server, path: '/ws/audio-source' });
+  // noServer + manual upgrade routing — see the identical comment in websocket.js for why
+  // { server, path } can't safely coexist with another WebSocketServer on the same server.
+  sourceWss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (req, socket, head) => {
+    if (parse(req.url).pathname !== '/ws/audio-source') return; // not ours
+    sourceWss.handleUpgrade(req, socket, head, (ws) => sourceWss.emit('connection', ws, req));
+  });
 
   sourceWss.on('connection', (ws, req) => {
     const { getSetting } = require('./database');
