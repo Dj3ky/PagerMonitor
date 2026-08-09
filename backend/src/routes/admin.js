@@ -476,17 +476,6 @@ router.put('/client-key', platformOnly, (req, res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
-// ── Icecast config (instance-wide, env-backed — read-only, set via backend/.env) ──
-// Lets the SDR Clients config panel show the server's actual password so an admin
-// can copy it into a remote client's config instead of SSHing in to check/edit .env.
-router.get('/icecast-config', platformOnly, (_req, res) => {
-  res.json({
-    host: process.env.ICECAST_HOST || 'localhost',
-    port: process.env.ICECAST_PORT || '8000',
-    sourcePassword: process.env.ICECAST_SOURCE_PASSWORD || '',
-  });
-});
-
 // ── Keyword alerts (org-scoped) ────────────────────────────────────────────────
 router.get('/keyword-alerts',        (req,res) => { try{ res.json(getKeywordAlerts(req.session.orgId)); } catch(e){ res.status(500).json({error:e.message}); }});
 router.put('/keyword-alerts',        (req,res) => { try{ const { id } = upsertKeywordAlert(req.session.orgId, req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});

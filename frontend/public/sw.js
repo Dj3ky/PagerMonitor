@@ -1,4 +1,4 @@
-const CACHE = 'pm-v2.2.1';
+const CACHE = 'pm-v2.2.2';
 const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.json'];
 
 self.addEventListener('install', e => {
@@ -19,7 +19,7 @@ self.addEventListener('fetch', e => {
   // Never intercept WebSocket upgrades, API calls, or cross-origin requests
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws') || url.pathname.startsWith('/audio/')) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) return;
 
   // Network-first for navigation (always get fresh HTML)
   if (e.request.mode === 'navigate') {

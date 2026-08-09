@@ -232,9 +232,11 @@ Or configure per-dongle in **Admin → SDR Control → Multiple SDR dongles**.
 
 If your local pager frequency and a voice frequency (e.g. firefighter dispatch) sit within
 ~2MHz of each other, one dongle can decode POCSAG *and* stream voice channels live to the
-browser at the same time, using [rtl_airband](https://github.com/szpajder/RTLSDR-Airband)
-instead of `rtl_fm` for that dongle. Voice audio streams continuously (regardless of whether
-anyone's listening) to a shared Icecast server, and browsers just press play.
+browser at the same time, using [rtl_airband](https://github.com/rtl-airband/RTLSDR-Airband)
+instead of `rtl_fm` for that dongle. rtl_airband demodulates continuously either way; audio
+only actually transmits over the network while someone's really listening, relayed over the
+same WebSocket connection already used for messages (low-latency PCM, no separate server or
+port to run) — no inbound ports needed on the Pi.
 
 1. `install.sh`/`update.sh` (and the client's equivalents) now build and install `rtl_airband`
    from source automatically — first run takes a few extra minutes to compile. It's
@@ -243,13 +245,9 @@ anyone's listening) to a shared Icecast server, and browsers just press play.
 2. Add your voice channels in **Admin → Voice Channels** (description, frequency, mode, squelch).
 3. In **Admin → SDR Control → Multiple SDR dongles**, set a dongle's mode to *Multi
    (rtl_airband)* and check which channels it should decode alongside POCSAG.
-4. For remote RPi clients, set `ICECAST_SOURCE_PASSWORD` in `client/.env` to match the
-   server's, and the assigned channels are pushed down automatically via the existing
-   remote-config mechanism — no inbound ports needed on the Pi.
-
-`ICECAST_SOURCE_PASSWORD` (`backend/.env`) is generated automatically by `install.sh`;
-Docker deployments set it in the top-level `.env`. See `backend/.env.example` for all
-`ICECAST_*` variables.
+4. That's it — assigned channels are pushed down automatically via the existing remote-config
+   mechanism, and audio relays over the same `CLIENT_KEY`-authenticated connection used for
+   messages. No extra password/service to configure.
 
 ---
 
