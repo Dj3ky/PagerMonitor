@@ -189,8 +189,14 @@ function reconcileClientChannels(clientId) {
   }
 }
 
+function isAudioConnected(clientId) {
+  const ws = clientSockets.get(clientId);
+  return !!(ws && ws.readyState === WebSocket.OPEN);
+}
+
 module.exports = {
   initAudioSourceWs,
+  isAudioConnected,
   pushLocalFrame,
   handleBrowserListen,
   handleBrowserUnlisten,
