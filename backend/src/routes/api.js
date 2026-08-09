@@ -9,7 +9,7 @@ const ROOT_DIR = path.join(__dirname, '../../..');
 const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, deleteAlias,
         getGroups, getHighlightRules, getLastSeenId, setLastSeenId,
         upsertUserLocation, deleteUserLocation, getVoiceChannels,
-        ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL } = require('../services/database');
+        ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL, enrichSourceLabels } = require('../services/database');
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
@@ -46,7 +46,7 @@ router.get('/history', requireAuth, (req, res) => {
           LEFT JOIN sdr_clients c ON c.id = m.client_id
           ORDER BY m.id DESC LIMIT ?
         `).all(orgId, orgId, orgId, fetchLimit);
-    res.json(rows.filter(r => passesFeedFilter(r, orgId)).slice(0, limit));
+    res.json(enrichSourceLabels(rows).filter(r => passesFeedFilter(r, orgId)).slice(0, limit));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { StickyNote, ChevronDown, ChevronRight, MapPin, Trash2, RefreshCw, Radio } from 'lucide-react';
+import { StickyNote, ChevronDown, ChevronRight, MapPin, Trash2, RefreshCw } from 'lucide-react';
 import MessageNotes from './MessageNotes.jsx';
 import { useSite } from '../context/SiteContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -38,8 +38,9 @@ function HighlightedMsg({ text, rules, style }) {
   );
 }
 
-// Fixed-width badge column keeps alignment in desktop feed
+// Fixed-width columns keep alignment in desktop feed
 const BADGE_COL_W = '130px';
+const SOURCE_COL_W = '120px';
 
 function Badge({ label, color, title, onClick }) {
   return (
@@ -74,7 +75,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
   const aliasColor = msg.alias_color || '#4ade80';
   const groupName  = msg.group_name  || msg.parent_group_name;
   const groupColor = msg.group_color || msg.parent_group_color || '#a855f7';
-  // Which remote SDR client this message came from — only set in multi-client setups
+  // Source label: remote SDR client display name, or local multi-dongle label
   const clientLabel = msg.client_name || msg.client_id || null;
   const clientColor = msg.client_color || 'var(--accent-blue,#3b82f6)';
 
@@ -121,12 +122,15 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             <div style={{ fontSize:'0.65rem', color:'var(--text-2)' }}>{fmtDate(msg.timestamp, locale)}</div>
             <div style={{ fontSize:'0.72rem', color:'var(--text-2)' }}>{fmtTime(msg.timestamp, locale, hour12)}</div>
           </div>
-          {/* Source client — icon only shown for multi-client setups, but slot is always reserved so columns stay aligned with the header */}
-          <span title={clientLabel ? `From client: ${clientLabel}` : undefined}
-            style={{ display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
-              width:'12px', lineHeight:1, color: clientColor, opacity:0.85 }}>
-            {clientLabel && <Radio size={12}/>}
-          </span>
+          <div title={clientLabel || undefined}
+            style={{ flexShrink:0, width:SOURCE_COL_W, minWidth:SOURCE_COL_W,
+              display:'flex', alignItems:'center', justifyContent:'center' }}>
+            {clientLabel ? (
+              <Badge label={clientLabel} color={clientColor} title="Message source" />
+            ) : (
+              <span style={{ fontSize:'0.68rem', color:'var(--text-3)' }}>—</span>
+            )}
+          </div>
           {/* Capcode */}
           <span onClick={e => { e.stopPropagation(); onFilter?.('capcode', msg.capcode); }}
             title="Click to filter"
@@ -202,13 +206,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
               <span style={{ fontSize:'0.62rem', color:'var(--text-2)' }}>{fmtDate(msg.timestamp, locale)} </span>
               <span style={{ fontSize:'0.7rem', color:'var(--text-2)' }}>{fmtTime(msg.timestamp, locale, hour12)}</span>
             </span>
-            {clientLabel && (
-              <span title={`From client: ${clientLabel}`}
-                style={{ display:'flex', alignItems:'center', flexShrink:0, lineHeight:1,
-                  color: clientColor, opacity:0.85 }}>
-                <Radio size={11}/>
-              </span>
-            )}
+            {clientLabel && <Badge label={clientLabel} color={clientColor} title="Message source" />}
             <span onClick={e => { e.stopPropagation(); onFilter?.('capcode', msg.capcode); }}
               style={{ fontFamily:'monospace', fontSize:'0.73rem', fontWeight:700,
                 color:'var(--accent-amber)', flexShrink:0, cursor:'pointer',

@@ -461,6 +461,30 @@ function getDb() {
   return db;
 }
 
+function getLocalDongleLabelMap() {
+  const dongles = getSetting('dongle_configs', null);
+  const map = new Map();
+  if (!Array.isArray(dongles)) return map;
+  for (const dongle of dongles) {
+    const sourceId = `dongle-${dongle?.device ?? ''}`;
+    const label = String(dongle?.label || '').trim();
+    if (!label || sourceId === 'dongle-') continue;
+    map.set(sourceId, label);
+  }
+  return map;
+}
+
+function enrichSourceLabels(rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  const localLabels = getLocalDongleLabelMap();
+  for (const row of list) {
+    if (!row || row.client_name) continue;
+    const label = localLabels.get(row.client_id);
+    if (label) row.client_name = label;
+  }
+  return rows;
+}
+
 // ── Messages ──────────────────────────────────────────────────────────────────
 function insertMessage(msg) {
   const info = getDb().prepare(`
@@ -496,7 +520,7 @@ const ALIAS_GROUP_SELECT_SQL = `
 `;
 
 function getHistory(orgId, limit = 200) {
-  return getDb().prepare(`
+  const rows = getDb().prepare(`
     SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
            c.display_name as client_name, c.color as client_color,
            (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
@@ -505,13 +529,14 @@ function getHistory(orgId, limit = 200) {
     LEFT JOIN sdr_clients c ON c.id = m.client_id
     ORDER BY m.id DESC LIMIT ?
   `).all(orgId, orgId, orgId, limit);
+  return enrichSourceLabels(rows);
 }
 
 function searchMessages(orgId, query, limit = 100) {
   const safe  = query.replace(/['"*]/g, '').trim();
   const terms = safe.split(/\s+/).filter(Boolean);
   const ftsQuery = terms.map(t => `${t}*`).join(' ');
-  return getDb().prepare(`
+  const rows = getDb().prepare(`
     SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
            c.display_name as client_name, c.color as client_color,
            (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
@@ -522,6 +547,7 @@ function searchMessages(orgId, query, limit = 100) {
     WHERE messages_fts MATCH ?
     ORDER BY m.id DESC LIMIT ?
   `).all(orgId, orgId, orgId, ftsQuery, limit);
+  return enrichSourceLabels(rows);
 }
 
 function getMessageStats(orgId) {
@@ -1013,5 +1039,5 @@ module.exports = {
   getStats,
   getMessageNotes, addMessageNote, deleteMessageNote, getNoteCounts,
   saveDbSession, deleteDbSession, loadActiveSessions, pruneExpiredSessions,
-  upsertUserLocation, getUserLocations, deleteUserLocation,
+  upsertUserLocation, getUserLocations, deleteUserLocation, enrichSourceLabels,
 };

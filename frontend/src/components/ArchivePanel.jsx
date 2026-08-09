@@ -7,6 +7,7 @@ import { useSite } from '../context/SiteContext.jsx';
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
 const authHeaders = () => ({ Authorization: `Bearer ${tok()}` });
+const SOURCE_COL_WIDTH = '120px';
 
 function fmtDate(ts, locale) {
   if (!ts) return '—';
@@ -126,12 +127,13 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
             <div style={{ display:'flex', alignItems:'center', gap:'0.5rem',
               padding:'0.28rem 0.75rem', background:'var(--bg-2)', borderBottom:'1px solid var(--border)',
               position:'sticky', top:0, zIndex:2 }}>
-              {['Date / Time', 'Capcode', 'Alias / Group', 'Message'].map((h, i) => (
+              {['Date / Time', 'Source', 'Capcode', 'Alias / Group', 'Message'].map((h, i) => (
                 <span key={h} style={{ fontFamily:'monospace', fontSize:'0.6rem', fontWeight:700,
                   textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-3)',
                   ...(i === 0 ? { flexShrink:0, minWidth:'62px', textAlign:'right' } :
-                      i === 1 ? { flexShrink:0, minWidth:'70px' } :
-                      i === 2 ? { flexShrink:0, width:'130px' } : { flex:1 }) }}>
+                      i === 1 ? { flexShrink:0, width: SOURCE_COL_WIDTH, textAlign:'center' } :
+                      i === 2 ? { flexShrink:0, minWidth:'70px' } :
+                      i === 3 ? { flexShrink:0, width:'130px' } : { flex:1 }) }}>
                   {h}
                 </span>
               ))}

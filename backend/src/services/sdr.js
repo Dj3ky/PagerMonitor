@@ -613,7 +613,10 @@ function handleLine(line, sourceId = 'sdr') {
   const { lat, lng } = location;
   // Raw, alias-agnostic — alias/group naming is resolved per-org at broadcast/read
   // time (an alias can differ per org, or be a global shared default; see services/fanout.js).
-  const rawMsg = { timestamp, raw: line, ...parsed, lat, lng, alias: null };
+  const rawMsg = {
+    timestamp, raw: line, ...parsed, lat, lng, alias: null,
+    client_id: sourceId !== 'sdr' ? sourceId : null,
+  };
 
   const id     = insertMessage(rawMsg);
   const perOrg = broadcastAll(rawMsg, id); // resolves alias/group + applies each org's feed filter

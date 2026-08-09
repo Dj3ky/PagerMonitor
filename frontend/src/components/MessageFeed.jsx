@@ -5,6 +5,7 @@ import { fetchLastSeen, saveLastSeen } from '../utils/api.js';
 import { usePtrScroll } from '../hooks/usePtrScroll.js';
 
 const BADGE_COL_WIDTH = '130px';
+const SOURCE_COL_WIDTH = '120px';
 
 function FeedHeader() {
   const cell = (label, style) => (
@@ -22,7 +23,7 @@ function FeedHeader() {
       position:'sticky', top:0, zIndex:2 }}>
       <span style={{ width:'12px', flexShrink:0 }} />
       {cell('Date / Time',   { flexShrink:0, minWidth:'62px', textAlign:'right' })}
-      <span style={{ width:'12px', flexShrink:0 }} />
+      {cell('Source',        { flexShrink:0, width: SOURCE_COL_WIDTH, textAlign:'center' })}
       {cell('Capcode',       { flexShrink:0, minWidth:'70px', textAlign:'center' })}
       {cell('Alias / Group', { flexShrink:0, width: BADGE_COL_WIDTH, textAlign:'center' })}
       {cell('Message',       { flex:1 })}

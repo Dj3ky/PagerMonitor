@@ -4,7 +4,7 @@ const Database = require('better-sqlite3');
 const path     = require('path');
 const fs       = require('fs');
 const logger   = require('../utils/logger');
-const { getDb, getSetting } = require('./database');
+const { getDb, getSetting, enrichSourceLabels } = require('./database');
 
 const DB_PATH      = process.env.DB_PATH      || './data/pagermonitor.db';
 const ARCHIVE_PATH = process.env.ARCHIVE_PATH || path.join(path.dirname(path.resolve(DB_PATH)), 'archive.db');
@@ -34,6 +34,7 @@ function getArchiveDb() {
       raw       TEXT,
       lat       REAL,
       lng       REAL,
+      client_id TEXT,
       archived_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_arch_timestamp ON messages(timestamp DESC);
@@ -48,6 +49,12 @@ function getArchiveDb() {
       VALUES (new.id, new.message, new.capcode, new.alias);
     END;
   `);
+
+  const cols = archiveDb.prepare("PRAGMA table_info(messages)").all().map(c => c.name);
+  if (!cols.includes('client_id')) {
+    archiveDb.exec('ALTER TABLE messages ADD COLUMN client_id TEXT');
+    logger.info('Archive migration: added client_id to messages');
+  }
 
   logger.info(`Archive DB at ${ARCHIVE_PATH}`);
   return archiveDb;
@@ -68,9 +75,9 @@ function archiveOldMessages(days) {
 
   const insertArch = arch.prepare(`
     INSERT OR IGNORE INTO messages
-      (id, timestamp, capcode, alias, protocol, baud, funcbits, message, raw, lat, lng)
+      (id, timestamp, capcode, alias, protocol, baud, funcbits, message, raw, lat, lng, client_id)
     VALUES
-      (@id, @timestamp, @capcode, @alias, @protocol, @baud, @funcbits, @message, @raw, @lat, @lng)
+      (@id, @timestamp, @capcode, @alias, @protocol, @baud, @funcbits, @message, @raw, @lat, @lng, @client_id)
   `);
 
   const deleteFts = main.prepare('DELETE FROM messages_fts WHERE rowid = ?');
@@ -96,18 +103,20 @@ function archiveOldMessages(days) {
 // ── Search archive ────────────────────────────────────────────────────────────
 function searchArchive(query, limit = 100) {
   const safe = query.replace(/['"*]/g, '');
-  return getArchiveDb().prepare(`
+  const rows = getArchiveDb().prepare(`
     SELECT m.* FROM messages_fts f
     JOIN messages m ON m.id = f.rowid
     WHERE messages_fts MATCH ?
     ORDER BY m.id DESC LIMIT ?
   `).all(`"${safe}"`, limit);
+  return enrichSourceLabels(rows);
 }
 
 function getArchiveHistory(limit = 200) {
-  return getArchiveDb().prepare(
+  const rows = getArchiveDb().prepare(
     'SELECT * FROM messages ORDER BY id DESC LIMIT ?'
   ).all(limit);
+  return enrichSourceLabels(rows);
 }
 
 function getArchiveStats() {
