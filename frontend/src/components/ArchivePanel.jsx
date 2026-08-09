@@ -44,6 +44,18 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
     finally { setLoading(false); }
   };
 
+  const clear = async () => {
+    setQuery('');
+    setLoading(true);
+    try {
+      const r = await fetch(`${BASE}/api/archive?limit=50`, { headers: authHeaders() });
+      const d = await r.json();
+      setResults(Array.isArray(d) ? d : []);
+      setSearched(false);
+    } catch (_) {}
+    finally { setLoading(false); }
+  };
+
   const downloadCsv = async () => {
     const url = query.trim()
       ? `${BASE}/api/archive/export?q=${encodeURIComponent(query)}`
