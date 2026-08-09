@@ -545,7 +545,7 @@ function createPipeline(baseCfg, index) {
 
   // Waits for a process to actually exit (SIGKILL-escalating after a timeout) rather than
   // just firing SIGTERM and hoping — on slow hardware, rtl_airband's teardown (releasing the
-  // USB device, disconnecting Icecast, stopping FFT threads) can take longer than a fixed
+  // USB device, stopping FFT threads) can take longer than a fixed
   // sleep, and starting a new instance before the old one actually released the dongle
   // produces a "usb_claim_interface error -6" (device busy) loop.
   function killProcess(proc, timeoutMs = 4000) {
