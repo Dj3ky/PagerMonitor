@@ -24,7 +24,16 @@ function resolveConnectionOrg(token) {
 }
 
 function initWebSocket(server) {
-  wss = new WebSocketServer({ server, path: '/ws' });
+  // noServer + manual upgrade routing (not { server, path }) — two WebSocketServer
+  // instances both attached via { server, path } each fire their own internal upgrade
+  // handler for *every* upgrade request regardless of path, and the one that doesn't
+  // match aborts the raw socket — which can stomp on the other server's own request
+  // even when its path does match. Routing upgrades ourselves avoids that entirely.
+  wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (req, socket, head) => {
+    if (parse(req.url).pathname !== '/ws') return; // not ours — leave it for another handler
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  });
 
   wss.on('connection', (ws, req) => {
     // Browsers can't set custom headers on a WebSocket handshake, so the bearer token
@@ -48,9 +57,19 @@ function initWebSocket(server) {
     ws.on('close', () => {
       clientCount--;
       logger.debug(`WS client disconnected (total: ${clientCount})`);
+      require('./audioRelay').handleBrowserDisconnect(ws);
     });
 
     ws.on('error', (err) => logger.warn(`WS client error: ${err.message}`));
+
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return; // browsers never send us audio, only receive it
+      let msg;
+      try { msg = JSON.parse(data); } catch (_) { return; }
+      const audioRelay = require('./audioRelay');
+      if (msg.type === 'listen_start') audioRelay.handleBrowserListen(ws, msg.channelId);
+      else if (msg.type === 'listen_stop') audioRelay.handleBrowserUnlisten(ws, msg.channelId);
+    });
 
     // Send welcome + current SDR status so the UI is correct immediately
     safeSend(ws, { type: 'connected', ts: new Date().toISOString() });
