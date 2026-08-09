@@ -190,6 +190,12 @@ function udpPortForDongle(device) {
   return 18000 + Number(device ?? 0);
 }
 
+// Distinct range from udpPortForDongle's (18000+device, device counts stay tiny) — voice
+// channel ids come from the DB and this keeps them from ever colliding.
+function udpPortForVoiceChannel(channelId) {
+  return 19000 + Number(channelId);
+}
+
 // NOTE: RTLSDR-Airband uses libconfig syntax, NOT TOML (confirmed via a real "syntax
 // error" on line 1 when this was first written as TOML — libconfig++ is one of its
 // actual build dependencies). Exact field names/types are still best-effort; watch
@@ -224,9 +230,6 @@ function buildAirbandConfig(dongle, voiceChannels, udpPort) {
   }
   const centerHz = Math.round((minHz + maxHz) / 2);
 
-  const icecastHost = dongle.icecastHost || e.ICECAST_HOST || 'localhost';
-  const icecastPort = dongle.icecastPort || e.ICECAST_PORT || '8000';
-  const icecastPass = dongle.icecastPassword || e.ICECAST_SOURCE_PASSWORD || '';
   const gainRaw = String(dongle.gain || e.RTL_FM_GAIN || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
 
@@ -239,16 +242,19 @@ function buildAirbandConfig(dongle, voiceChannels, udpPort) {
             );
         }`;
 
+  // Voice channels stream to our own low-latency WebSocket relay (see services/audioRelay.js)
+  // instead of Icecast — each gets its own loopback UDP port, same pattern as the POCSAG
+  // channel above, just consumed by a per-channel dgram listener instead of multimon-ng.
   const voiceBlocks = voiceChannels.map(c => {
     const hz = parseFreqHz(c.freq);
     const squelchLine = c.squelch ? `\n            squelch_threshold = ${c.squelch};` : '';
-    const name = String(c.description || '').replace(/"/g, '');
+    const port = udpPortForVoiceChannel(c.id);
     return `        {
             freq = ${hz};
             modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}
             outputs:
             (
-                { type = "icecast"; server = "${icecastHost}"; port = ${icecastPort}; mountpoint = "ch${c.id}"; username = "source"; password = "${icecastPass}"; name = "${name}"; }
+                { type = "udp_stream"; dest_address = "127.0.0.1"; dest_port = ${port}; continuous = true; }
             );
         }`;
   });
@@ -301,9 +307,20 @@ function spawnAudioSource(dongle, label) {
     socket.on('error', err => logger.warn(`${label} UDP socket error: ${err.message}`));
     socket.bind(udpPort, '127.0.0.1');
 
+    // Voice channels: one loopback socket per channel, forwarded straight into the
+    // WebSocket relay (audioRelay no-ops cheaply if nobody's actually listening).
+    const audioRelay = require('./audioRelay');
+    const voiceSockets = voiceChannels.map(c => {
+      const vSocket = dgram.createSocket('udp4');
+      vSocket.on('message', msg => audioRelay.pushLocalFrame(c.id, msg));
+      vSocket.on('error', err => logger.warn(`${label} voice channel ${c.id} UDP socket error: ${err.message}`));
+      vSocket.bind(udpPortForVoiceChannel(c.id), '127.0.0.1');
+      return vSocket;
+    });
+
     const proc = spawn('rtl_airband', ['-F', '-c', configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stdout.on('data', () => {}); // never consumed elsewhere — drain so it can't block rtl_airband on a full pipe
-    return { proc, dataStream, socket, configPath };
+    return { proc, dataStream, socket, voiceSockets, configPath };
   }
   const rtlArgs = buildRtlFmArgsForDongle(dongle);
   const proc = spawn('rtl_fm', rtlArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -652,7 +669,7 @@ function spawnDonglePipeline(dongle, label, myGen) {
 
   const state = { running: false, error: null, restarts: 0, lastMessage: null };
 
-  const { proc: rtl, dataStream, rtlArgs, socket, configPath } = spawnAudioSource(dongle, label);
+  const { proc: rtl, dataStream, rtlArgs, socket, voiceSockets, configPath } = spawnAudioSource(dongle, label);
   const mmon = spawn('multimon-ng', mmonArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
   const tap = new PassThrough();
   let lastRtlMs = Date.now();
@@ -731,7 +748,7 @@ function spawnDonglePipeline(dongle, label, myGen) {
   rtl.on('error',  e => { if (myGen !== generation) return; logger.error(`${label} ${sourceName}: ${e.message}`);  if (!stopping) onFail(sourceName,  e.message); });
   mmon.on('error', e => { if (myGen !== generation) return; logger.error(`${label} mmon: ${e.message}`);     if (!stopping) onFail('mmon',    e.message); });
 
-  return { rtlProc: rtl, mmonProc: mmon, dataStream, cfg: dongle, label, state, watchdog, rtlArgs, mmonArgs, socket, configPath };
+  return { rtlProc: rtl, mmonProc: mmon, dataStream, cfg: dongle, label, state, watchdog, rtlArgs, mmonArgs, socket, voiceSockets, configPath };
 }
 
 function broadcastDongleStatus() {
@@ -759,6 +776,7 @@ function stopMultiDonglePipelines() {
     try { p.rtlProc?.kill('SIGTERM'); } catch (_) {}
     try { unregisterSource(`dongle-${p.cfg.device}`); } catch (_) {}
     try { p.socket?.close(); } catch (_) {}
+    try { p.voiceSockets?.forEach(s => s.close()); } catch (_) {}
   }
   donglePipelines = [];
 }

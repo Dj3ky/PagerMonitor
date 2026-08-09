@@ -48,9 +48,19 @@ function initWebSocket(server) {
     ws.on('close', () => {
       clientCount--;
       logger.debug(`WS client disconnected (total: ${clientCount})`);
+      require('./audioRelay').handleBrowserDisconnect(ws);
     });
 
     ws.on('error', (err) => logger.warn(`WS client error: ${err.message}`));
+
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return; // browsers never send us audio, only receive it
+      let msg;
+      try { msg = JSON.parse(data); } catch (_) { return; }
+      const audioRelay = require('./audioRelay');
+      if (msg.type === 'listen_start') audioRelay.handleBrowserListen(ws, msg.channelId);
+      else if (msg.type === 'listen_stop') audioRelay.handleBrowserUnlisten(ws, msg.channelId);
+    });
 
     // Send welcome + current SDR status so the UI is correct immediately
     safeSend(ws, { type: 'connected', ts: new Date().toISOString() });

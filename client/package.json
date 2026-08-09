@@ -8,7 +8,8 @@
     "dev":   "node --watch src/index.js"
   },
   "dependencies": {
-    "iconv-lite": "^0.6.3"
+    "iconv-lite": "^0.6.3",
+    "ws": "^8.16.0"
   },
   "engines": {
     "node": ">=18.0.0"
