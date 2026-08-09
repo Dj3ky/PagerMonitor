@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Radio, Trash2, Plus, Save } from 'lucide-react';
+import { Radio, Trash2, Plus, Save, Headphones } from 'lucide-react';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
@@ -12,13 +12,20 @@ function Flash({msg}){ if(!msg)return null; const ok=msg.type==='ok'; return <di
 
 export default function VoiceChannels() {
   const [channels, setChannels] = useState([]);
+  const [listeners, setListeners] = useState({}); // { channelId: count }
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [msg, setMsg] = useState(null);
 
   const flash = (type,text) => { setMsg({type,text}); setTimeout(()=>setMsg(null),3500); };
   const load  = () => api('GET','/admin/voice-channels').then(d=>setChannels(Array.isArray(d)?d:[]));
-  useEffect(()=>{ load(); },[]);
+  const loadListeners = () => api('GET','/admin/voice-channels/listeners').then(d=>setListeners(d && typeof d === 'object' ? d : {})).catch(()=>{});
+  useEffect(()=>{
+    load();
+    loadListeners();
+    const t = setInterval(loadListeners, 5000);
+    return () => clearInterval(t);
+  },[]);
 
   const edit = (c) => { setEditing(c.id); setForm({...c}); };
   const cancel = () => { setEditing(null); setForm(EMPTY); };
@@ -60,6 +67,15 @@ export default function VoiceChannels() {
               {c.squelch ? <>{' · squelch '}{c.squelch}</> : null}
             </div>
           </div>
+          {!!listeners[c.id] && (
+            <span title="Currently listening" style={{display:'flex',alignItems:'center',gap:'0.3rem',
+              fontSize:'0.75rem',fontWeight:600,color:'var(--accent-green)',
+              background:'color-mix(in srgb,var(--accent-green) 10%,transparent)',
+              border:'1px solid color-mix(in srgb,var(--accent-green) 30%,transparent)',
+              borderRadius:'1rem',padding:'0.2rem 0.6rem'}}>
+              <Headphones size={12}/> {listeners[c.id]}
+            </span>
+          )}
           <div style={{display:'flex',gap:'0.4rem',alignItems:'center'}}>
             <button className="pm-btn" onClick={()=>edit(c)}><Save size={12}/> Edit</button>
             <button className="pm-btn pm-btn-danger" onClick={()=>del(c.id)}><Trash2 size={12}/></button>

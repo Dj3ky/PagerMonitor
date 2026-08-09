@@ -127,8 +127,10 @@ function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConf
         {client.online
           ? <Wifi size={16} style={{ color:'var(--accent-green)', flexShrink:0 }}/>
           : <WifiOff size={16} style={{ color:'var(--text-3)', flexShrink:0 }}/>}
-        <Radio size={16} style={{ color: client.audioConnected ? 'var(--accent-green)' : 'var(--text-3)', flexShrink:0 }}
-          title={client.audioConnected ? 'Audio relay connected — ready to stream voice channels' : 'Audio relay not connected — voice channels on this client are unavailable'}/>
+        <span style={{ display:'inline-flex', flexShrink:0 }}
+          title={client.audioConnected ? 'Audio relay connected — ready to stream voice channels' : 'Audio relay not connected — voice channels on this client are unavailable'}>
+          <Radio size={16} style={{ color: client.audioConnected ? 'var(--accent-green)' : 'var(--text-3)' }}/>
+        </span>
 
         <div style={{ flex:1, minWidth:0 }}>
           {renaming ? (

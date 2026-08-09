@@ -194,9 +194,17 @@ function isAudioConnected(clientId) {
   return !!(ws && ws.readyState === WebSocket.OPEN);
 }
 
+// { channelId: listenerCount } for every channel with at least one active listener.
+function getListenerCounts() {
+  const out = {};
+  for (const [channelId, set] of listeners) if (set.size > 0) out[channelId] = set.size;
+  return out;
+}
+
 module.exports = {
   initAudioSourceWs,
   isAudioConnected,
+  getListenerCounts,
   pushLocalFrame,
   handleBrowserListen,
   handleBrowserUnlisten,
