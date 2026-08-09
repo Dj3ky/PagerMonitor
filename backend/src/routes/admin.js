@@ -498,6 +498,13 @@ router.delete('/voice-channels/:id', (req,res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
+// Live listener counts per channel id — polled by the admin UI, not org-scoped (this is
+// instance infrastructure, same rationale as sdr-clients/audioConnected above).
+router.get('/voice-channels/listeners', (_req, res) => {
+  try { res.json(require('../services/audioRelay').getListenerCounts()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Dead air config (instance-wide) ────────────────────────────────────────────
 router.get('/dead-air', platformOnly, (_req,res) => { try{ res.json(_gs('dead_air_config',{enabled:false,thresholdHours:6})); } catch(e){ res.status(500).json({error:e.message}); }});
 router.put('/dead-air', platformOnly, (req,res) => {
