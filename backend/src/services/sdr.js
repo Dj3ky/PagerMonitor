@@ -230,6 +230,14 @@ function buildAirbandConfig(dongle, voiceChannels, udpPort) {
   }
   const centerHz = Math.round((minHz + maxHz) / 2);
 
+  // fft_size was previously a fixed 512 regardless of sample_rate, so each channel's
+  // effective bandwidth (sample_rate / fft_size) swung wildly — only 2kHz/channel at our
+  // 1.024Msps floor, confirmed too narrow in the field: POCSAG failed to decode (clipped
+  // FSK deviation) on a config where a voice channel on the very same capture worked fine,
+  // exactly matching rtl_airband's own documented low-sample-rate/default-FFT-size gotcha.
+  // Target ~4kHz/channel instead, scaling with whatever sample rate gets picked above.
+  const fftSize = Math.min(8192, Math.max(256, Math.pow(2, Math.round(Math.log2(sampleRate / 4000)))));
+
   const gainRaw = String(dongle.gain || e.RTL_FM_GAIN || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
 
@@ -263,7 +271,7 @@ function buildAirbandConfig(dongle, voiceChannels, udpPort) {
 
   return `general:
 {
-    fft_size = 512;
+    fft_size = ${fftSize};
 };
 
 devices:
