@@ -104,8 +104,20 @@ export default function LiveChannels() {
 
   if (channels.length === 0) return null;
 
+  const activeChannel = channels.find(c => c.id === playingId);
+
   return (
-    <div ref={panelRef} style={{ position:'relative', flexShrink:0, marginLeft:'auto' }}>
+    <div ref={panelRef} style={{ position:'relative', flexShrink:0, marginLeft:'auto',
+      display:'flex', alignItems:'center', gap:'0.4rem' }}>
+      {activeChannel && (
+        <span title={activeChannel.description} style={{
+          fontSize:'0.75rem', fontWeight:600, whiteSpace:'nowrap',
+          overflow:'hidden', textOverflow:'ellipsis', maxWidth:'110px',
+          color: status === 'error' ? 'var(--accent-amber)' : status === 'playing' ? 'var(--accent-red)' : 'var(--text-3)',
+        }}>
+          {activeChannel.description}
+        </span>
+      )}
       <button title="Live voice channels" onClick={() => setOpen(o => !o)} style={{
         display:'flex', alignItems:'center', justifyContent:'center',
         width:'36px', height:'36px', borderRadius:'0.4rem',
