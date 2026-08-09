@@ -194,10 +194,14 @@ function isAudioConnected(clientId) {
   return !!(ws && ws.readyState === WebSocket.OPEN);
 }
 
-// { channelId: listenerCount } for every channel with at least one active listener.
+// { channelId: { count, usernames } } for every channel with at least one active listener.
+// Anonymous/public-mode listeners have no username — labelled "guest" for display.
 function getListenerCounts() {
   const out = {};
-  for (const [channelId, set] of listeners) if (set.size > 0) out[channelId] = set.size;
+  for (const [channelId, set] of listeners) {
+    if (set.size === 0) continue;
+    out[channelId] = { count: set.size, usernames: [...set].map(ws => ws.username || 'guest') };
+  }
   return out;
 }
 

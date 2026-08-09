@@ -67,13 +67,14 @@ export default function VoiceChannels() {
               {c.squelch ? <>{' · squelch '}{c.squelch}</> : null}
             </div>
           </div>
-          {!!listeners[c.id] && (
-            <span title="Currently listening" style={{display:'flex',alignItems:'center',gap:'0.3rem',
+          {!!listeners[c.id]?.count && (
+            <span title={`Listening: ${listeners[c.id].usernames.join(', ')}`}
+              style={{display:'flex',alignItems:'center',gap:'0.3rem',
               fontSize:'0.75rem',fontWeight:600,color:'var(--accent-green)',
               background:'color-mix(in srgb,var(--accent-green) 10%,transparent)',
               border:'1px solid color-mix(in srgb,var(--accent-green) 30%,transparent)',
               borderRadius:'1rem',padding:'0.2rem 0.6rem'}}>
-              <Headphones size={12}/> {listeners[c.id]}
+              <Headphones size={12}/> {listeners[c.id].count}
             </span>
           )}
           <div style={{display:'flex',gap:'0.4rem',alignItems:'center'}}>

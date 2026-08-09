@@ -14,12 +14,12 @@ function resolveConnectionOrg(token) {
   const { getSetting } = require('./database');
   if (token) {
     const s = validateSession(token);
-    if (s) return { orgId: s.orgId, isPlatformAdmin: !!s.isPlatformAdmin };
+    if (s) return { orgId: s.orgId, isPlatformAdmin: !!s.isPlatformAdmin, username: s.username || null };
   }
   // No (valid) token — allow only if the instance is in public mode, mirroring the
   // req.publicAccess GET-only exception in services/auth.js's requireAuth.
   const publicMode = !!getSetting('site_settings', {}).publicMode;
-  if (publicMode) return { orgId: getPublicOrgId(), isPlatformAdmin: false };
+  if (publicMode) return { orgId: getPublicOrgId(), isPlatformAdmin: false, username: null };
   return null;
 }
 
@@ -46,6 +46,7 @@ function initWebSocket(server) {
     }
     ws.orgId = conn.orgId;
     ws.isPlatformAdmin = conn.isPlatformAdmin;
+    ws.username = conn.username;
 
     clientCount++;
     const ip = req.socket.remoteAddress;
