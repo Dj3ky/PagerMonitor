@@ -1,24 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
 import { Radio, Play, Square, Loader2, AlertCircle } from 'lucide-react';
 import { fetchVoiceChannels } from '../utils/api.js';
+import { sendWsMessage, subscribeWsAudio } from '../hooks/useWebSocket.js';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
-const RETRY_DELAY_MS = 1500;
+const SAMPLE_RATE = 16000; // rtl_airband's fixed udp_stream rate — raw passthrough, no resampling anywhere in this path
+const CONNECT_TIMEOUT_MS = 8000; // no audio frame within this long after pressing play -> treat as failed
+const PLAY_AHEAD_SEC = 0.2; // small scheduling cushion so the first frame doesn't click
 
 // Live voice-channel listening (firefighter dispatch etc.) — separate from the POCSAG
-// feed. Channels stream continuously to Icecast regardless of listeners; this points a
-// real <audio> element at the mountpoint when the user presses play, with a connecting/
-// error state (instead of failing silently) and Media Session integration so Android
-// treats it as legitimate background media (lock-screen controls, less likely to be
-// suspended when the screen locks).
+// feed. Audio is relayed over the app's existing WebSocket (see services/audioRelay.js on
+// the backend) as raw PCM frames and scheduled directly via the Web Audio API, instead of
+// pointing an <audio> element at an Icecast stream — gives sub-second latency instead of
+// being at the mercy of the browser's built-in buffering heuristic for live streams.
 export default function LiveChannels() {
   const [channels, setChannels]   = useState([]);
   const [open, setOpen]           = useState(false);
   const [playingId, setPlayingId] = useState(null);
   const [status, setStatus]       = useState(null); // 'connecting' | 'playing' | 'error'
-  const audioRef   = useRef(null);
-  const panelRef   = useRef(null);
-  const attemptRef = useRef(0);
+
+  const audioCtxRef  = useRef(null);
+  const nextTimeRef  = useRef(0);
+  const unsubRef     = useRef(null);
+  const timeoutRef   = useRef(null);
+  const panelRef     = useRef(null);
 
   useEffect(() => {
     fetchVoiceChannels().then(r => setChannels(Array.isArray(r) ? r : [])).catch(() => {});
@@ -40,53 +44,68 @@ export default function LiveChannels() {
   };
 
   const stop = () => {
-    attemptRef.current += 1; // invalidates any in-flight retry/event from the previous attempt
-    const audio = audioRef.current;
-    if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
+    if (playingId != null) sendWsMessage({ type: 'listen_stop', channelId: playingId });
+    unsubRef.current?.();
+    unsubRef.current = null;
+    clearTimeout(timeoutRef.current);
+    if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch (_) {} audioCtxRef.current = null; }
     setPlayingId(null);
     setStatus(null);
     clearMediaSession();
   };
 
-  const play = (ch, isRetry = false) => {
-    const myAttempt = isRetry ? attemptRef.current : ++attemptRef.current;
-    if (!isRetry) setPlayingId(ch.id);
+  const play = (ch) => {
+    stop();
+    setPlayingId(ch.id);
     setStatus('connecting');
 
-    const audio = audioRef.current;
-    audio.src = `${BACKEND_URL}/audio/${ch.mount}`;
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.resume().catch(() => {});
+    audioCtxRef.current = ctx;
+    nextTimeRef.current = ctx.currentTime + PLAY_AHEAD_SEC;
 
-    const fail = () => {
-      if (attemptRef.current !== myAttempt) return;
-      if (!isRetry) setTimeout(() => { if (attemptRef.current === myAttempt) play(ch, true); }, RETRY_DELAY_MS);
-      else setStatus('error');
-    };
+    timeoutRef.current = setTimeout(() => {
+      setStatus(s => s === 'connecting' ? 'error' : s);
+    }, CONNECT_TIMEOUT_MS);
 
-    audio.onplaying = () => {
-      if (attemptRef.current !== myAttempt) return;
-      setStatus('playing');
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: ch.description || 'Live channel',
-          artist: 'PagerMonitor',
-        });
-        navigator.mediaSession.playbackState = 'playing';
-        navigator.mediaSession.setActionHandler('play',  () => play(ch));
-        navigator.mediaSession.setActionHandler('pause', () => stop());
-        navigator.mediaSession.setActionHandler('stop',  () => stop());
-      }
-    };
-    audio.onerror = fail;
+    unsubRef.current = subscribeWsAudio((channelId, arrayBuffer) => {
+      if (channelId !== ch.id || audioCtxRef.current !== ctx) return;
+      clearTimeout(timeoutRef.current);
 
-    audio.play().catch(fail);
+      const floats = new Float32Array(arrayBuffer);
+      if (floats.length === 0) return;
+
+      setStatus(s => {
+        if (s === 'playing') return s;
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.metadata = new MediaMetadata({ title: ch.description || 'Live channel', artist: 'PagerMonitor' });
+          navigator.mediaSession.playbackState = 'playing';
+          navigator.mediaSession.setActionHandler('play',  () => play(ch));
+          navigator.mediaSession.setActionHandler('pause', () => stop());
+          navigator.mediaSession.setActionHandler('stop',  () => stop());
+        }
+        return 'playing';
+      });
+
+      const buffer = ctx.createBuffer(1, floats.length, SAMPLE_RATE);
+      buffer.copyToChannel(floats, 0);
+
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(ctx.destination);
+
+      const startAt = Math.max(nextTimeRef.current, ctx.currentTime);
+      src.start(startAt);
+      nextTimeRef.current = startAt + buffer.duration;
+    });
+
+    sendWsMessage({ type: 'listen_start', channelId: ch.id });
   };
 
   if (channels.length === 0) return null;
 
   return (
     <div ref={panelRef} style={{ position:'relative', flexShrink:0, marginLeft:'auto' }}>
-      <audio ref={audioRef} style={{ display:'none' }} />
-
       <button title="Live voice channels" onClick={() => setOpen(o => !o)} style={{
         display:'flex', alignItems:'center', justifyContent:'center',
         width:'36px', height:'36px', borderRadius:'0.4rem',

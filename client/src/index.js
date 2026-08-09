@@ -9,17 +9,16 @@ const https = require('https');
 const path  = require('path');
 const fs    = require('fs');
 const os    = require('os');
+const WebSocket = require('ws');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const SERVER_URL = (process.env.SERVER_URL || 'http://192.168.1.100:3000').replace(/\/$/, '');
 const CLIENT_KEY = process.env.CLIENT_KEY  || '';
 const CLIENT_ID  = process.env.CLIENT_ID   || 'rpi-1';
 
-// Icecast lives alongside the main server — voice channels stream outbound to it (same
-// direction as /client/message posts), never accepting inbound connections on this Pi.
-const ICECAST_HOST = process.env.ICECAST_HOST || (() => { try { return new URL(SERVER_URL).hostname; } catch (_) { return 'localhost'; } })();
-const ICECAST_PORT = process.env.ICECAST_PORT || '8000';
-const ICECAST_SOURCE_PASSWORD = process.env.ICECAST_SOURCE_PASSWORD || '';
+// Voice-channel audio relay lives alongside the main server — this Pi connects outbound to
+// it (same direction as /client/message posts), never accepting inbound connections here.
+const AUDIO_WS_URL = SERVER_URL.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws') + '/ws/audio-source';
 
 // ── Git version (reported to server so admin UI can show update availability) ─
 let CLIENT_GIT_HASH = null;
@@ -172,6 +171,57 @@ function udpPortForDongle(device) {
   return 18000 + Number(device ?? 0);
 }
 
+// Distinct range from udpPortForDongle's (18000+device, device counts stay tiny) — voice
+// channel ids come from the server's DB and this keeps them from ever colliding.
+function udpPortForVoiceChannel(channelId) {
+  return 19000 + Number(channelId);
+}
+
+// ── Voice-channel audio relay (outbound WebSocket to the server) ──────────────────────
+// Persistent, always attempting to connect regardless of which dongles are configured —
+// cheap to keep open, simpler than tearing it down/rebuilding around config changes.
+// rtl_airband keeps demodulating any assigned voice channel locally & continuously either
+// way (same as POCSAG); only whether a channel's already-flowing local audio gets forwarded
+// onward over this socket is gated by start/stop control messages from the server (which it
+// sends based on real listener count) — keeps WAN bandwidth at zero for unwatched channels.
+let audioWs = null;
+let audioWsReconnectTimer = null;
+let audioWsAttempts = 0;
+const voiceChannelForwarding = new Map(); // channelId -> boolean
+
+function connectAudioWs() {
+  if (!CLIENT_KEY) return; // server rejects unauthenticated connections anyway
+  if (audioWs && (audioWs.readyState === WebSocket.OPEN || audioWs.readyState === WebSocket.CONNECTING)) return;
+
+  const ws = new WebSocket(AUDIO_WS_URL, { headers: { 'X-Client-Key': CLIENT_KEY, 'X-Client-Id': CLIENT_ID } });
+  audioWs = ws;
+
+  ws.on('open', () => {
+    log('info', 'Audio relay connected');
+    audioWsAttempts = 0;
+  });
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) return; // server never sends us audio, only control messages
+    let msg;
+    try { msg = JSON.parse(data); } catch (_) { return; }
+    if (msg.type === 'start') voiceChannelForwarding.set(Number(msg.channelId), true);
+    else if (msg.type === 'stop') voiceChannelForwarding.set(Number(msg.channelId), false);
+  });
+  ws.on('close', () => {
+    if (audioWs === ws) audioWs = null;
+    voiceChannelForwarding.clear(); // server re-signals 'start' for anything still being listened to once we reconnect
+    scheduleAudioWsReconnect();
+  });
+  ws.on('error', err => log('debug', `Audio relay error: ${err.message}`));
+}
+
+function scheduleAudioWsReconnect() {
+  if (audioWsReconnectTimer) return;
+  audioWsAttempts++;
+  const delay = Math.min(3000 * Math.pow(2, audioWsAttempts - 1), 60_000);
+  audioWsReconnectTimer = setTimeout(() => { audioWsReconnectTimer = null; connectAudioWs(); }, delay);
+}
+
 // NOTE: RTLSDR-Airband uses libconfig syntax, NOT TOML (confirmed via a real "syntax
 // error" on line 1 when this was first written as TOML — see server-side sdr.js's
 // identical note). Exact field names/types are still best-effort.
@@ -204,11 +254,6 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
   const centerHz = Math.round((minHz + maxHz) / 2);
   const gainRaw = String(cfg.gain || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
-  // Pushed from Admin -> SDR Clients config takes priority over this Pi's local .env,
-  // so the icecast password can be set from the UI instead of editing .env over SSH.
-  const icecastHost = cfg.icecastHost || ICECAST_HOST;
-  const icecastPort = cfg.icecastPort || ICECAST_PORT;
-  const icecastPass = cfg.icecastPassword || ICECAST_SOURCE_PASSWORD;
 
   const pocsagChannel = `        {
             freq = ${pocsagHz};
@@ -219,16 +264,19 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
             );
         }`;
 
+  // Voice channels stream to our own low-latency WebSocket relay (see AUDIO_WS_URL /
+  // connectAudioWs above) instead of Icecast — each gets its own loopback UDP port,
+  // same pattern as the POCSAG channel above.
   const voiceBlocks = voiceChannels.map(c => {
     const hz = parseFreqHz(c.freq);
     const squelchLine = c.squelch ? `\n            squelch_threshold = ${c.squelch};` : '';
-    const name = String(c.description || '').replace(/"/g, '');
+    const port = udpPortForVoiceChannel(c.id);
     return `        {
             freq = ${hz};
             modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}
             outputs:
             (
-                { type = "icecast"; server = "${icecastHost}"; port = ${icecastPort}; mountpoint = "ch${c.id}"; username = "source"; password = "${icecastPass}"; name = "${name}"; }
+                { type = "udp_stream"; dest_address = "127.0.0.1"; dest_port = ${port}; continuous = true; }
             );
         }`;
   });
@@ -276,9 +324,26 @@ function spawnAudioSource(cfg, label) {
     socket.on('error', err => log('warn', `${label} UDP socket error: ${err.message}`));
     socket.bind(udpPort, '127.0.0.1');
 
+    // Voice channels: one loopback socket per channel. Always receiving locally (cheap,
+    // rtl_airband produces it regardless), but only actually forwarded over the WS relay
+    // to the server while voiceChannelForwarding says a real listener is tuned in.
+    const voiceSockets = voiceChannels.map(c => {
+      const vSocket = dgram.createSocket('udp4');
+      vSocket.on('message', msg => {
+        if (!voiceChannelForwarding.get(Number(c.id))) return;
+        if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
+        const header = Buffer.alloc(4);
+        header.writeUInt32LE(Number(c.id), 0);
+        try { audioWs.send(Buffer.concat([header, msg])); } catch (_) {}
+      });
+      vSocket.on('error', err => log('warn', `${label} voice channel ${c.id} UDP socket error: ${err.message}`));
+      vSocket.bind(udpPortForVoiceChannel(c.id), '127.0.0.1');
+      return vSocket;
+    });
+
     const proc = spawn('rtl_airband', ['-F', '-c', configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stdout.on('data', () => {}); // never consumed elsewhere — drain so it can't block rtl_airband on a full pipe
-    return { proc, dataStream, socket };
+    return { proc, dataStream, socket, voiceSockets };
   }
   const rtlArgs = buildRtlArgs(cfg);
   const proc = spawn('rtl_fm', rtlArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -467,6 +532,7 @@ function createPipeline(baseCfg, index) {
   let mmonProc = null;
   let dataStream = null;
   let udpSocket  = null;
+  let voiceUdpSockets = [];
   let stopping = false;
   let restartTimer    = null;
   let consecutiveFails = 0;
@@ -500,8 +566,9 @@ function createPipeline(baseCfg, index) {
     clearInterval(watchdogTimer); watchdogTimer = null;
     try { dataStream?.unpipe(); dataStream?.destroy(); } catch (_) {}
     try { udpSocket?.close(); } catch (_) {}
+    try { voiceUdpSockets.forEach(s => s.close()); } catch (_) {}
     const toKill = [mmonProc, rtlProc].filter(Boolean);
-    rtlProc = null; mmonProc = null; dataStream = null; udpSocket = null;
+    rtlProc = null; mmonProc = null; dataStream = null; udpSocket = null; voiceUdpSockets = [];
     await Promise.all(toKill.map(p => killProcess(p)));
   }
 
@@ -530,6 +597,7 @@ function createPipeline(baseCfg, index) {
       rtlProc    = source.proc;
       dataStream = source.dataStream;
       udpSocket  = source.socket || null;
+      voiceUdpSockets = source.voiceSockets || [];
       mmonProc = spawn('multimon-ng', mmonArgs, { stdio: ['pipe',   'pipe', 'pipe'] });
 
       const tap = new PassThrough();
@@ -645,6 +713,9 @@ dongleConfigs.forEach((c, i) => log('info', `  [${i}] device=${c.device} freq=${
 const pipelines = dongleConfigs.map((cfg, i) => createPipeline(cfg, i));
 pipelines.forEach(p => p.start());
 
+// Voice-channel audio relay — persistent, independent of any specific dongle's lifecycle
+connectAudioWs();
+
 // Config polling — applies to all pipelines
 let configTimer = null;
 async function startConfigPolling() {
@@ -660,6 +731,8 @@ setTimeout(startConfigPolling, 10_000);
 const shutdown = () => {
   log('info', 'Shutting down...');
   clearInterval(configTimer);
+  clearTimeout(audioWsReconnectTimer);
+  try { audioWs?.close(); } catch (_) {}
   const stopAll = Promise.all(pipelines.map(p => p.stop()));
   const stopped = Promise.race([stopAll, new Promise(r => setTimeout(r, 4500))]);
   stopped.finally(() => {

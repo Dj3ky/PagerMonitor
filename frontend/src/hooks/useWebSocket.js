@@ -11,6 +11,22 @@ export function subscribeWsMessages(fn) {
   return () => wsListeners.delete(fn);
 }
 
+// Binary audio frames (voice-channel relay) — separate pub/sub, keyed by channelId so
+// LiveChannels only processes frames for whatever it's currently playing. Frame format:
+// 4-byte little-endian channel id, followed by raw 32-bit float mono PCM at 16kHz.
+const audioListeners = new Set();
+export function subscribeWsAudio(fn) {
+  audioListeners.add(fn);
+  return () => audioListeners.delete(fn);
+}
+
+// Lets components (LiveChannels) send control messages (listen_start/listen_stop) without
+// needing the ws instance threaded through props/context — mirrors the wsListeners pattern.
+let currentWs = null;
+export function sendWsMessage(obj) {
+  if (currentWs?.readyState === WebSocket.OPEN) { try { currentWs.send(JSON.stringify(obj)); } catch (_) {} }
+}
+
 export function useWebSocket(backendUrl) {
   const [messages, setMessages]   = useState([]);
   const [wsStatus, setWsStatus]   = useState('connecting');
@@ -39,7 +55,9 @@ export function useWebSocket(backendUrl) {
     // determines which organization's feed this connection sees — travels as a query param.
     const token = localStorage.getItem('pm_token') || '';
     const ws = new WebSocket(token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl);
+    ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
+    currentWs = ws;
     setWsStatus('connecting');
 
     ws.onopen = () => {
@@ -68,6 +86,14 @@ export function useWebSocket(backendUrl) {
     };
 
     ws.onmessage = (evt) => {
+      if (evt.data instanceof ArrayBuffer) {
+        if (evt.data.byteLength < 4) return;
+        const view = new DataView(evt.data);
+        const channelId = view.getUint32(0, true); // little-endian
+        const payload = evt.data.slice(4);
+        audioListeners.forEach(fn => { try { fn(channelId, payload); } catch (_) {} });
+        return;
+      }
       try {
         const data = JSON.parse(evt.data);
 
@@ -140,6 +166,7 @@ export function useWebSocket(backendUrl) {
     };
 
     ws.onclose = () => {
+      if (currentWs === ws) currentWs = null;
       if (!shuttingDownRef.current) setWsStatus('closed');
       attemptsRef.current += 1;
       const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attemptsRef.current - 1), RECONNECT_MAX_MS);
