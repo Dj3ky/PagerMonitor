@@ -79,7 +79,13 @@ function buildDongleConfigs() {
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 function log(level, msg) {
-  console.log(`[${new Date().toISOString()}] [${level.toUpperCase()}] ${msg}`);
+  const ts = new Date().toISOString();
+  console.log(`[${ts}] [${level.toUpperCase()}] ${msg}`);
+  // Remote live-log viewing (Admin -> SDR Clients) — piggybacks on the audio-relay
+  // connection so an admin can tail this client's logs without SSH/port forwarding.
+  if (logStreamingEnabled && audioWs && audioWs.readyState === WebSocket.OPEN) {
+    try { audioWs.send(JSON.stringify({ type: 'log', level, msg, ts })); } catch (_) {}
+  }
 }
 
 // ── CLI arg builders ──────────────────────────────────────────────────────────
@@ -187,6 +193,7 @@ function udpPortForVoiceChannel(channelId) {
 let audioWs = null;
 let audioWsReconnectTimer = null;
 let audioWsAttempts = 0;
+let logStreamingEnabled = false; // toggled by the server so an admin can view our logs live, no SSH needed
 const voiceChannelForwarding = new Map(); // channelId -> boolean
 
 function connectAudioWs() {
@@ -206,10 +213,12 @@ function connectAudioWs() {
     try { msg = JSON.parse(data); } catch (_) { return; }
     if (msg.type === 'start') voiceChannelForwarding.set(Number(msg.channelId), true);
     else if (msg.type === 'stop') voiceChannelForwarding.set(Number(msg.channelId), false);
+    else if (msg.type === 'log_stream') logStreamingEnabled = !!msg.on;
   });
   ws.on('close', () => {
     if (audioWs === ws) audioWs = null;
     voiceChannelForwarding.clear(); // server re-signals 'start' for anything still being listened to once we reconnect
+    logStreamingEnabled = false; // server re-arms this too on reconnect if still being watched
     scheduleAudioWsReconnect();
   });
   ws.on('error', err => log('debug', `Audio relay error: ${err.message}`));

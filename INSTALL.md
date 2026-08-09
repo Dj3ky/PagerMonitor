@@ -249,6 +249,23 @@ port to run) — no inbound ports needed on the Pi.
    mechanism, and audio relays over the same `CLIENT_KEY`-authenticated connection used for
    messages. No extra password/service to configure.
 
+**Hardware requirement: Raspberry Pi 3 or 4 only.** rtl_airband's FFT channelizer is
+meaningfully heavier than plain `rtl_fm` — confirmed in the field on Pi 1 and Pi 2 hardware,
+both running rtl_airband even for POCSAG alone (no voice channels assigned at all):
+- Pi 1 (+ RTL-SDR V4): 100% CPU, buffer overflow, but the pipeline stayed up (degraded, not down).
+- Pi 2 (+ RTL-SDR V3): SDR went fully offline — a *harder* failure despite Pi 2 nominally
+  having more CPU power than Pi 1, so the exact failure mode isn't purely about raw CPU
+  headroom; the dongle model may also play a role. Not fully root-caused.
+
+Only Pi 3 and Pi 4 are confirmed reliable so far. Until Pi 1/2 are understood better, leave
+dongles on that hardware in single (`rtl_fm`) mode rather than multi/airband.
+
+If you also have an RTL-SDR Blog dongle (V2/V3/V4), `install.sh`/`update.sh` also install
+[RTL-SDR Blog's librtlsdr fork](https://github.com/rtlsdrblog/rtl-sdr-blog) automatically —
+stock Debian librtlsdr can misbehave with these dongles (wrong gain tables/tuner detection),
+especially under rtl_airband's more demanding real-time operation. A dongle that works fine
+in single mode but fails to bring SDR up at all in multi mode is the telltale symptom.
+
 ---
 
 ## Admin panel

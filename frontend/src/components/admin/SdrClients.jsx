@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Activity, Settings2, ChevronDown, ChevronUp, Save, Download, GitCommit, Pencil, Check, X, Radio } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Activity, Settings2, ChevronDown, ChevronUp, Save, Download, GitCommit, Pencil, Check, X, Radio, Terminal } from 'lucide-react';
 import { useSite } from '../../context/SiteContext.jsx';
 import { normTs } from '../../utils/time.js';
+import { sendWsMessage, subscribeWsMessages } from '../../hooks/useWebSocket.js';
 
 const GITHUB_REPO = 'Dj3ky/PagerMonitor';
 const GITHUB_API  = `https://api.github.com/repos/${GITHUB_REPO}/commits/main`;
@@ -66,7 +67,7 @@ function Flash({ msg }) {
   }}>{msg.text}</div>;
 }
 
-function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, flash }) {
+function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, onViewLogs, flash }) {
   const { locale, hour12 } = useSite();
   const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
@@ -182,6 +183,10 @@ function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConf
           title="Send remote update command — runs update.sh on the client"
           style={{ color: client.pendingCommand === 'update' ? 'var(--accent-amber)' : undefined }}>
           <Download size={12}/> {updating ? 'Queuing…' : client.pendingCommand === 'update' ? 'Update pending…' : 'Update'}
+        </button>
+        <button className="pm-btn" onClick={() => onViewLogs(client.id)}
+          title="View this client's live logs — no SSH needed">
+          <Terminal size={12}/> Live Logs
         </button>
         <button className="pm-btn pm-btn-danger" onClick={() => onRemove(client.id)} title="Remove">
           <Trash2 size={12}/>
@@ -372,6 +377,44 @@ function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConf
   );
 }
 
+function LiveLogsModal({ clientId, lines, onClose }) {
+  const boxRef = useRef(null);
+  useEffect(() => { if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight; }, [lines]);
+
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:3000,
+      display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem',
+    }}>
+      <div onClick={e => e.stopPropagation()} className="pm-card" style={{
+        width:'100%', maxWidth:'860px', height:'70vh', display:'flex', flexDirection:'column', padding:'0.75rem',
+      }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.5rem' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontWeight:700, color:'var(--text-1)' }}>
+            <Terminal size={15}/> Live logs — {clientId}
+          </div>
+          <button className="pm-btn" onClick={onClose}><X size={12}/> Close</button>
+        </div>
+        <div ref={boxRef} style={{
+          flex:1, overflowY:'auto', background:'var(--bg-3)', borderRadius:'0.4rem',
+          padding:'0.6rem', fontFamily:'monospace', fontSize:'0.75rem', lineHeight:1.5,
+        }}>
+          {lines.length === 0 ? (
+            <div style={{ color:'var(--text-3)' }}>Waiting for log output…</div>
+          ) : lines.map((l, i) => (
+            <div key={i} style={{
+              color: l.level === 'error' ? 'var(--accent-red)' : l.level === 'warn' ? 'var(--accent-amber)' : 'var(--text-2)',
+              whiteSpace:'pre-wrap', wordBreak:'break-word',
+            }}>
+              [{new Date(l.ts).toLocaleTimeString()}] [{String(l.level || '').toUpperCase()}] {l.msg}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SdrClients() {
   const [clients, setClients]     = useState([]);
   const [configs, setConfigs]     = useState([]);
@@ -379,7 +422,29 @@ export default function SdrClients() {
   const [loading, setLoading]     = useState(true);
   const [msg, setMsg]             = useState(null);
   const [latestSha, setLatestSha] = useState(null); // latest GitHub commit SHA
+  const [viewingLogsId, setViewingLogsId] = useState(null);
+  const [logLines, setLogLines]   = useState([]);
   const timerRef                  = useRef(null);
+
+  // Live client logs — reuses the audio-relay connection server-side, so no SSH/port
+  // forwarding needed. Only one client watched at a time per admin session.
+  useEffect(() => {
+    if (!viewingLogsId) return;
+    setLogLines([]);
+    sendWsMessage({ type: 'watch_client_logs', clientId: viewingLogsId });
+    const unsub = subscribeWsMessages(data => {
+      if (data.type === 'client_log' && data.clientId === viewingLogsId) {
+        setLogLines(prev => {
+          const next = [...prev, data];
+          return next.length > 500 ? next.slice(-500) : next;
+        });
+      }
+    });
+    return () => {
+      sendWsMessage({ type: 'unwatch_client_logs', clientId: viewingLogsId });
+      unsub();
+    };
+  }, [viewingLogsId]);
 
   const flash = (type, text) => { setMsg({type,text}); setTimeout(()=>setMsg(null),3500); };
 
@@ -470,8 +535,13 @@ export default function SdrClients() {
 
       {!loading && clients.map(c => (
         <ClientCard key={c.id} client={c} configs={configs} channels={channels} latestSha={latestSha}
-          onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} onRename={rename} onSetColor={setColor} flash={flash} />
+          onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} onRename={rename} onSetColor={setColor}
+          onViewLogs={setViewingLogsId} flash={flash} />
       ))}
+
+      {viewingLogsId && (
+        <LiveLogsModal clientId={viewingLogsId} lines={logLines} onClose={() => setViewingLogsId(null)} />
+      )}
 
       <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginTop:'0.75rem' }}>
         Auto-refreshes every 15 seconds · Online = seen within 90 seconds

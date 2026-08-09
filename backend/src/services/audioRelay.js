@@ -28,6 +28,8 @@ const clientSockets       = new Map(); // clientId -> ws (Pi audio-source connec
 const listeners            = new Map(); // channelId -> Set<browserWs>
 const internalSubscribers  = new Map(); // channelId -> Set<callback(payload)> — e.g. discordRelay.js
 const forwardingActive     = new Map(); // channelId -> boolean (have we told the remote client to stream?)
+const logWatchers          = new Map(); // clientId -> Set<browserWs> — admins viewing that client's live logs
+const logStreamActive      = new Map(); // clientId -> boolean (have we told the client to stream its logs?)
 
 // Browsers + internal (non-WS) subscribers both count toward "does this channel need
 // forwarding" — a channel stays armed as long as *either* wants it.
@@ -101,6 +103,44 @@ function setRemoteForwarding(channelId, wantOn) {
   sendControl(owner.clientId, { type: wantOn ? 'start' : 'stop', channelId: Number(channelId) });
 }
 
+// ── Remote live-log viewing — reuses this same connection so no new port/protocol is
+// needed: admins watch a specific client's own log() output in near-real-time without
+// SSH, over the exact same outbound-only connection already used for audio. ────────────
+function setLogStreaming(clientId, wantOn) {
+  const cur = logStreamActive.get(clientId) || false;
+  if (cur === wantOn) return;
+  logStreamActive.set(clientId, wantOn);
+  sendControl(clientId, { type: 'log_stream', on: wantOn });
+}
+
+function handleBrowserWatchClientLogs(ws, clientId) {
+  if (!clientId) return;
+  let set = logWatchers.get(clientId);
+  if (!set) { set = new Set(); logWatchers.set(clientId, set); }
+  const wasEmpty = set.size === 0;
+  set.add(ws);
+  (ws._watchingClientLogs || (ws._watchingClientLogs = new Set())).add(clientId);
+  if (wasEmpty) setLogStreaming(clientId, true);
+}
+
+function handleBrowserUnwatchClientLogs(ws, clientId) {
+  const set = logWatchers.get(clientId);
+  if (set) {
+    set.delete(ws);
+    if (set.size === 0) { logWatchers.delete(clientId); setLogStreaming(clientId, false); }
+  }
+  ws._watchingClientLogs?.delete(clientId);
+}
+
+function relayClientLog(clientId, level, msg, ts) {
+  const set = logWatchers.get(clientId);
+  if (!set || set.size === 0) return;
+  const data = JSON.stringify({ type: 'client_log', clientId, level, msg, ts });
+  for (const ws of set) {
+    if (ws.readyState === WebSocket.OPEN) { try { ws.send(data); } catch (_) {} }
+  }
+}
+
 // ── Browser-side listen/unlisten (called from websocket.js's /ws handler) ─────────────
 function handleBrowserListen(ws, channelId) {
   const id = Number(channelId);
@@ -125,8 +165,8 @@ function handleBrowserUnlisten(ws, channelId) {
 }
 
 function handleBrowserDisconnect(ws) {
-  if (!ws._listeningChannels) return;
-  for (const id of ws._listeningChannels) handleBrowserUnlisten(ws, id);
+  if (ws._listeningChannels) for (const id of ws._listeningChannels) handleBrowserUnlisten(ws, id);
+  if (ws._watchingClientLogs) for (const id of [...ws._watchingClientLogs]) handleBrowserUnwatchClientLogs(ws, id);
 }
 
 // ── Internal (non-WS) subscribers, e.g. discordRelay.js ────────────────────────────────
@@ -173,19 +213,30 @@ function initAudioSourceWs(server) {
     clientSockets.set(clientId, ws);
     logger.info(`Audio-source client connected: ${clientId}`);
     reconcileClientChannels(clientId);
+    // Re-arm log streaming too if an admin is still watching this client's logs from
+    // before it disconnected (mirrors reconcileClientChannels' reasoning below).
+    if ((logWatchers.get(clientId)?.size || 0) > 0) setLogStreaming(clientId, true);
 
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
 
     ws.on('message', (data, isBinary) => {
-      if (!isBinary) return; // no control messages expected from the client on this socket
-      const frame = decodeFrame(data);
-      if (frame) fanOutFrame(frame.channelId, frame.payload);
+      if (isBinary) {
+        const frame = decodeFrame(data);
+        if (frame) fanOutFrame(frame.channelId, frame.payload);
+        return;
+      }
+      // Only real, expected text message from a client right now: its own log lines,
+      // while an admin has log streaming turned on for it (see setLogStreaming above).
+      let msg;
+      try { msg = JSON.parse(data); } catch (_) { return; }
+      if (msg.type === 'log') relayClientLog(clientId, msg.level, msg.msg, msg.ts);
     });
 
     ws.on('close', () => {
       if (clientSockets.get(clientId) === ws) clientSockets.delete(clientId);
       logger.info(`Audio-source client disconnected: ${clientId}`);
+      logStreamActive.set(clientId, false); // re-arm on reconnect rather than assume it's still streaming
       // Any channel that was actively forwarding for this client needs re-arming on
       // reconnect — clear our "already told it to start" bookkeeping so the next
       // listener (or the same one still connected) re-triggers a fresh start signal.
@@ -247,6 +298,8 @@ module.exports = {
   handleBrowserListen,
   handleBrowserUnlisten,
   handleBrowserDisconnect,
+  handleBrowserWatchClientLogs,
+  handleBrowserUnwatchClientLogs,
   subscribeChannel,
   reconcileClientChannels,
 };
