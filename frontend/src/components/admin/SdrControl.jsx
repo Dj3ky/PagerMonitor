@@ -18,13 +18,14 @@ const api  = (m, p, b) => fetch(`${BASE}${p}`, {
 }).then(r => r.json());
 
 const DONGLE_DEFAULTS = {
-  device:'0', freq:'173.250M', modulation:'fm', sampleRate:'22050',
+  label:'', device:'0', freq:'173.250M', modulation:'fm', sampleRate:'22050',
   gain:'40', ppm:'0', squelch:'0', resampleRate:'', lowpass:'',
   tunerBandwidth:'', directSampling:'0', offsetTuning:'0',
   protocols:'POCSAG1200', verbosity:'', quiet:'1', inputFormat:'', pocsagSpecial:'0', charset:'',
   mode:'single', voiceChannelIds:[],
 };
 const DONGLE_FIELDS = [
+  { key:'label',          label:'Label',               hint:'Optional feed/archive label for this dongle',             group:'meta' },
   { key:'device',         label:'Device index (-d)',   hint:'0 = first dongle, 1 = second, …',                      group:'rtl' },
   { key:'freq',           label:'Frequency (-f)',      hint:'e.g. 173.250M or 173.250M:152.240M',                   group:'rtl' },
   { key:'modulation',     label:'Modulation (-M)',     hint:'fm | am | usb | lsb | wbfm | raw',                     group:'rtl' },
@@ -337,6 +338,13 @@ export default function SdrControl({ sdrStatus }) {
                           <Trash2 size={11}/>
                         </button>
                       )}
+                    </div>
+
+                    <div style={{ marginBottom:'0.65rem' }}>
+                      <label className="pm-label"><FieldLabel text="Label" /></label>
+                      <input className="pm-input" value={d.label ?? ''}
+                        onChange={e => updateDongle(i, 'label', e.target.value)}
+                        placeholder="e.g. North Pager / Backup SDR" />
                     </div>
 
                     {/* Mode: plain rtl_fm (POCSAG only) vs rtl_airband (POCSAG + voice channels) */}
