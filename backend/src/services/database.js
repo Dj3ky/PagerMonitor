@@ -339,6 +339,24 @@ function _migrate() {
     )
   `);
 
+  // Discord voice relays — streams one voice_channels entry live into a Discord voice
+  // channel via a bot connection. Org-scoped like voice_channels itself. Multiple rows can
+  // share the same bot_token (one bot, multiple guilds) or use distinct tokens (needed if
+  // relaying more than one channel into voice channels within the *same* Discord guild,
+  // since a single bot user can only occupy one voice channel per guild at a time).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS discord_relays (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id              INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+      description         TEXT    NOT NULL DEFAULT '',
+      voice_channel_id    INTEGER NOT NULL REFERENCES voice_channels(id) ON DELETE CASCADE,
+      bot_token           TEXT    NOT NULL,
+      guild_id            TEXT    NOT NULL,
+      discord_channel_id  TEXT    NOT NULL,
+      enabled             INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+
   // Message notes
   db.exec(`
     CREATE TABLE IF NOT EXISTS message_notes (
@@ -889,6 +907,30 @@ function deleteVoiceChannel(id, orgId) { return getDb().prepare('DELETE FROM voi
 // of which org owns it.
 function getVoiceChannelById(id) { return getDb().prepare('SELECT * FROM voice_channels WHERE id=?').get(id); }
 
+// ── Discord relays (org-scoped) ─────────────────────────────────────────────────
+function getDiscordRelays(orgId) {
+  if (orgId == null) return getDb().prepare('SELECT * FROM discord_relays ORDER BY id ASC').all();
+  return getDb().prepare('SELECT * FROM discord_relays WHERE org_id=? ORDER BY id ASC').all(orgId);
+}
+function upsertDiscordRelay(orgId, r) {
+  const enabled = r.enabled ? 1 : 0;
+  if (r.id) {
+    const changes = getDb().prepare(`
+      UPDATE discord_relays SET description=?,voice_channel_id=?,bot_token=?,guild_id=?,discord_channel_id=?,enabled=?
+      WHERE id=? AND org_id=?
+    `).run(r.description || '', r.voice_channel_id, r.bot_token, r.guild_id, r.discord_channel_id, enabled, r.id, orgId).changes;
+    return { id: r.id, changes };
+  }
+  const id = getDb().prepare(`
+    INSERT INTO discord_relays (org_id,description,voice_channel_id,bot_token,guild_id,discord_channel_id,enabled)
+    VALUES (?,?,?,?,?,?,?)
+  `).run(orgId, r.description || '', r.voice_channel_id, r.bot_token, r.guild_id, r.discord_channel_id, enabled).lastInsertRowid;
+  return { id, changes: 1 };
+}
+function deleteDiscordRelay(id, orgId) { return getDb().prepare('DELETE FROM discord_relays WHERE id=? AND org_id=?').run(id, orgId).changes; }
+// Unscoped — discordRelay.js manages connections instance-wide, regardless of which org owns each row.
+function getAllDiscordRelays() { return getDb().prepare('SELECT * FROM discord_relays').all(); }
+
 // ── Webhooks ──────────────────────────────────────────────────────────────────
 function getWebhooks(orgId) { return getDb().prepare('SELECT * FROM webhooks WHERE org_id=? ORDER BY id').all(orgId); }
 function upsertWebhook(orgId, w) {
@@ -1037,6 +1079,7 @@ module.exports = {
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,
   getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
   getVoiceChannels, upsertVoiceChannel, deleteVoiceChannel, getVoiceChannelById,
+  getDiscordRelays, upsertDiscordRelay, deleteDiscordRelay, getAllDiscordRelays,
   getWebhooks, upsertWebhook, deleteWebhook,
   addAuditLog, getAuditLog,
   getStats,

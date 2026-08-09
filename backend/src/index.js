@@ -7,6 +7,7 @@ const path    = require('path');
 const { initDb }            = require('./services/database');
 const { initWebSocket, closeWebSocket } = require('./services/websocket');
 const { initAudioSourceWs } = require('./services/audioRelay');
+const discordRelay = require('./services/discordRelay');
 const { startSdrPipeline, stopSdrPipeline } = require('./services/sdr');
 const { startDeadAirCheck }     = require('./services/deadair');
 const { startArchiveScheduler } = require('./services/archive');
@@ -153,6 +154,7 @@ async function main() {
   const server = http.createServer(app);
   initWebSocket(server);
   initAudioSourceWs(server);
+  discordRelay.init();
 
   server.listen(PORT, HOST, () => logger.info(`Backend listening on ${HOST}:${PORT}`));
 

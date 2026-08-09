@@ -3,7 +3,7 @@ import { usePtrScroll } from '../../hooks/usePtrScroll.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
-         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera } from 'lucide-react';
+         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera, Bot } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
@@ -36,6 +36,7 @@ import MsgNormalizations   from './MsgNormalizations.jsx';
 import UserLocations       from './UserLocations.jsx';
 import Organizations       from './Organizations.jsx';
 import VoiceChannels       from './VoiceChannels.jsx';
+import DiscordRelay        from './DiscordRelay.jsx';
 
 // platformOnly tabs are instance-wide infrastructure (shared by every org) — gated to
 // the platform admin, distinct from the org-admin `role==='admin'` used elsewhere.
@@ -47,6 +48,7 @@ const TABS = [
   { id:'client',      label:'Client Key',     icon:<Wifi size={14}/>,       serverOnly: true, platformOnly: true },
   { id:'deadair',     label:'Dead Air',       icon:<Radio size={14}/>,      platformOnly: true },
   { id:'voicechannels', label:'Voice Channels', icon:<Radio size={14}/> },
+  { id:'discordrelay',  label:'Discord Relay',  icon:<Bot size={14}/> },
 
   { group: 'Messages' },
   { id:'db',          label:'Database',       icon:<Database size={14}/>,   platformOnly: true },
@@ -100,6 +102,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'keyword':     return <KeywordAlerts />;
     case 'deadair':     return <DeadAirConfig />;
     case 'voicechannels': return <VoiceChannels />;
+    case 'discordrelay':  return <DiscordRelay />;
     case 'webhooks':    return <Webhooks />;
     case 'email':       return <EmailConfig />;
     case 'usernotif':   return <UserNotifPrefs />;

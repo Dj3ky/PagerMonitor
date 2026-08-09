@@ -13,6 +13,7 @@ const { getDb, getStats, getMessageStats,
         getHighlightRules, upsertHighlightRule, deleteHighlightRule,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
         getVoiceChannels, upsertVoiceChannel, deleteVoiceChannel,
+        getDiscordRelays, upsertDiscordRelay, deleteDiscordRelay,
         getWebhooks, upsertWebhook, deleteWebhook,
         addAuditLog, getAuditLog,
         deleteMessage, getUserLocations, getUserById,
@@ -503,6 +504,33 @@ router.delete('/voice-channels/:id', (req,res) => {
 router.get('/voice-channels/listeners', (_req, res) => {
   try { res.json(require('../services/audioRelay').getListenerCounts()); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Discord relays (org-scoped) — streams a voice channel live into a Discord voice
+// channel via a bot connection. reconcile() (lazy-required to dodge circular init) tells
+// discordRelay.js to pick up the change — connect/disconnect/rejoin as needed.
+router.get('/discord-relays', (req, res) => {
+  try { res.json(getDiscordRelays(req.session.orgId)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.put('/discord-relays', (req, res) => {
+  try {
+    const { description, voice_channel_id, bot_token, guild_id, discord_channel_id } = req.body;
+    if (!voice_channel_id || !bot_token || !guild_id || !discord_channel_id) {
+      return res.status(400).json({ error: 'voice_channel_id, bot_token, guild_id, and discord_channel_id are required' });
+    }
+    const { id } = upsertDiscordRelay(req.session.orgId, req.body);
+    require('../services/discordRelay').reconcile().catch(() => {});
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.delete('/discord-relays/:id', (req, res) => {
+  try {
+    const changes = deleteDiscordRelay(parseInt(req.params.id), req.session.orgId);
+    if (!changes) return res.status(404).json({ error: 'Relay not found, or not yours to delete' });
+    require('../services/discordRelay').reconcile().catch(() => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Dead air config (instance-wide) ────────────────────────────────────────────

@@ -24,9 +24,17 @@ const logger = require('../utils/logger');
 const FRAME_HEADER_BYTES = 4;
 
 let sourceWss = null;
-const clientSockets   = new Map(); // clientId -> ws (Pi audio-source connections)
-const listeners        = new Map(); // channelId -> Set<browserWs>
-const forwardingActive = new Map(); // channelId -> boolean (have we told the remote client to stream?)
+const clientSockets       = new Map(); // clientId -> ws (Pi audio-source connections)
+const listeners            = new Map(); // channelId -> Set<browserWs>
+const internalSubscribers  = new Map(); // channelId -> Set<callback(payload)> — e.g. discordRelay.js
+const forwardingActive     = new Map(); // channelId -> boolean (have we told the remote client to stream?)
+
+// Browsers + internal (non-WS) subscribers both count toward "does this channel need
+// forwarding" — a channel stays armed as long as *either* wants it.
+function totalSubscriberCount(channelId) {
+  const id = Number(channelId);
+  return (listeners.get(id)?.size || 0) + (internalSubscribers.get(id)?.size || 0);
+}
 
 function resolveChannelOwner(channelId) {
   const { getDongleConfigs } = require('./config');
@@ -57,13 +65,19 @@ function decodeFrame(buf) {
   return { channelId: buf.readUInt32LE(0), payload: buf.subarray(FRAME_HEADER_BYTES) };
 }
 
-// ── Fan-out to browsers currently listening to a channel ──────────────────────────────
+// ── Fan-out to browsers + internal subscribers currently listening to a channel ───────
 function fanOutFrame(channelId, payload) {
-  const set = listeners.get(Number(channelId));
-  if (!set || set.size === 0) return;
-  const frame = encodeFrame(channelId, payload);
-  for (const ws of set) {
-    if (ws.readyState === WebSocket.OPEN) { try { ws.send(frame, { binary: true }); } catch (_) {} }
+  const id = Number(channelId);
+  const wsSet = listeners.get(id);
+  if (wsSet && wsSet.size > 0) {
+    const frame = encodeFrame(id, payload);
+    for (const ws of wsSet) {
+      if (ws.readyState === WebSocket.OPEN) { try { ws.send(frame, { binary: true }); } catch (_) {} }
+    }
+  }
+  const cbSet = internalSubscribers.get(id);
+  if (cbSet && cbSet.size > 0) {
+    for (const cb of cbSet) { try { cb(payload); } catch (_) {} }
   }
 }
 
@@ -91,12 +105,12 @@ function setRemoteForwarding(channelId, wantOn) {
 function handleBrowserListen(ws, channelId) {
   const id = Number(channelId);
   if (!Number.isFinite(id)) return;
+  const wasActive = totalSubscriberCount(id) > 0;
   let set = listeners.get(id);
   if (!set) { set = new Set(); listeners.set(id, set); }
-  const wasEmpty = set.size === 0;
   set.add(ws);
   (ws._listeningChannels || (ws._listeningChannels = new Set())).add(id);
-  if (wasEmpty) setRemoteForwarding(id, true);
+  if (!wasActive) setRemoteForwarding(id, true);
 }
 
 function handleBrowserUnlisten(ws, channelId) {
@@ -104,14 +118,33 @@ function handleBrowserUnlisten(ws, channelId) {
   const set = listeners.get(id);
   if (set) {
     set.delete(ws);
-    if (set.size === 0) { listeners.delete(id); setRemoteForwarding(id, false); }
+    if (set.size === 0) listeners.delete(id);
   }
   ws._listeningChannels?.delete(id);
+  if (totalSubscriberCount(id) === 0) setRemoteForwarding(id, false);
 }
 
 function handleBrowserDisconnect(ws) {
   if (!ws._listeningChannels) return;
   for (const id of ws._listeningChannels) handleBrowserUnlisten(ws, id);
+}
+
+// ── Internal (non-WS) subscribers, e.g. discordRelay.js ────────────────────────────────
+// callback receives the raw payload Buffer (no channel-id header — the caller already
+// knows which channel it asked for). Returns an unsubscribe function.
+function subscribeChannel(channelId, callback) {
+  const id = Number(channelId);
+  const wasActive = totalSubscriberCount(id) > 0;
+  let set = internalSubscribers.get(id);
+  if (!set) { set = new Set(); internalSubscribers.set(id, set); }
+  set.add(callback);
+  if (!wasActive) setRemoteForwarding(id, true);
+
+  return () => {
+    const s = internalSubscribers.get(id);
+    if (s) { s.delete(callback); if (s.size === 0) internalSubscribers.delete(id); }
+    if (totalSubscriberCount(id) === 0) setRemoteForwarding(id, false);
+  };
 }
 
 // ── RPi audio-source connections ───────────────────────────────────────────────────────
@@ -180,10 +213,11 @@ function initAudioSourceWs(server) {
 
 // Re-arm forwarding for any channel a reconnecting client should be actively streaming —
 // call this once a client's audio-source socket is (re)established and at least one
-// browser is already listening (e.g. server restarted mid-session).
+// browser/internal subscriber is already listening (e.g. server restarted mid-session).
 function reconcileClientChannels(clientId) {
-  for (const [channelId, set] of listeners) {
-    if (set.size === 0) continue;
+  const ids = new Set([...listeners.keys(), ...internalSubscribers.keys()]);
+  for (const channelId of ids) {
+    if (totalSubscriberCount(channelId) === 0) continue;
     const owner = resolveChannelOwner(channelId);
     if (owner?.type === 'remote' && owner.clientId === clientId) setRemoteForwarding(channelId, true);
   }
@@ -213,5 +247,6 @@ module.exports = {
   handleBrowserListen,
   handleBrowserUnlisten,
   handleBrowserDisconnect,
+  subscribeChannel,
   reconcileClientChannels,
 };
