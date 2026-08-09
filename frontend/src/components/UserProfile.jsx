@@ -32,6 +32,7 @@ export default function UserProfile({ onClose }) {
   const [email, setEmail]   = useState('');
   const [prefs, setPrefs]   = useState({
     enabled:false, mode:'all', group_ids:[], capcodes:[], keywords:[],
+    alias_color_from_group:false,
     push_enabled:false, push_mode:'all', push_group_ids:[], push_capcodes:[], push_keywords:[],
   });
   const [groups, setGroups]   = useState([]);
@@ -146,7 +147,7 @@ export default function UserProfile({ onClose }) {
             </button>
           </div>
 
-          {/* Notification prefs */}
+	          {/* Notification prefs */}
           <div className="pm-card">
             <div className="pm-section-title"><Bell size={13}/> Email notification preferences</div>
             <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
@@ -252,6 +253,15 @@ export default function UserProfile({ onClose }) {
             </div>
 
             <Flash msg={prefMsg} />
+            <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)' }}>
+              <div className="pm-section-title" style={{ marginBottom:'0.45rem' }}>Alias creation</div>
+              <label style={{ display:'flex', alignItems:'flex-start', gap:'0.5rem',
+                fontSize:'0.82rem', cursor:'pointer', color:'var(--text-1)', lineHeight:1.45 }}>
+                <input type="checkbox" checked={!!prefs.alias_color_from_group}
+                  onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
+                <span>When creating a new alias, automatically use the selected group's colour and keep it in sync while the group changes.</span>
+              </label>
+            </div>
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.25rem' }}>
               <Save size={13}/> Save preferences

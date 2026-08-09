@@ -18,6 +18,7 @@ const MODES = [
 
 const DEFAULT_PREFS = {
   enabled: false, mode: 'all', group_ids: [], capcodes: [], keywords: [],
+  alias_color_from_group: false,
   push_enabled: false, push_mode: 'all', push_group_ids: [], push_capcodes: [], push_keywords: [],
 };
 
@@ -178,6 +179,15 @@ function UserCard({ user, groups, aliases, onSave }) {
       </div>
 
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <div className="pm-label" style={{ marginBottom: '0.3rem' }}>Alias creation</div>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem', cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-2)', lineHeight: 1.45 }}>
+            <input type="checkbox"
+              checked={!!prefs.alias_color_from_group}
+              onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
+            <span>Automatically use the selected group's colour for new aliases and update it while the group changes.</span>
+          </label>
+        </div>
         <FilterSection
           label="Email notifications"
           icon={Mail}
@@ -244,7 +254,7 @@ export default function UserNotifPrefs() {
         <button className="pm-btn" onClick={load}><RefreshCw size={12} /></button>
       </h2>
       <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginBottom: '1rem', lineHeight: 1.6 }}>
-        Set email address, email notification filter, and push notification filter for each user.
+        Set email address, email notification filter, push notification filter, and alias creation preferences for each user.
         Users can also update their own preferences from the profile icon in the header.
       </p>
 
