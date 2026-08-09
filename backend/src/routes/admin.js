@@ -662,7 +662,10 @@ router.delete('/invites/:id', adminOnly, (req, res) => {
 const { getClients, resetClient, getAllClientConfigs, saveClientConfig, setPendingCommand, setDisplayName, setClientColor } = require('../services/clientTracker');
 
 router.get('/sdr-clients', platformOnly, (_req, res) => {
-  try { res.json(getClients()); }
+  try {
+    const { isAudioConnected } = require('../services/audioRelay');
+    res.json(getClients().map(c => ({ ...c, audioConnected: isAudioConnected(c.id) })));
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
