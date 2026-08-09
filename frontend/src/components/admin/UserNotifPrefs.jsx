@@ -180,13 +180,10 @@ function UserCard({ user, groups, aliases, onSave }) {
 
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
         <div style={{ marginBottom: '1rem' }}>
-          <div className="pm-label" style={{ marginBottom: '0.3rem' }}>Alias creation</div>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem', cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-2)', lineHeight: 1.45 }}>
-            <input type="checkbox"
-              checked={!!prefs.alias_color_from_group}
-              onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
-            <span>Automatically use the selected group's colour for new aliases and update it while the group changes.</span>
-          </label>
+          <div className="pm-section-title" style={{ marginBottom: '0.45rem' }}>Notifications</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', lineHeight: 1.5 }}>
+            Configure which messages trigger email and push notifications for this user.
+          </div>
         </div>
         <FilterSection
           label="Email notifications"
@@ -212,6 +209,16 @@ function UserCard({ user, groups, aliases, onSave }) {
           aliases={aliases}
           prefixKey="push_"
         />
+
+        <div style={{ marginTop: '1rem', paddingTop: '0.9rem', borderTop: '1px solid var(--border-soft)' }}>
+          <div className="pm-section-title" style={{ marginBottom: '0.45rem' }}>Alias creation</div>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem', cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-2)', lineHeight: 1.45 }}>
+            <input type="checkbox"
+              checked={!!prefs.alias_color_from_group}
+              onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
+            <span>Automatically use the selected group's colour for new aliases and update it while the group changes.</span>
+          </label>
+        </div>
       </div>
 
       <div style={{ marginTop: '0.5rem' }}>
@@ -249,12 +256,12 @@ export default function UserNotifPrefs() {
       <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-1)', marginBottom: '0.5rem',
         display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'space-between' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Bell size={16} style={{ color: 'var(--accent-amber)' }} /> User Notification Preferences
+          <Bell size={16} style={{ color: 'var(--accent-amber)' }} /> User Preferences
         </span>
         <button className="pm-btn" onClick={load}><RefreshCw size={12} /></button>
       </h2>
       <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginBottom: '1rem', lineHeight: 1.6 }}>
-        Set email address, email notification filter, push notification filter, and alias creation preferences for each user.
+        Set email address, notification settings, and alias creation preferences for each user.
         Users can also update their own preferences from the profile icon in the header.
       </p>
 
