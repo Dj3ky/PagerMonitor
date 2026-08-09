@@ -70,7 +70,11 @@ export default function UserProfile({ onClose }) {
 
   const savePrefs = async () => {
     setSaving(true);
-    try { await api('PUT', '/auth/me/notif-prefs', prefs); flashPref('ok', 'Preferences saved'); }
+    try {
+      await api('PUT', '/auth/me/notif-prefs', prefs);
+      window.dispatchEvent(new CustomEvent('pm:notif-prefs-updated', { detail: { alias_color_from_group: !!prefs.alias_color_from_group } }));
+      flashPref('ok', 'Preferences saved');
+    }
     catch (e) { flashPref('err', e.message); }
     finally { setSaving(false); }
   };

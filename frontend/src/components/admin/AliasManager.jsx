@@ -52,13 +52,26 @@ export default function AliasManager() {
     );
   }, [aliases, search]);
 
-  useEffect(() => {
+  const loadAliasColorPreference = () => {
     fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/auth/me/notif-prefs`, {
       headers: { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('pm_token') || ''}` },
     })
       .then(r => r.json())
       .then(d => setAliasColorFromGroup(!!d?.alias_color_from_group))
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    const onPrefsUpdate = (e) => {
+      if (typeof e.detail?.alias_color_from_group === 'boolean') {
+        setAliasColorFromGroup(e.detail.alias_color_from_group);
+      } else {
+        loadAliasColorPreference();
+      }
+    };
+    loadAliasColorPreference();
+    window.addEventListener('pm:notif-prefs-updated', onPrefsUpdate);
+    return () => window.removeEventListener('pm:notif-prefs-updated', onPrefsUpdate);
   }, []);
 
   const applyGroupSelection = (groupId) => {

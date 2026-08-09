@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Bell, Save, RefreshCw, Mail, Smartphone } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
@@ -137,6 +138,7 @@ function FilterSection({ label, icon: Icon, accentVar, enabled, onToggle, prefs,
 }
 
 function UserCard({ user, groups, aliases, onSave }) {
+  const { user: currentUser } = useAuth();
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFS, ...user.prefs });
   const [email, setEmail] = useState(user.email || '');
   const [saving, setSaving] = useState(false);
@@ -149,6 +151,9 @@ function UserCard({ user, groups, aliases, onSave }) {
     try {
       await api('PUT', `/admin/users/${user.id}/email`, { email });
       await api('PUT', `/admin/user-notif-prefs/${user.id}`, prefs);
+      if (currentUser?.id === user.id) {
+        window.dispatchEvent(new CustomEvent('pm:notif-prefs-updated', { detail: { alias_color_from_group: !!prefs.alias_color_from_group } }));
+      }
       flash('ok', 'Saved');
       onSave?.();
     } catch (e) { flash('err', e.message); }
