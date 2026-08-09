@@ -78,6 +78,47 @@ check_multimon_ng() {
 # marker file lets us tell a build from before this was added apart from one
 # that actually has NFM, and force exactly one rebuild for the former.
 AIRBAND_NFM_MARK="/usr/local/bin/.pagermonitor-airband-nfm-ok"
+
+# ── librtlsdr: RTL-SDR Blog's fork ─────────────────────────────────────────────
+# RTL-SDR Blog-branded dongles (confirmed on both V3 and V4 during testing) need this
+# fork instead of stock Debian librtlsdr for correct gain tables/tuner detection — stock
+# librtlsdr can misbehave with these dongles, especially under rtl_airband's more demanding
+# real-time multi-channel operation (a client that works fine in single/rtl_fm mode but
+# fails specifically in multi/airband mode is a symptom of this).
+LIBRTLSDR_BLOG_MARK="/usr/local/bin/.pagermonitor-librtlsdr-blog-ok"
+_librtlsdr_blog_install() {
+  echo "  ► Installing RTL-SDR Blog's librtlsdr fork (replaces stock librtlsdr)…"
+  sudo apt-get remove -y librtlsdr0 librtlsdr-dev rtl-sdr 2>/dev/null || true
+  sudo apt-get install -y --no-install-recommends cmake build-essential git libusb-1.0-0-dev pkg-config
+  local tmp; tmp=$(mktemp -d)
+  git clone --depth 1 https://github.com/rtlsdrblog/rtl-sdr-blog.git "$tmp/src"
+  (
+    cd "$tmp/src" && mkdir build && cd build \
+      && cmake ../ -DINSTALL_UDEV_RULES=ON -DDETACH_KERNEL_DRIVER=ON \
+      && make -j"$(nproc)" \
+      && sudo make install
+  )
+  sudo cp "$tmp/src/rtl-sdr.rules" /etc/udev/rules.d/ 2>/dev/null || true
+  sudo ldconfig
+  sudo udevadm control --reload-rules && sudo udevadm trigger
+  sudo touch "$LIBRTLSDR_BLOG_MARK"
+  rm -rf "$tmp"
+  # rtl_airband links against librtlsdr at build time — force it to rebuild against the
+  # fork instead of whatever it was previously linked against.
+  sudo rm -f "$AIRBAND_NFM_MARK"
+  echo "  ✓ RTL-SDR Blog librtlsdr installed — rtl_airband will rebuild against it"
+}
+
+check_librtlsdr_blog() {
+  echo ""
+  echo "► Checking RTL-SDR Blog librtlsdr fork…"
+  if [ -f "$LIBRTLSDR_BLOG_MARK" ]; then
+    echo "  ✓ Already installed — delete $LIBRTLSDR_BLOG_MARK to force a reinstall"
+    return
+  fi
+  _librtlsdr_blog_install
+}
+
 _airband_build() {
   local ref="$1"
   echo "  ► Building rtl_airband (${ref}) from source…"
@@ -124,6 +165,9 @@ done
 
 # multimon-ng: auto-install/upgrade from GitHub
 check_multimon_ng
+
+# librtlsdr: RTL-SDR Blog's fork, needed before building rtl_airband against it
+check_librtlsdr_blog
 
 # rtl_airband: only needed for multi/airband mode dongles
 check_rtl_airband
