@@ -335,9 +335,18 @@ function _migrate() {
       freq        TEXT    NOT NULL,
       mode        TEXT    NOT NULL DEFAULT 'nfm',
       squelch     TEXT    NOT NULL DEFAULT '',
+      tau         TEXT    NOT NULL DEFAULT '',
       sort_order  INTEGER NOT NULL DEFAULT 0
     )
   `);
+  const voiceChannelColumns = db.prepare("PRAGMA table_info(voice_channels)").all().map(c => c.name);
+  if (!voiceChannelColumns.includes('tau')) {
+    // NFM de-emphasis (microseconds) — blank means "use rtl_airband's own built-in default
+    // (200us)" rather than us imposing a different one; only emitted into the generated
+    // config when a channel has an explicit value set (see buildAirbandConfig).
+    db.exec("ALTER TABLE voice_channels ADD COLUMN tau TEXT NOT NULL DEFAULT ''");
+    logger.info('Migration: added tau to voice_channels');
+  }
 
   // Discord voice relays — streams one voice_channels entry live into a Discord voice
   // channel via a bot connection. Org-scoped like voice_channels itself. Multiple rows can
@@ -893,12 +902,12 @@ function getVoiceChannels(orgId) {
 }
 function upsertVoiceChannel(orgId, ch) {
   if (ch.id) {
-    const changes = getDb().prepare('UPDATE voice_channels SET description=?,freq=?,mode=?,squelch=?,sort_order=? WHERE id=? AND org_id=?')
-      .run(ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.sort_order || 0, ch.id, orgId).changes;
+    const changes = getDb().prepare('UPDATE voice_channels SET description=?,freq=?,mode=?,squelch=?,tau=?,sort_order=? WHERE id=? AND org_id=?')
+      .run(ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.tau || '', ch.sort_order || 0, ch.id, orgId).changes;
     return { id: ch.id, changes };
   }
-  const id = getDb().prepare('INSERT INTO voice_channels (org_id,description,freq,mode,squelch,sort_order) VALUES (?,?,?,?,?,?)')
-    .run(orgId, ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.sort_order || 0).lastInsertRowid;
+  const id = getDb().prepare('INSERT INTO voice_channels (org_id,description,freq,mode,squelch,tau,sort_order) VALUES (?,?,?,?,?,?,?)')
+    .run(orgId, ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.tau || '', ch.sort_order || 0).lastInsertRowid;
   return { id, changes: 1 };
 }
 function deleteVoiceChannel(id, orgId) { return getDb().prepare('DELETE FROM voice_channels WHERE id=? AND org_id=?').run(id, orgId).changes; }

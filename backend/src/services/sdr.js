@@ -256,10 +256,13 @@ function buildAirbandConfig(dongle, voiceChannels, udpPort) {
   const voiceBlocks = voiceChannels.map(c => {
     const hz = parseFreqHz(c.freq);
     const squelchLine = c.squelch ? `\n            squelch_threshold = ${c.squelch};` : '';
+    // Blank means "use rtl_airband's own built-in default (200us)" — we don't impose a
+    // different one unless the channel has an explicit value set.
+    const tauLine = c.tau ? `\n            tau = ${c.tau};` : '';
     const port = udpPortForVoiceChannel(c.id);
     return `        {
             freq = ${hz};
-            modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}
+            modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}${tauLine}
             outputs:
             (
                 { type = "udp_stream"; dest_address = "127.0.0.1"; dest_port = ${port}; continuous = true; }

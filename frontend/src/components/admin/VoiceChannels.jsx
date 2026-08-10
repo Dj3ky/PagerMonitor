@@ -6,7 +6,7 @@ const tok  = () => localStorage.getItem('pm_token') || '';
 const api  = (m,p,b) => fetch(`${BASE}${p}`,{method:m,headers:{'Content-Type':'application/json','Authorization':`Bearer ${tok()}`},body:b?JSON.stringify(b):undefined}).then(r=>r.json());
 
 const MODES = ['nfm','am'];
-const EMPTY = { description:'', freq:'', mode:'nfm', squelch:'', sort_order:0 };
+const EMPTY = { description:'', freq:'', mode:'nfm', squelch:'', tau:'', sort_order:0 };
 
 function Flash({msg}){ if(!msg)return null; const ok=msg.type==='ok'; return <div style={{padding:'0.4rem 0.75rem',borderRadius:'0.4rem',fontSize:'0.78rem',fontFamily:'monospace',marginBottom:'0.75rem',color:ok?'var(--accent-green)':'var(--accent-red)',background:`color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 10%,transparent)`,border:`1px solid color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 30%,transparent)`}}>{msg.text}</div>; }
 
@@ -65,6 +65,7 @@ export default function VoiceChannels() {
               <span style={{color:'var(--accent-amber)'}}>{c.freq}</span>
               {' · '}<span style={{color:'var(--accent-blue)'}}>{c.mode}</span>
               {c.squelch ? <>{' · squelch '}{c.squelch}</> : null}
+              {c.tau ? <>{' · tau '}{c.tau}µs</> : null}
             </div>
           </div>
           {!!listeners[c.id]?.count && (
@@ -107,6 +108,13 @@ export default function VoiceChannels() {
           <div>
             <label className="pm-label">Squelch</label>
             <input className="pm-input" value={form.squelch} onChange={e=>setForm(f=>({...f,squelch:e.target.value}))} placeholder="leave empty for auto"/>
+          </div>
+        </div>
+        <div style={{marginBottom:'0.75rem'}}>
+          <label className="pm-label">De-emphasis (tau, µs)</label>
+          <input className="pm-input" value={form.tau} onChange={e=>setForm(f=>({...f,tau:e.target.value}))} placeholder="leave empty for rtl_airband's default (200)"/>
+          <div style={{fontSize:'0.68rem',color:'var(--text-3)',marginTop:'0.2rem'}}>
+            Higher = cuts more high-frequency hiss (voice sounds a bit more muffled). Lower = crisper but noisier.
           </div>
         </div>
         <div style={{display:'flex',gap:'0.5rem'}}>
