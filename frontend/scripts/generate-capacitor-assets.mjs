@@ -15,6 +15,14 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out  = join(root, 'resources');
 mkdirSync(out, { recursive: true });
 
+// favicon.svg/badge.svg/glyphSvg below declare only a viewBox, no width/height — sharp's
+// SVG backend then treats their *natural* render size as those viewBox units (100x100)
+// at the default 72 DPI, rasterizing at that tiny size first and only then upscaling to
+// whatever resize() was asked for — producing soft/blurry icons no matter how bold the
+// artwork is. A high enough `density` makes it rasterize directly at the target size.
+const NATURAL = 100; // all three SVGs' viewBox units
+const densityFor = (px) => Math.ceil(72 * (px / NATURAL));
+
 const badgeSvg = readFileSync(join(root, 'public/badge.svg'));
 
 // Status-bar notification icon (FCM's android.notification.icon / default_notification_icon) —
@@ -24,7 +32,7 @@ const NOTIF_DENSITIES = { mdpi: 24, hdpi: 36, xhdpi: 48, 'xxhdpi': 72, 'xxxhdpi'
 for (const [density, size] of Object.entries(NOTIF_DENSITIES)) {
   const dir = join(root, `android/app/src/main/res/drawable-${density}`);
   mkdirSync(dir, { recursive: true });
-  await sharp(badgeSvg).resize(size, size).png().toFile(join(dir, 'ic_stat_pager.png'));
+  await sharp(badgeSvg, { density: densityFor(size) }).resize(size, size).png().toFile(join(dir, 'ic_stat_pager.png'));
 }
 console.log('  android/app/.../drawable-*/ic_stat_pager.png');
 
@@ -53,7 +61,7 @@ const glyphSvg = Buffer.from(`
 </svg>`);
 
 // Legacy / Play Store icon — full bleed square, background baked in
-await sharp(fullSvg).resize(1024, 1024).png().toFile(join(out, 'icon.png'));
+await sharp(fullSvg, { density: densityFor(1024) }).resize(1024, 1024).png().toFile(join(out, 'icon.png'));
 console.log('  resources/icon.png');
 
 // Adaptive icon background — flat colour layer
@@ -62,14 +70,14 @@ await sharp({ create: { width: 1024, height: 1024, channels: 4, background: BG }
 console.log('  resources/icon-background.png');
 
 // Adaptive icon foreground — glyph centred within the ~66% safe zone, transparent bg
-const glyphOnBg = await sharp(glyphSvg).resize(620, 620).png().toBuffer();
+const glyphOnBg = await sharp(glyphSvg, { density: densityFor(620) }).resize(620, 620).png().toBuffer();
 await sharp({ create: { width: 1024, height: 1024, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
   .composite([{ input: glyphOnBg, gravity: 'center' }])
   .png().toFile(join(out, 'icon-foreground.png'));
 console.log('  resources/icon-foreground.png');
 
 // Splash screen — glyph centred on the app's dark background
-const glyphForSplash = await sharp(glyphSvg).resize(760, 760).png().toBuffer();
+const glyphForSplash = await sharp(glyphSvg, { density: densityFor(760) }).resize(760, 760).png().toBuffer();
 await sharp({ create: { width: 2732, height: 2732, channels: 4, background: BG } })
   .composite([{ input: glyphForSplash, gravity: 'center' }])
   .png().toFile(join(out, 'splash.png'));
