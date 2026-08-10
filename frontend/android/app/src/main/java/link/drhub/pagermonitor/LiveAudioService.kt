@@ -67,12 +67,26 @@ class LiveAudioService : Service() {
     private var client: OkHttpClient? = null
     private var socket: WebSocket? = null
     private var audioTrack: AudioTrack? = null
+    // handleFrame()/ensureAudioTrack() run on OkHttp's WebSocket-reader thread, while
+    // releaseAudio() can fire on the main thread at any moment (watchdog timeout, a
+    // channel switch, explicit stop) — without this, release() on one thread can pull
+    // the native AudioTrack out from under a write() call in flight on the other,
+    // segfaulting the whole process. Every access to audioTrack must go through this lock.
+    private val audioLock = Any()
     private var channelId: Int = -1
     private val handler = Handler(Looper.getMainLooper())
     private var watchdog: Runnable? = null
     private var reconnectRunnable: Runnable? = null
     private var reconnectAttempt = 0
     private var lastWsUrl: String? = null
+    // Bumped on every connect()/teardown() — each WebSocketListener closure captures the
+    // value current at its creation, and checks it before doing anything. Stopping doesn't
+    // synchronously prevent a frame that was already in flight on OkHttp's reader thread
+    // from being delivered a moment later; without this guard that stray callback would
+    // report "playing" (with no channel id, since JS already cleared it) right after the
+    // "stopped" status teardown() just sent, flickering the icon back on for no reason.
+    @Volatile
+    private var sessionId = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -201,14 +215,17 @@ class LiveAudioService : Service() {
         val floatCount = buf.remaining() / 4
         if (floatCount <= 0) return
 
-        ensureAudioTrack()
         val samples = FloatArray(floatCount)
         buf.asFloatBuffer().get(samples)
         if (currentStatus != "playing") updateStatus("playing")
-        try { audioTrack?.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING) } catch (_: Exception) {}
+        synchronized(audioLock) {
+            ensureAudioTrackLocked()
+            try { audioTrack?.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING) } catch (_: Exception) {}
+        }
     }
 
-    private fun ensureAudioTrack() {
+    // Caller must hold audioLock.
+    private fun ensureAudioTrackLocked() {
         if (audioTrack != null) return
         val format = AudioFormat.Builder()
             .setSampleRate(SAMPLE_RATE)
@@ -249,9 +266,11 @@ class LiveAudioService : Service() {
     private fun releaseAudio() {
         watchdog?.let { handler.removeCallbacks(it) }
         watchdog = null
-        try { audioTrack?.stop() } catch (_: Exception) {}
-        try { audioTrack?.release() } catch (_: Exception) {}
-        audioTrack = null
+        synchronized(audioLock) {
+            try { audioTrack?.stop() } catch (_: Exception) {}
+            try { audioTrack?.release() } catch (_: Exception) {}
+            audioTrack = null
+        }
     }
 
     private fun teardown() {
