@@ -50,4 +50,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Governs whether the pm_alert channel's setBypassDnd(true) can actually take effect
+         (see AlertChannelPlugin.kt) — the user still has to separately grant this app
+         Do Not Disturb access via system settings, this alone doesn't do that. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 </manifest>

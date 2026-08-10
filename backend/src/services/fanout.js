@@ -19,7 +19,7 @@ const { sendNotifications } = require('./notifications');
 const { sendWebhooks } = require('./webhooks');
 const { sendUserEmailNotifications } = require('./emailNotifier');
 const { sendPushPerUser } = require('./webpush');
-const { sendFcmPerUser } = require('./fcmPush');
+const { sendFcmPerUser, sendAlertPerUser } = require('./fcmPush');
 const logger = require('../utils/logger');
 
 // Resolves alias/group for one capcode against one org's aliases (its own override,
@@ -107,6 +107,7 @@ async function notifyAll(perOrgPayloads, coordsPatch) {
     tasks.push(sendUserEmailNotifications(notifyPayload, orgId).catch(() => {}));
     tasks.push(sendPushPerUser(notifyPayload, orgId).catch(() => {}));
     tasks.push(sendFcmPerUser(notifyPayload, orgId).catch(() => {}));
+    tasks.push(sendAlertPerUser(notifyPayload, orgId).catch(() => {}));
   }
   await Promise.allSettled(tasks);
 }

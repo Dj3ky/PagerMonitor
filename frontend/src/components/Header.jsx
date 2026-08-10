@@ -57,7 +57,10 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
 
   return (
     <>
-      <header ref={menuRef} style={{ background:'var(--bg-1)', borderBottom:'1px solid var(--border)',
+      {/* Android's App Bar convention uses elevation, not a hairline border, to separate
+          itself from content below — swapping the flat border for a shadow here to match. */}
+      <header ref={menuRef} style={{ background:'var(--bg-1)',
+        boxShadow:'0 2px 4px rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.12)',
         flexShrink:0, position:'sticky', top:0, zIndex:1001 }}>
 
         {/* ── Main bar ─────────────────────────────────────────── */}

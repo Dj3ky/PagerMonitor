@@ -157,26 +157,31 @@ class LiveAudioService : Service() {
         channelId = id
         lastWsUrl = wsUrl
         reconnectAttempt = 0
+        sessionId++
         openSocket(wsUrl, id)
     }
 
     private fun openSocket(wsUrl: String, id: Int) {
+        val mySession = sessionId
         updateStatus("connecting")
         client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
         val request = Request.Builder().url(wsUrl).build()
         socket = client!!.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (mySession != sessionId) return
                 reconnectAttempt = 0
                 webSocket.send("{\"type\":\"listen_start\",\"channelId\":$id}")
                 armWatchdog()
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                if (mySession != sessionId) return
                 armWatchdog()
                 handleFrame(bytes, id)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (mySession != sessionId) return
                 updateStatus("error", t.message)
                 releaseAudio()
                 scheduleReconnect(id)
@@ -195,9 +200,10 @@ class LiveAudioService : Service() {
     private fun scheduleReconnect(id: Int) {
         val wsUrl = lastWsUrl ?: return
         if (id != channelId) return // superseded by a channel switch — let that own the socket
+        val mySession = sessionId
         reconnectAttempt++
         val delayMs = minOf(3000L * (1L shl minOf(reconnectAttempt - 1, 4)), 30000L)
-        val r = Runnable { if (id == channelId) openSocket(wsUrl, id) }
+        val r = Runnable { if (id == channelId && mySession == sessionId) openSocket(wsUrl, id) }
         reconnectRunnable = r
         handler.postDelayed(r, delayMs)
     }
@@ -252,7 +258,9 @@ class LiveAudioService : Service() {
     private fun armWatchdog() {
         watchdog?.let { handler.removeCallbacks(it) }
         val id = channelId
+        val mySession = sessionId
         val r = Runnable {
+            if (mySession != sessionId) return@Runnable
             updateStatus("error", "stalled")
             try { socket?.send("{\"type\":\"listen_stop\",\"channelId\":$id}") } catch (_: Exception) {}
             try { socket?.close(1000, null) } catch (_: Exception) {}
@@ -275,6 +283,7 @@ class LiveAudioService : Service() {
 
     private fun teardown() {
         cancelReconnect()
+        sessionId++ // invalidate any callback still in flight from the session being torn down
         try { socket?.send("{\"type\":\"listen_stop\",\"channelId\":$channelId}") } catch (_: Exception) {}
         try { socket?.close(1000, null) } catch (_: Exception) {}
         socket = null

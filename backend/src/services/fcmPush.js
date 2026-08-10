@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../utils/logger');
 const { getDb } = require('./database');
-const { _matchesPushPrefs } = require('./webpush');
+const { _matchesPushPrefs, _matchesAlertPrefs } = require('./webpush');
 
 let admin = null;
 try { admin = require('firebase-admin'); } catch (_) {
@@ -66,6 +66,32 @@ async function sendFcmPerUser(msg, orgId) {
   })));
 }
 
+// Separate, opt-in tier — see user_notif_prefs.alert_* and _matchesAlertPrefs. Routed to
+// a distinct Android notification channel (pm_alert) so it can carry its own sound and,
+// once the user grants Do Not Disturb access to the app, break through silent/DND —
+// something the regular pm_messages channel deliberately does not do.
+async function sendAlertPerUser(msg, orgId) {
+  if (!app) return;
+  const rows = getDb().prepare(`
+    SELECT ft.*, unp.alert_enabled, unp.alert_mode,
+           unp.alert_group_ids, unp.alert_capcodes, unp.alert_keywords
+    FROM fcm_tokens ft
+    JOIN users u ON u.id = ft.user_id AND u.org_id = ?
+    LEFT JOIN user_notif_prefs unp ON unp.user_id = ft.user_id
+  `).all(orgId);
+  if (!rows.length) return;
+
+  const alias = msg.alias_name || msg.alias || msg.capcode;
+  const eligible = rows.filter(row => _matchesAlertPrefs(msg, row));
+  await Promise.allSettled(eligible.map(row => _send(row.token, {
+    title: `🚨 ${alias}`,
+    body:  msg.message || '(tone / numeric only)',
+    tag:   `pm-alert-${msg.capcode}`,
+    data:  { capcode: String(msg.capcode), timestamp: String(msg.timestamp) },
+    channelId: 'pm_alert',
+  })));
+}
+
 async function sendTest(userId) {
   if (!app) return 0;
   const rows = getDb().prepare('SELECT token FROM fcm_tokens WHERE user_id = ?').all(userId);
@@ -84,7 +110,7 @@ async function sendTest(userId) {
   return sent;
 }
 
-async function _send(token, { title, body, tag, data }) {
+async function _send(token, { title, body, tag, data, channelId = 'pm_messages' }) {
   try {
     await admin.messaging(app).send({
       token,
@@ -93,7 +119,7 @@ async function _send(token, { title, body, tag, data }) {
       android: {
         priority: 'high',
         collapseKey: tag,
-        notification: { channelId: 'pm_messages', tag },
+        notification: { channelId, tag },
       },
     });
   } catch (err) {
@@ -105,4 +131,4 @@ async function _send(token, { title, body, tag, data }) {
   }
 }
 
-module.exports = { initFcm, saveToken, removeToken, sendFcmPerUser, sendTest };
+module.exports = { initFcm, saveToken, removeToken, sendFcmPerUser, sendAlertPerUser, sendTest };
