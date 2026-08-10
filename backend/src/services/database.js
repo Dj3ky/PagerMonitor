@@ -470,6 +470,19 @@ function _migrate() {
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
   `);
 
+  // FCM tokens (native Android app background notifications — see services/fcmPush.js.
+  // Separate from push_subscriptions because FCM tokens have no p256dh/auth keypair;
+  // delivery still shares the same user_notif_prefs.push_* filtering as web push.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fcm_tokens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      token      TEXT    UNIQUE NOT NULL,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_fcm_user ON fcm_tokens(user_id);
+  `);
+
   // Strip leading zeros from numeric alias capcodes so they match decoder output.
   // POCSAG addresses are never zero-padded; FLEX capcodes can be, but are normalized
   // at ingestion time in sdr.js so stored message capcodes are unpadded too.

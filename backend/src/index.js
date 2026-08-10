@@ -19,6 +19,7 @@ const napTraffic                = require('./services/napTraffic');
 const { loadSdrConfigIntoEnv } = require('./services/config');
 const { ensureDefaultAdmin, initSessions } = require('./services/auth');
 const { initWebPush } = require('./services/webpush');
+const { initFcm } = require('./services/fcmPush');
 const logger                = require('./utils/logger');
 
 const apiRouter   = require('./routes/api');
@@ -44,6 +45,9 @@ async function main() {
 
   // Initialise VAPID keys for browser push notifications
   initWebPush();
+
+  // Initialise Firebase Cloud Messaging for the native Android app (no-op if unconfigured)
+  initFcm();
 
   // Load static alias file
 

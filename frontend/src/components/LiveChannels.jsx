@@ -1,7 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 import { Radio, Play, Square, Loader2, AlertCircle } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { fetchVoiceChannels } from '../utils/api.js';
 import { sendWsMessage, subscribeWsAudio } from '../hooks/useWebSocket.js';
+
+const isNative = Capacitor.isNativePlatform();
+
+// Keep the screen/CPU awake while a live channel is playing — Android suspends
+// WebView audio scheduling once the screen sleeps, which would silently cut off
+// a dispatch feed the user is actively listening to.
+const setKeepAwake = (on) => {
+  if (!isNative) return;
+  import('@capacitor-community/keep-awake')
+    .then(({ KeepAwake }) => on ? KeepAwake.keepAwake() : KeepAwake.allowSleep())
+    .catch(() => {});
+};
+
+const hapticTap = () => {
+  if (!isNative) return;
+  import('@capacitor/haptics')
+    .then(({ Haptics, ImpactStyle }) => Haptics.impact({ style: ImpactStyle.Light }))
+    .catch(() => {});
+};
 
 const SAMPLE_RATE = 16000; // rtl_airband's fixed udp_stream rate — raw passthrough, no resampling anywhere in this path
 const STALL_TIMEOUT_MS = 8000; // no audio frame for this long (initial connect, or mid-playback) -> treat as failed
@@ -52,12 +72,15 @@ export default function LiveChannels() {
     setPlayingId(null);
     setStatus(null);
     clearMediaSession();
+    setKeepAwake(false);
   };
 
   const play = (ch) => {
     stop();
+    hapticTap();
     setPlayingId(ch.id);
     setStatus('connecting');
+    setKeepAwake(true);
 
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     ctx.resume().catch(() => {});
@@ -164,7 +187,7 @@ export default function LiveChannels() {
               chStatus === 'playing' ? 'color-mix(in srgb, var(--accent-red) 10%, transparent)' :
               'transparent';
             return (
-              <button key={ch.id} onClick={() => !isActive ? play(ch) : chStatus === 'error' ? play(ch) : stop()}
+              <button key={ch.id} onClick={() => !isActive ? play(ch) : chStatus === 'error' ? play(ch) : (hapticTap(), stop())}
                 style={{
                   display:'flex', alignItems:'center', gap:'0.5rem', width:'100%',
                   padding:'0.4rem 0.5rem', borderRadius:'0.4rem', border:'none',

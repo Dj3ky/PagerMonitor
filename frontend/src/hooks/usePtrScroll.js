@@ -1,4 +1,11 @@
 import { useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
+
+// The native Android shell has no Chrome browser UI to hand the overscroll to —
+// "pull down at the top reloads the page" is a Chrome-app feature, not something
+// a bare WebView does on its own — so letting it through there just produces a
+// dead rubber-band gap instead of a refresh. Keep it contained everywhere on native.
+const isNative = Capacitor.isNativePlatform();
 
 /**
  * Attaches dynamic overscroll-behavior-y to a scroll container so that:
@@ -17,7 +24,7 @@ export function usePtrScroll() {
     let touching = false;
 
     const update = () => {
-      if (el.scrollTop > 0) {
+      if (isNative || el.scrollTop > 0) {
         el.style.overscrollBehaviorY = 'contain';
       } else {
         el.style.overscrollBehaviorY = touching ? 'auto' : 'contain';

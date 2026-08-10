@@ -25,6 +25,7 @@ import { playAlertSound } from './components/admin/KeywordAlerts.jsx';
 window.__playAlertSound = playAlertSound;
 import { useBrowserNotifications } from './hooks/useBrowserNotifications.js';
 import { usePushSubscription }     from './hooks/usePushSubscription.js';
+import { useFcmPush }              from './hooks/useFcmPush.js';
 import { useLocationSharing }      from './hooks/useLocationSharing.js';
 
 const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || '';
@@ -65,6 +66,7 @@ export default function App() {
   const [soundEnabled, setSoundEnabled]     = useState(true);
   const browserNotif = useBrowserNotifications();
   const pushSub      = usePushSubscription();
+  useFcmPush();
   const [paused, setPaused]                 = useState(false);
   const [newCount, setNewCount]             = useState(0);
   const [loadingMore, setLoadingMore]       = useState(false);

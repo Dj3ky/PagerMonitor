@@ -32,6 +32,11 @@ Thumbs.db
 .env
 client/.env
 backend/.env
+frontend/.env.capacitor
+
+# Firebase credentials (contain secrets)
+backend/fcm-service-account.json
+frontend/android/app/google-services.json
 
 # Docker build artifacts
 frontend/dist

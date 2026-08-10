@@ -111,4 +111,4 @@ async function _send(sub, payload) {
   }
 }
 
-module.exports = { initWebPush, getPublicKey, saveSubscription, removeSubscription, sendPushPerUser };
+module.exports = { initWebPush, getPublicKey, saveSubscription, removeSubscription, sendPushPerUser, _matchesPushPrefs };
