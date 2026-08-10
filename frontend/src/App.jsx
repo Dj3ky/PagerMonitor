@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { useAuth }      from './context/AuthContext.jsx';
 import { useSite }      from './context/SiteContext.jsx';
@@ -49,6 +49,7 @@ export default function App() {
   const [serverStatus, setServerStatus]     = useState(null);
   const [pollSdrStatus, setPollSdrStatus]   = useState(null);
   const [latestSha, setLatestSha]           = useState(null);
+  const [updateFlags, setUpdateFlags]       = useState({ server: false, client: false });
   const [view, setView] = useState(() => sessionStorage.getItem('pm_view') || 'feed');
   // Requested admin tab — set by the status-bar update link so AdminPanel can
   // switch tabs even when it is already mounted (view already === 'admin').
@@ -135,6 +136,43 @@ export default function App() {
     const t = setInterval(check, 60 * 60 * 1000); // re-check every hour
     return () => clearInterval(t);
   }, [user]);
+
+  // This is a monorepo (client/, backend/, frontend/ all in one repo), so the server
+  // and every SDR client just report their own `git rev-parse HEAD` of the whole tree.
+  // Comparing that hash directly against latestSha above would flag "update available"
+  // for a Pi client even when the newest commit only touched backend/ or frontend/ (and
+  // vice versa for the server). Instead, diff each reported hash against latestSha via
+  // GitHub's compare API and only flag it if the changed files actually fall under the
+  // relevant directory. Results are cached per hash pair since hashes rarely change.
+  const compareCacheRef = useRef(new Map());
+  useEffect(() => {
+    if (!latestSha) return;
+    const serverHash    = serverStatus?.gitHash;
+    const clientHashes  = [...new Set((serverStatus?.sdrClients ?? []).map(c => c.gitHash).filter(Boolean))];
+
+    const touchesPath = async (fromHash, prefixes) => {
+      if (!fromHash || fromHash === latestSha) return false;
+      const cacheKey = `${fromHash}..${latestSha}`;
+      const cached = compareCacheRef.current.get(cacheKey);
+      if (cached) return cached.some(f => prefixes.some(p => f.startsWith(p)));
+      try {
+        const r = await fetch(`https://api.github.com/repos/Dj3ky/PagerMonitor/compare/${fromHash}...${latestSha}`);
+        if (!r.ok) return false;
+        const d = await r.json();
+        const files = (d.files || []).map(f => f.filename);
+        compareCacheRef.current.set(cacheKey, files);
+        return files.some(f => prefixes.some(p => f.startsWith(p)));
+      } catch { return false; }
+    };
+
+    let cancelled = false;
+    (async () => {
+      const serverRelevant = await touchesPath(serverHash, ['backend/', 'frontend/']);
+      const clientRelevant = (await Promise.all(clientHashes.map(h => touchesPath(h, ['client/'])))).some(Boolean);
+      if (!cancelled) setUpdateFlags({ server: serverRelevant, client: clientRelevant });
+    })();
+    return () => { cancelled = true; };
+  }, [latestSha, serverStatus?.gitHash, JSON.stringify((serverStatus?.sdrClients ?? []).map(c => c.gitHash))]);
 
   useEffect(() => {
     if (paused && messages.length > 0) setNewCount(n => n + 1);
@@ -254,7 +292,7 @@ export default function App() {
 
       <StatusBar sdrStatus={effectiveSdrStatus} serverStatus={serverStatus}
         wsStatus={wsStatus} messageCount={messages.length}
-        latestSha={latestSha}
+        latestSha={latestSha} updateFlags={updateFlags}
         onNavigate={(tab) => { handleSetView('admin'); setRequestedAdminTab(tab); }} />
 
       {view === 'feed' && (

@@ -86,7 +86,7 @@ function SdrDot({ on, title }) {
   );
 }
 
-function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, onNavigate }) {
+function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, updateFlags, onNavigate }) {
   const { locale, hour12 } = useSite();
   const sdrRunning  = sdrStatus?.running ?? false;
   const sdrDisabled = serverStatus?.sdrDisabled ?? false;
@@ -232,13 +232,14 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
       {/* ── Update availability badges (only shown when an update exists) ── */}
       {(() => {
         if (!latestSha) return null;
-        const serverHash  = serverStatus?.gitHash;
-        const sdrClients  = serverStatus?.sdrClients;
+        const serverHash = serverStatus?.gitHash;
 
-        const serverUpdate = serverHash && latestSha !== serverHash;
-        // Any online client that has reported a hash and it differs from latest
-        const clientUpdate = Array.isArray(sdrClients) &&
-          sdrClients.some(c => c.gitHash && latestSha !== c.gitHash);
+        // updateFlags is path-aware: it only flags "server" when the diff between
+        // serverHash and latestSha touches backend/frontend, and only flags "client"
+        // when some client's diff touches client/ — see App.jsx for why a plain hash
+        // mismatch isn't enough in this monorepo.
+        const serverUpdate = updateFlags?.server ?? false;
+        const clientUpdate = updateFlags?.client ?? false;
 
         if (!serverUpdate && !clientUpdate) return null;
 
@@ -278,7 +279,7 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
 //    the computed matrix (actual rendered position, not the keyframe offset)
 // 3. We convert that pixel offset back to a negative animation-delay
 // 4. The animation continues seamlessly from where it was
-function MobileTicker({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, onNavigate }) {
+function MobileTicker({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, updateFlags, onNavigate }) {
   const wrapRef  = useRef(null);
   const startRef = useRef(null); // when animation effectively started (ms)
 
@@ -316,11 +317,11 @@ function MobileTicker({ sdrStatus, serverStatus, wsStatus, messageCount, latestS
       <div ref={wrapRef} className="ticker-wrap">
         <span className="ticker-copy">
           <StatusItems sdrStatus={sdrStatus} serverStatus={serverStatus}
-            wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} onNavigate={onNavigate} />
+            wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} updateFlags={updateFlags} onNavigate={onNavigate} />
         </span>
         <span className="ticker-copy">
           <StatusItems sdrStatus={sdrStatus} serverStatus={serverStatus}
-            wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} onNavigate={onNavigate} />
+            wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} updateFlags={updateFlags} onNavigate={onNavigate} />
         </span>
       </div>
     </div>
@@ -344,7 +345,7 @@ function LiveClock() {
   );
 }
 
-export default function StatusBar({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, onNavigate }) {
+export default function StatusBar({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, updateFlags, onNavigate }) {
   if (isNative) {
     return <NativeProblemBar sdrStatus={sdrStatus} serverStatus={serverStatus} wsStatus={wsStatus} onNavigate={onNavigate} />;
   }
@@ -359,13 +360,13 @@ export default function StatusBar({ sdrStatus, serverStatus, wsStatus, messageCo
         fontFamily:'monospace', fontSize:'0.75rem', color:'var(--text-3)',
       }}>
         <StatusItems sdrStatus={sdrStatus} serverStatus={serverStatus}
-          wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} onNavigate={onNavigate} />
+          wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} updateFlags={updateFlags} onNavigate={onNavigate} />
         <LiveClock />
       </div>
 
       {/* Mobile — scrolling ticker (hidden on desktop via CSS) */}
       <MobileTicker sdrStatus={sdrStatus} serverStatus={serverStatus}
-        wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} onNavigate={onNavigate} />
+        wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} updateFlags={updateFlags} onNavigate={onNavigate} />
 
       <style>{`
         @keyframes tickerMove {
