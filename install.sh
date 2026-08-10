@@ -255,7 +255,9 @@ npm install --omit=dev
 echo "  ✓ Done"
 
 # ── .env ──────────────────────────────────────────────────────────────────────
-if [ ! -f "$PAGEMON_DIR/backend/.env" ]; then
+# -s (not -f): treats a zero-byte .env the same as a missing one, so a stray empty file
+# from an earlier interrupted run doesn't get stuck there forever unnoticed.
+if [ ! -s "$PAGEMON_DIR/backend/.env" ]; then
   echo ""
   echo "► Creating .env…"
   cp "$PAGEMON_DIR/backend/.env.example" "$PAGEMON_DIR/backend/.env"

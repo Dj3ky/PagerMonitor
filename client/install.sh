@@ -200,7 +200,9 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 cd "$DIR" && npm install --omit=dev
 
 # .env
-[ ! -f "$DIR/.env" ] && cp "$DIR/.env.example" "$DIR/.env" && echo "  ✓ Created .env — edit it now!"
+# -s (not -f): treats a zero-byte .env the same as a missing one, so a stray empty file
+# from an earlier interrupted run doesn't get stuck there forever unnoticed.
+[ ! -s "$DIR/.env" ] && cp "$DIR/.env.example" "$DIR/.env" && echo "  ✓ Created .env — edit it now!"
 
 # systemd service
 sudo tee /etc/systemd/system/pagermonitor-client.service > /dev/null << SVCEOF
