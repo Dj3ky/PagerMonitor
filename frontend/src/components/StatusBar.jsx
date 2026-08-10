@@ -1,6 +1,62 @@
 import { useRef, useLayoutEffect, useState, useEffect } from 'react';
-import { Activity, Wifi, WifiOff, Clock, HardDrive, RefreshCw, GitCommit } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Activity, Wifi, WifiOff, Clock, HardDrive, RefreshCw, GitCommit, AlertTriangle } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
+
+const isNative = Capacitor.isNativePlatform();
+
+// Native gets no ticker at all — the header's own connection dot already covers
+// "is this live," and a permanent scrolling ops-detail bar (memory, restarts, git
+// hashes) is desktop-dashboard density, not phone-glance density. The one thing
+// still worth surfacing unprompted is an actual problem — dead air, SDR down, a
+// dropped connection — so this renders nothing when everything's fine.
+function computeProblem(sdrStatus, serverStatus, wsStatus) {
+  if (wsStatus === 'closed' || wsStatus === 'error') {
+    return { color: 'var(--accent-red)', label: 'Disconnected — reconnecting…' };
+  }
+  if (sdrStatus?.deadAir === 'alert') {
+    const sources = sdrStatus.deadAirSources || [];
+    return { color: 'var(--accent-red)', label: `Dead air${sources.length ? `: ${sources.map(s => s.id).join(', ')}` : ''}` };
+  }
+  const sdrDisabled = serverStatus?.sdrDisabled ?? false;
+  if (sdrDisabled) {
+    const clients = serverStatus?.sdrClients ?? [];
+    if (clients.length) {
+      const allActive = clients.every(c => c.online && c.sdrRunning !== false);
+      const anyOnline = clients.some(c => c.online);
+      if (!allActive) {
+        return { color: anyOnline ? 'var(--accent-amber)' : 'var(--accent-red)', label: anyOnline ? 'SDR partially offline' : 'SDR offline' };
+      }
+    }
+  } else if (sdrStatus?.dongleStatuses?.length > 1) {
+    const allOn = sdrStatus.dongleStatuses.every(d => d.running);
+    if (!allOn) {
+      const someOn = sdrStatus.dongleStatuses.some(d => d.running);
+      return { color: someOn ? 'var(--accent-amber)' : 'var(--accent-red)', label: someOn ? 'SDR partially offline' : 'SDR offline' };
+    }
+  } else if (sdrStatus && !sdrStatus.running) {
+    return { color: 'var(--accent-red)', label: 'SDR offline' };
+  }
+  if (sdrStatus?.error) {
+    return { color: 'var(--accent-red)', label: sdrStatus.error };
+  }
+  return null;
+}
+
+function NativeProblemBar({ sdrStatus, serverStatus, wsStatus, onNavigate }) {
+  const problem = computeProblem(sdrStatus, serverStatus, wsStatus);
+  if (!problem) return null;
+  return (
+    <button onClick={() => onNavigate?.('sdrclients')} style={{
+      display: 'flex', alignItems: 'center', gap: '0.4rem', width: '100%', flexShrink: 0,
+      padding: '0.45rem 0.75rem', border: 'none', borderBottom: '1px solid var(--border)',
+      background: `color-mix(in srgb, ${problem.color} 12%, var(--bg-1))`,
+      color: problem.color, fontSize: '0.8rem', fontWeight: 600, textAlign: 'left', cursor: 'pointer',
+    }}>
+      <AlertTriangle size={14} /> {problem.label}
+    </button>
+  );
+}
 
 function fmtSilent(sec) {
   if (sec < 60)        return `${sec}s ago`;
@@ -289,6 +345,10 @@ function LiveClock() {
 }
 
 export default function StatusBar({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, onNavigate }) {
+  if (isNative) {
+    return <NativeProblemBar sdrStatus={sdrStatus} serverStatus={serverStatus} wsStatus={wsStatus} onNavigate={onNavigate} />;
+  }
+
   return (
     <>
       {/* Desktop — static flex row */}

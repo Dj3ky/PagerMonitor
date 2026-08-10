@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useAuth }      from './context/AuthContext.jsx';
 import { useSite }      from './context/SiteContext.jsx';
 import { useWebSocket, subscribeWsMessages } from './hooks/useWebSocket.js';
 import { fetchHistory, fetchSearch, fetchStatus, fetchRules, fetchGroups } from './utils/api.js';
 import LoginPage     from './components/LoginPage.jsx';
 import Header        from './components/Header.jsx';
+import BottomNav     from './components/BottomNav.jsx';
 import StatusBar     from './components/StatusBar.jsx';
 import MessageFeed   from './components/MessageFeed.jsx';
 import SearchPanel   from './components/SearchPanel.jsx';
@@ -67,6 +69,8 @@ export default function App() {
   const browserNotif = useBrowserNotifications();
   const pushSub      = usePushSubscription();
   useFcmPush();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isNative = Capacitor.isNativePlatform();
   const [paused, setPaused]                 = useState(false);
   const [newCount, setNewCount]             = useState(0);
   const [loadingMore, setLoadingMore]       = useState(false);
@@ -244,7 +248,8 @@ export default function App() {
         view={view} setView={handleSetView}
         isGuest={isGuest}
         onGuestLogin={() => setShowLogin(true)}
-        onProfileOpen={() => setShowProfile(true)} />
+        onProfileOpen={() => setShowProfile(true)}
+        menuOpen={mobileMenuOpen} onMenuOpenChange={setMobileMenuOpen} />
       {showProfile && <UserProfile onClose={() => setShowProfile(false)} />}
 
       <StatusBar sdrStatus={effectiveSdrStatus} serverStatus={serverStatus}
@@ -319,6 +324,11 @@ export default function App() {
           )}
         </ErrorBoundary>
       </main>
+
+      {isNative && (
+        <BottomNav view={view} setView={handleSetView}
+          menuOpen={mobileMenuOpen} onMenuOpenChange={setMobileMenuOpen} />
+      )}
 
       {/* Location sharing prompt — shown once on first open */}
       {locationSharing.showPrompt && !isGuest && (

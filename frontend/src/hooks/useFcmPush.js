@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 
 const isNative = Capacitor.isNativePlatform();
+const BASE = import.meta.env.VITE_BACKEND_URL || '';
 
 // Native Android background push (FCM) — the counterpart to usePushSubscription.js's
 // Web Push for the browser/PWA. No on/off toggle: unlike the PWA (where enabling push
@@ -32,7 +33,7 @@ export function useFcmPush() {
 
       const regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
         const tok = localStorage.getItem('pm_token') || '';
-        fetch('/api/push/fcm-subscribe', {
+        fetch(`${BASE}/api/push/fcm-subscribe`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
           body:    JSON.stringify({ token }),

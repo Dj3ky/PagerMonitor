@@ -33,9 +33,21 @@
         <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_pager" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/notificationColor" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="pm_messages" />
+
+        <!-- Plays live voice-channel audio via its own WebSocket + AudioTrack, entirely
+             independent of the WebView's JS — see LiveAudioService.kt for why that
+             independence is the actual point (Chrome/WebView freezes backgrounded page
+             JS after a few minutes regardless of this foreground service keeping the
+             *process* alive, which was the earlier, insufficient approach). -->
+        <service android:name=".LiveAudioService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 </manifest>

@@ -1,14 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
 import { Radio, Play, Square, Loader2, AlertCircle } from 'lucide-react';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { fetchVoiceChannels } from '../utils/api.js';
 import { sendWsMessage, subscribeWsAudio } from '../hooks/useWebSocket.js';
 
 const isNative = Capacitor.isNativePlatform();
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
 
-// Keep the screen/CPU awake while a live channel is playing — Android suspends
-// WebView audio scheduling once the screen sleeps, which would silently cut off
-// a dispatch feed the user is actively listening to.
+// Native Android plays live channels through a dedicated background service
+// (LiveAudioService.kt) instead of the WebView's Web Audio API — see that file's
+// class doc: Chrome/WebView freezes a backgrounded page's JS after a few minutes
+// regardless of any foreground service keeping the *process* alive, which silently
+// killed audio even with the keep-awake/foreground-service approach tried first.
+const LiveAudio = isNative ? registerPlugin('LiveAudio') : null;
+
+function nativeWsUrl() {
+  const base = BACKEND_URL.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws') + '/ws';
+  const token = localStorage.getItem('pm_token') || '';
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+}
+
+// Keep the screen/CPU awake while a live channel is playing — a courtesy for when
+// the phone is actively being looked at (visible but unfocused); doesn't affect
+// whether audio itself keeps running, LiveAudioService handles that independently.
 const setKeepAwake = (on) => {
   if (!isNative) return;
   import('@capacitor-community/keep-awake')
@@ -57,27 +71,86 @@ export default function LiveChannels() {
 
   useEffect(() => () => stop(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reflects LiveAudioService's status — the service is the source of truth on native,
+  // this just mirrors it into the UI (connecting/playing/error, or stopped -> idle).
+  useEffect(() => {
+    if (!isNative) return;
+    let handle;
+    LiveAudio.addListener('statusChange', ({ status: s }) => {
+      setStatus(s === 'stopped' ? null : s);
+      if (s === 'stopped') setPlayingId(null);
+    }).then(h => { handle = h; });
+
+    // The service may already be running from before this component existed — e.g. the
+    // app was closed and reopened while a channel kept playing in the background. Without
+    // this, the fresh UI has no way to know that, and only finds out once the *next* audio
+    // frame flips status to "playing" with no channel id attached to show a name for it.
+    LiveAudio.getStatus().then(({ status: s, channelId }) => {
+      if (s && s !== 'stopped' && channelId >= 0) {
+        setPlayingId(channelId);
+        setStatus(s);
+      }
+    }).catch(() => {});
+
+    return () => handle?.remove();
+  }, []);
+
   const clearMediaSession = () => {
     if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.metadata = null;
     navigator.mediaSession.playbackState = 'none';
   };
 
-  const stop = () => {
-    if (playingId != null) sendWsMessage({ type: 'listen_stop', channelId: playingId });
+  // Everything stop() does except resetting playingId/status — used by the stall
+  // watchdog too, which needs to tear down audio/keep-awake/the listening
+  // notification on failure while still leaving the row showing "error" (with a
+  // retry affordance) rather than silently reverting to "not playing".
+  const releaseResources = () => {
     unsubRef.current?.();
     unsubRef.current = null;
     clearTimeout(timeoutRef.current);
     if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch (_) {} audioCtxRef.current = null; }
-    setPlayingId(null);
-    setStatus(null);
     clearMediaSession();
     setKeepAwake(false);
   };
 
+  const stop = () => {
+    if (isNative) {
+      setKeepAwake(false);
+      // Skip the native call entirely when nothing's playing — play() unconditionally
+      // calls stop() first to reset any prior session, so without this guard, the very
+      // first tap ever would fire a pointless stop() that still starts-and-immediately-
+      // kills the Android service for nothing.
+      if (playingId != null) LiveAudio.stop().catch(() => {});
+      setPlayingId(null);
+      setStatus(null);
+      return;
+    }
+    if (playingId != null) sendWsMessage({ type: 'listen_stop', channelId: playingId });
+    releaseResources();
+    setPlayingId(null);
+    setStatus(null);
+  };
+
   const play = (ch) => {
-    stop();
     hapticTap();
+
+    if (isNative) {
+      // No stop() first here on purpose — switching channels while one is already
+      // playing used to send a STOP then a START to the Android service back-to-back,
+      // and the STOP could finish tearing the whole service down before the START
+      // landed, silently dropping it (had to tap twice). connect() on the native side
+      // already cleans up whatever channel was previously playing before switching, so
+      // a bare start is both correct and race-free.
+      setPlayingId(ch.id);
+      setStatus('connecting');
+      setKeepAwake(true);
+      LiveAudio.start({ wsUrl: nativeWsUrl(), channelId: ch.id, description: ch.description || 'Live channel' })
+        .catch(() => setStatus('error'));
+      return;
+    }
+
+    stop();
     setPlayingId(ch.id);
     setStatus('connecting');
     setKeepAwake(true);
@@ -95,7 +168,10 @@ export default function LiveChannels() {
     const armWatchdog = () => {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
-        if (audioCtxRef.current === ctx) setStatus('error');
+        if (audioCtxRef.current !== ctx) return;
+        sendWsMessage({ type: 'listen_stop', channelId: ch.id });
+        releaseResources();
+        setStatus('error');
       }, STALL_TIMEOUT_MS);
     };
     armWatchdog();

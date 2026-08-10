@@ -60,6 +60,7 @@ function Badge({ label, color, title, onClick }) {
 export default function MessageRow({ msg, index=0, isNew, highlightRules=[], groups=[], onFilter, onMapClick, onDelete }) {
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [ripples, setRipples] = useState([]);
   const [showNotes, setShowNotes] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [reGeocoding, setReGeocoding] = useState(false);
@@ -95,12 +96,27 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
     if (window.__playAlertSound) window.__playAlertSound(rowSound);
   }, [isNew, rowSound]);
 
+  // Material-style ripple — starts on touch/press, not after the click completes,
+  // so tapping a row feels immediate rather than just toggling state with no feedback.
+  const addRipple = e => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height) * 1.4;
+    const id   = Date.now() + Math.random();
+    setRipples(rs => [...rs, {
+      id, size,
+      x: (e.clientX ?? rect.left + rect.width / 2) - rect.left,
+      y: (e.clientY ?? rect.top + rect.height / 2) - rect.top,
+    }]);
+    setTimeout(() => setRipples(rs => rs.filter(r => r.id !== id)), 500);
+  };
+
   return (
     <>
       <div
         style={{ borderBottom:'1px solid var(--border-soft)',
           borderLeft:`3px solid ${rowColor || 'transparent'}`,
           cursor:'pointer', transition:'background 0.15s',
+          position:'relative', overflow:'hidden', flexShrink:0,
           background: isKeyAlert ? 'color-mix(in srgb, var(--accent-amber) 12%, var(--bg-0))'
                     : rowColor   ? `color-mix(in srgb, ${rowColor} 10%, var(--bg-0))`
                     : hovered    ? 'var(--bg-2)'
@@ -109,9 +125,18 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
                     : 'transparent',
           animation: isKeyAlert ? 'keyalert-blink 0.6s ease-in-out 5' : 'none' }}
         onClick={() => setExpanded(e => !e)}
+        onPointerDown={addRipple}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
+        {ripples.map(r => (
+          <span key={r.id} aria-hidden="true" style={{
+            position:'absolute', left:r.x, top:r.y, width:r.size, height:r.size,
+            marginLeft:-r.size/2, marginTop:-r.size/2, borderRadius:'50%',
+            background:'currentColor', opacity:0.16, pointerEvents:'none',
+            transform:'scale(0)', animation:'msgRowRipple 500ms ease-out forwards',
+          }}/>
+        ))}
         {/* ── DESKTOP row (hidden on mobile) ───────────────────── */}
         <div className="msg-desktop" style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 0.75rem' }}>
           <span style={{ color:'var(--text-3)', flexShrink:0, lineHeight:1, width:'12px' }}>
@@ -394,6 +419,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
           50%      { background: color-mix(in srgb, var(--accent-amber) 35%, var(--bg-0)); }
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes msgRowRipple { to { transform: scale(1); opacity: 0; } }
       `}</style>
     </>
   );

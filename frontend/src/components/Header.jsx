@@ -1,13 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Radio, Search, Volume2, VolumeX, Settings, Rss, Sun, Moon, LogOut, User, Menu, X, Bell, BellOff, Map, Archive, CloudRain, Plane, Camera } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useAuth }  from '../context/AuthContext.jsx';
 import { useSite }  from '../context/SiteContext.jsx';
 import LiveChannels from './LiveChannels.jsx';
 
-export default function Header({ wsStatus, soundEnabled, onToggleSound, browserNotif, onSearch, searching, view, setView, isGuest, onGuestLogin, onProfileOpen }) {
+const isNative = Capacitor.isNativePlatform();
+
+export default function Header({ wsStatus, soundEnabled, onToggleSound, browserNotif, onSearch, searching, view, setView, isGuest, onGuestLogin, onProfileOpen, menuOpen: menuOpenProp, onMenuOpenChange }) {
   const [query, setQuery]       = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpenState, setMenuOpenState] = useState(false);
+  // Controlled by App.jsx on native (so BottomNav's "More" tab can drive the same
+  // dropdown) — falls back to local state for the web/PWA, which has no bottom nav.
+  const menuOpen    = menuOpenProp !== undefined ? menuOpenProp : menuOpenState;
+  const setMenuOpen = onMenuOpenChange || setMenuOpenState;
   const menuRef                 = useRef(null);
   const debounceRef             = useRef(null);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -170,20 +177,32 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
           {/* Live voice channels — always visible (not desktop-only), sits next to the hamburger */}
           <LiveChannels />
 
-          {/* ── Mobile hamburger — right side via CSS order ───────────────────────────── */}
-          <button onClick={() => setMenuOpen(m => !m)}
-            className="hdr-mobile"
-            style={{ display:'none', alignItems:'center', justifyContent:'center',
-              width:'36px', height:'36px', borderRadius:'0.4rem', border:'1px solid var(--border)',
-              background: menuOpen ? 'var(--bg-4)' : 'var(--bg-3)',
-              color:'var(--text-1)', cursor:'pointer', flexShrink:0 }}>
-            {menuOpen ? <X size={18}/> : <Menu size={18}/>}
-          </button>
+          {/* ── Mobile hamburger — right side via CSS order ─────────────────────────────
+              Hidden on native: BottomNav's "More" tab opens this same dropdown instead. */}
+          {!isNative && (
+            <button onClick={() => setMenuOpen(m => !m)}
+              className="hdr-mobile"
+              style={{ display:'none', alignItems:'center', justifyContent:'center',
+                width:'36px', height:'36px', borderRadius:'0.4rem', border:'1px solid var(--border)',
+                background: menuOpen ? 'var(--bg-4)' : 'var(--bg-3)',
+                color:'var(--text-1)', cursor:'pointer', flexShrink:0 }}>
+              {menuOpen ? <X size={18}/> : <Menu size={18}/>}
+            </button>
+          )}
         </div>
 
-        {/* ── Mobile dropdown ───────────────────────────────── */}
+        {/* ── Mobile dropdown ─────────────────────────────────
+            On native this is triggered by BottomNav's "More" tab, not a hamburger up
+            here — anchor it as a sheet rising from the bottom nav instead of the top,
+            so it visually opens near where it was tapped. */}
         {menuOpen && (
-          <div className="hdr-mobile" style={{
+          <div className="hdr-mobile" style={isNative ? {
+            display:'flex', flexDirection:'column',
+            background:'var(--bg-1)', borderTop:'1px solid var(--border)',
+            position:'fixed', bottom:'58px', left:0, right:0,
+            maxHeight:'70vh', overflowY:'auto', borderRadius:'0.75rem 0.75rem 0 0',
+            boxShadow:'0 -8px 24px rgba(0,0,0,0.5)', zIndex:2000,
+          } : {
             display:'flex', flexDirection:'column',
             background:'var(--bg-1)', borderTop:'1px solid var(--border)',
             position:'absolute', top:'100%', left:0, right:0,
@@ -202,10 +221,15 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
               </form>
             </div>
 
-            <MenuRow icon={<Rss size={16}/>}     label="Feed"    active={view==='feed'}    onClick={() => nav('feed')} />
-            <MenuRow icon={<Map size={16}/>}     label="Map"     active={view==='map'}     onClick={() => nav('map')} />
-            <MenuRow icon={<Archive size={16}/>} label="Archive" active={view==='archive'} onClick={() => nav('archive')} />
-            <MenuRow icon={<CloudRain size={16}/>} label="Weather" active={view==='weather'} onClick={() => nav('weather')} />
+            {/* Feed/Map/Archive/Weather live in BottomNav on native — redundant here */}
+            {!isNative && (
+              <>
+                <MenuRow icon={<Rss size={16}/>}     label="Feed"    active={view==='feed'}    onClick={() => nav('feed')} />
+                <MenuRow icon={<Map size={16}/>}     label="Map"     active={view==='map'}     onClick={() => nav('map')} />
+                <MenuRow icon={<Archive size={16}/>} label="Archive" active={view==='archive'} onClick={() => nav('archive')} />
+                <MenuRow icon={<CloudRain size={16}/>} label="Weather" active={view==='weather'} onClick={() => nav('weather')} />
+              </>
+            )}
             {enableAircraft && (
               <MenuRow icon={<Plane size={16}/>} label="Aircraft" active={view==='aircraft'} onClick={() => nav('aircraft')} />
             )}
