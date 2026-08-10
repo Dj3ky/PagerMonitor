@@ -196,6 +196,45 @@ let audioWsAttempts = 0;
 let logStreamingEnabled = false; // toggled by the server so an admin can view our logs live, no SSH needed
 const voiceChannelForwarding = new Map(); // channelId -> boolean
 
+// ── "Is someone talking" activity — runs for every voice channel regardless of whether
+// its audio is currently being forwarded, so the app can show activity on channels nobody's
+// listening to yet without streaming their full audio. Debounced locally (only sent to the
+// server on an actual on/off transition) to keep this genuinely lightweight bandwidth-wise —
+// same threshold/hang-time reasoning as the server's own local-dongle version.
+const ACTIVITY_RMS_THRESHOLD = 0.02;
+const ACTIVITY_HANG_MS = 800;
+const channelActivityState = new Map();      // channelId -> boolean
+const channelActivityHangTimers = new Map(); // channelId -> Timeout
+
+function computeRms(buf) {
+  const n = buf.length >> 2;
+  if (n === 0) return 0;
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) { const v = buf.readFloatLE(i * 4); sumSq += v * v; }
+  return Math.sqrt(sumSq / n);
+}
+
+function sendActivity(channelId, active) {
+  if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
+  try { audioWs.send(JSON.stringify({ type: 'activity', channelId: Number(channelId), active })); } catch (_) {}
+}
+
+function reportChannelActivity(channelId, isLoud) {
+  const id = Number(channelId);
+  if (isLoud) {
+    clearTimeout(channelActivityHangTimers.get(id));
+    channelActivityHangTimers.delete(id);
+    if (!channelActivityState.get(id)) { channelActivityState.set(id, true); sendActivity(id, true); }
+  } else if (channelActivityState.get(id) && !channelActivityHangTimers.has(id)) {
+    const t = setTimeout(() => {
+      channelActivityHangTimers.delete(id);
+      channelActivityState.set(id, false);
+      sendActivity(id, false);
+    }, ACTIVITY_HANG_MS);
+    channelActivityHangTimers.set(id, t);
+  }
+}
+
 function connectAudioWs() {
   if (!CLIENT_KEY) return; // server rejects unauthenticated connections anyway
   if (audioWs && (audioWs.readyState === WebSocket.OPEN || audioWs.readyState === WebSocket.CONNECTING)) return;
@@ -350,6 +389,7 @@ function spawnAudioSource(cfg, label) {
     const voiceSockets = voiceChannels.map(c => {
       const vSocket = dgram.createSocket('udp4');
       vSocket.on('message', msg => {
+        reportChannelActivity(c.id, computeRms(msg) > ACTIVITY_RMS_THRESHOLD);
         if (!voiceChannelForwarding.get(Number(c.id))) return;
         if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
         const header = Buffer.alloc(4);

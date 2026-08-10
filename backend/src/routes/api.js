@@ -113,6 +113,14 @@ router.get('/voice-channels', requireAuth, (req, res) => {
     .map(ch => ({ ...ch, mount: `ch${ch.id}` }));
   res.json(rows);
 });
+
+// { channelId: true } for channels currently known to have activity — lets a freshly
+// loaded page show correct state immediately; live updates after that come over the WS
+// as 'channel_activity' messages.
+router.get('/voice-channels/active', requireAuth, (_req, res) => {
+  try { res.json(require('../services/audioRelay').getActiveChannels()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 router.put('/aliases/:capcode', requireEditor, (req, res) => {
   const { name, color, notes, group_id } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });

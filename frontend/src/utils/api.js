@@ -24,6 +24,7 @@ export const fetchSearch   = (q, limit = 100) => req('GET', `/api/search?q=${enc
 export const fetchStatus   = () => req('GET', '/api/status');
 export const fetchAliases    = () => req('GET', '/api/aliases');
 export const fetchVoiceChannels = () => req('GET', '/api/voice-channels');
+export const fetchActiveVoiceChannels = () => req('GET', '/api/voice-channels/active');
 export const fetchFeedFilter = () => req('GET', '/api/feed-filter');
 export const fetchGroups   = () => req('GET', '/api/groups');
 export const fetchRules    = () => req('GET', '/api/rules');

@@ -323,7 +323,7 @@ function spawnAudioSource(dongle, label) {
     const audioRelay = require('./audioRelay');
     const voiceSockets = voiceChannels.map(c => {
       const vSocket = dgram.createSocket('udp4');
-      vSocket.on('message', msg => audioRelay.pushLocalFrame(c.id, msg));
+      vSocket.on('message', msg => { audioRelay.pushLocalFrame(c.id, msg); audioRelay.reportLocalActivitySample(c.id, msg); });
       vSocket.on('error', err => logger.warn(`${label} voice channel ${c.id} UDP socket error: ${err.message}`));
       vSocket.bind(udpPortForVoiceChannel(c.id), '127.0.0.1');
       return vSocket;

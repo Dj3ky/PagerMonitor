@@ -30,6 +30,8 @@ const internalSubscribers  = new Map(); // channelId -> Set<callback(payload)> �
 const forwardingActive     = new Map(); // channelId -> boolean (have we told the remote client to stream?)
 const logWatchers          = new Map(); // clientId -> Set<browserWs> — admins viewing that client's live logs
 const logStreamActive      = new Map(); // clientId -> boolean (have we told the client to stream its logs?)
+const channelActivity      = new Map(); // channelId -> boolean (currently-known "is someone talking" state)
+const channelActivityHang  = new Map(); // channelId -> timer (debounce before flipping active -> inactive)
 
 // Browsers + internal (non-WS) subscribers both count toward "does this channel need
 // forwarding" — a channel stays armed as long as *either* wants it.
@@ -87,6 +89,59 @@ function fanOutFrame(channelId, payload) {
 // No signaling needed — rtl_airband is already producing this locally regardless.
 function pushLocalFrame(channelId, payload) {
   fanOutFrame(channelId, payload);
+}
+
+// ── "Is someone talking" activity — separate from actually listening ──────────────────
+// Broadcast to every browser (not just this channel's listeners), so the app can show a
+// live indicator on channels nobody's currently tuned into, without streaming their full
+// audio. HANG_MS keeps a channel "active" briefly after the last loud sample so normal
+// gaps between words/syllables don't make the indicator flicker on and off.
+const ACTIVITY_RMS_THRESHOLD = 0.02; // starting point — rtl_airband's float32 samples are ~[-1,1]; tune if too sensitive/insensitive
+const ACTIVITY_HANG_MS = 800;
+
+function computeRms(buf) {
+  const n = buf.length >> 2;
+  if (n === 0) return 0;
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) { const v = buf.readFloatLE(i * 4); sumSq += v * v; }
+  return Math.sqrt(sumSq / n);
+}
+
+function setChannelActive(channelId, active) {
+  const id = Number(channelId);
+  if ((channelActivity.get(id) || false) === active) return;
+  channelActivity.set(id, active);
+  const { broadcast } = require('./websocket');
+  broadcast({ type: 'channel_activity', channelId: id, active });
+}
+
+// isLoud: whether *this particular sample* was above threshold — the hang-time debounce
+// lives here so both local (per-buffer) and remote (already-debounced client-side) callers
+// go through the same "flip on immediately, flip off after a quiet period" behavior.
+function reportChannelActivity(channelId, isLoud) {
+  const id = Number(channelId);
+  if (isLoud) {
+    clearTimeout(channelActivityHang.get(id));
+    channelActivityHang.delete(id);
+    setChannelActive(id, true);
+  } else if (channelActivity.get(id) && !channelActivityHang.has(id)) {
+    const t = setTimeout(() => { channelActivityHang.delete(id); setChannelActive(id, false); }, ACTIVITY_HANG_MS);
+    channelActivityHang.set(id, t);
+  }
+}
+
+// Called by sdr.js alongside pushLocalFrame, for every voice channel buffer regardless of
+// listeners — cheap enough to run unconditionally (a handful of float reads per packet).
+function reportLocalActivitySample(channelId, payload) {
+  reportChannelActivity(channelId, computeRms(payload) > ACTIVITY_RMS_THRESHOLD);
+}
+
+// { channelId: true } for every channel currently known to be active — lets a freshly
+// loaded page show correct state immediately instead of waiting for the next change.
+function getActiveChannels() {
+  const out = {};
+  for (const [channelId, active] of channelActivity) if (active) out[channelId] = true;
+  return out;
 }
 
 function sendControl(clientId, msg) {
@@ -231,6 +286,9 @@ function initAudioSourceWs(server) {
       let msg;
       try { msg = JSON.parse(data); } catch (_) { return; }
       if (msg.type === 'log') relayClientLog(clientId, msg.level, msg.msg, msg.ts);
+      // Remote clients already debounce this themselves (see client/src/index.js) before
+      // sending, so this is a plain on/off flip, not another round of hang-time logic.
+      else if (msg.type === 'activity') setChannelActive(msg.channelId, !!msg.active);
     });
 
     ws.on('close', () => {
@@ -294,7 +352,9 @@ module.exports = {
   initAudioSourceWs,
   isAudioConnected,
   getListenerCounts,
+  getActiveChannels,
   pushLocalFrame,
+  reportLocalActivitySample,
   handleBrowserListen,
   handleBrowserUnlisten,
   handleBrowserDisconnect,

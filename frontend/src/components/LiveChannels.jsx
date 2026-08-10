@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Radio, Play, Square, Loader2, AlertCircle } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { fetchVoiceChannels } from '../utils/api.js';
-import { sendWsMessage, subscribeWsAudio } from '../hooks/useWebSocket.js';
+import { fetchVoiceChannels, fetchActiveVoiceChannels } from '../utils/api.js';
+import { sendWsMessage, subscribeWsAudio, subscribeWsMessages } from '../hooks/useWebSocket.js';
 
 const isNative = Capacitor.isNativePlatform();
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
@@ -51,6 +51,7 @@ export default function LiveChannels() {
   const [open, setOpen]           = useState(false);
   const [playingId, setPlayingId] = useState(null);
   const [status, setStatus]       = useState(null); // 'connecting' | 'playing' | 'error'
+  const [activeChannels, setActiveChannels] = useState(() => new Set()); // channel ids currently transmitting (any listener or none)
 
   const audioCtxRef  = useRef(null);
   const nextTimeRef  = useRef(0);
@@ -60,6 +61,25 @@ export default function LiveChannels() {
 
   useEffect(() => {
     fetchVoiceChannels().then(r => setChannels(Array.isArray(r) ? r : [])).catch(() => {});
+  }, []);
+
+  // "Is anyone talking" indicator — independent of whether we're actually listening,
+  // so users can see a channel is active before deciding to open it. Seed from the
+  // current snapshot, then keep it live via the same channel_activity WS broadcasts.
+  useEffect(() => {
+    fetchActiveVoiceChannels()
+      .then(r => setActiveChannels(new Set(Object.keys(r || {}).map(Number))))
+      .catch(() => {});
+    return subscribeWsMessages(data => {
+      if (data.type !== 'channel_activity') return;
+      setActiveChannels(prev => {
+        const has = prev.has(data.channelId);
+        if (has === !!data.active) return prev;
+        const next = new Set(prev);
+        if (data.active) next.add(data.channelId); else next.delete(data.channelId);
+        return next;
+      });
+    });
   }, []);
 
   useEffect(() => {
@@ -226,8 +246,9 @@ export default function LiveChannels() {
           {activeChannel.description}
         </span>
       )}
-      <button title="Live voice channels" onClick={() => setOpen(o => !o)} style={{
-        display:'flex', alignItems:'center', justifyContent:'center',
+      <button title={activeChannels.size > 0 ? 'Live voice channels — someone is transmitting' : 'Live voice channels'}
+        onClick={() => setOpen(o => !o)} style={{
+        position:'relative', display:'flex', alignItems:'center', justifyContent:'center',
         width:'36px', height:'36px', borderRadius:'0.4rem',
         border:'1px solid var(--border)', cursor:'pointer', transition:'all 0.15s',
         background: open ? 'var(--bg-4)'
@@ -237,6 +258,13 @@ export default function LiveChannels() {
         color: status === 'error' ? 'var(--accent-amber)' : status === 'playing' ? 'var(--accent-red)' : 'var(--text-1)',
       }}>
         <Radio size={18} />
+        {activeChannels.size > 0 && (
+          <span className="animate-blink" style={{
+            position:'absolute', top:'3px', right:'3px', width:'8px', height:'8px',
+            borderRadius:'50%', background:'var(--accent-green)',
+            boxShadow:'0 0 0 2px var(--bg-3)',
+          }} />
+        )}
       </button>
 
       {open && (
@@ -274,6 +302,12 @@ export default function LiveChannels() {
                 <span style={{ flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                   {ch.description}
                 </span>
+                {activeChannels.has(ch.id) && (
+                  <span title="Transmitting now" className="animate-blink" style={{
+                    width:'7px', height:'7px', borderRadius:'50%',
+                    background:'var(--accent-green)', flexShrink:0,
+                  }} />
+                )}
                 {chStatus === 'error' && (
                   <span style={{ fontSize:'0.68rem', color:'var(--accent-amber)' }}>retry</span>
                 )}
