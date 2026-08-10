@@ -62,7 +62,7 @@ async function main() {
   app.get('/api/site-settings', (_req, res) => {
     const { getSetting } = require('./services/database');
     try {
-      const s = getSetting('site_settings', { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, publicMode: false });
+      const s = getSetting('site_settings', { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, publicMode: false, enableTraffic: true, enableAircraft: true, enableArsoWeather: true });
       res.json(s);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

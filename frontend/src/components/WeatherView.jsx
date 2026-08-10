@@ -293,7 +293,7 @@ function IframeEmbed({ visible, userPos, geoState, countryCenter, overlay }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function WeatherView({ visible, locationSharing }) {
-  const { geocodeCountry, windyApiKey, settingsLoaded } = useSite();
+  const { geocodeCountry, windyApiKey, settingsLoaded, enableArsoWeather } = useSite();
   const [overlay, setOverlay]       = useState('radar');
   // Persist API failure within the session — avoids re-trying (and blinking) on refresh.
   // sessionStorage clears on tab close so Windy gets another chance next session.
@@ -308,17 +308,19 @@ export default function WeatherView({ visible, locationSharing }) {
   // useApi: attempt the JS API only when we have a key and init hasn't failed yet
   const useApi = settingsLoaded && !!windyApiKey && !apiInitFailed;
 
+  const showArso = geocodeCountry === 'si' && enableArsoWeather !== false;
+
   const layers = useMemo(() => {
     const base = useApi ? API_LAYERS : LAYERS;
-    return geocodeCountry === 'si' ? [...base, ARSO_LAYER, WATER_LAYER, QUAKE_LAYER] : base;
-  }, [useApi, geocodeCountry]);
+    return showArso ? [...base, ARSO_LAYER, WATER_LAYER, QUAKE_LAYER] : base;
+  }, [useApi, showArso]);
 
-  // These layers aren't Windy overlays — if the site's country changes away
-  // from Slovenia while one is selected, fall back to something that still exists.
+  // These layers aren't Windy overlays — if they get hidden (country change or the
+  // ARSO Weather toggle turning off) while one is selected, fall back to what remains.
   const isSloveniaLayer = overlay === 'arso' || overlay === 'water' || overlay === 'quakes';
   useEffect(() => {
-    if (isSloveniaLayer && geocodeCountry !== 'si') setOverlay('radar');
-  }, [isSloveniaLayer, geocodeCountry]);
+    if (isSloveniaLayer && !showArso) setOverlay('radar');
+  }, [isSloveniaLayer, showArso]);
 
   const CREDITS = {
     arso:   { label: 'ARSO', url: 'https://www.arso.gov.si' },

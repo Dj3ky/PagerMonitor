@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth }      from './context/AuthContext.jsx';
+import { useSite }      from './context/SiteContext.jsx';
 import { useWebSocket, subscribeWsMessages } from './hooks/useWebSocket.js';
 import { fetchHistory, fetchSearch, fetchStatus, fetchRules, fetchGroups } from './utils/api.js';
 import LoginPage     from './components/LoginPage.jsx';
@@ -31,6 +32,7 @@ const PAGE_OPTIONS = [20, 50, 100, 200];
 
 export default function App() {
   const { user, loading: authLoading, needsSetup, isPublic } = useAuth();
+  const { enableTraffic, enableAircraft } = useSite();
   const [showLogin, setShowLogin]       = useState(false);
   const [showProfile, setShowProfile]   = useState(false);
   const [resetToken]                    = useState(() => new URLSearchParams(window.location.search).get('reset'));
@@ -53,6 +55,13 @@ export default function App() {
     sessionStorage.setItem('pm_view', v);
     setView(v);
   };
+
+  // Bounce off a menu that got disabled while the user was on it (or is disabled on load).
+  useEffect(() => {
+    if ((view === 'aircraft' && !enableAircraft) || (view === 'traffic' && !enableTraffic)) {
+      handleSetView('feed');
+    }
+  }, [view, enableAircraft, enableTraffic]);
   const [soundEnabled, setSoundEnabled]     = useState(true);
   const browserNotif = useBrowserNotifications();
   const pushSub      = usePushSubscription();
@@ -282,12 +291,16 @@ export default function App() {
           <div style={{ position:'absolute', inset:0, display: view === 'weather' ? 'flex' : 'none', flexDirection:'column' }}>
             <WeatherView visible={view === 'weather'} locationSharing={locationSharing} />
           </div>
-          <div style={{ position:'absolute', inset:0, display: view === 'aircraft' ? 'flex' : 'none', flexDirection:'column' }}>
-            <AircraftView visible={view === 'aircraft'} />
-          </div>
-          <div style={{ position:'absolute', inset:0, display: view === 'traffic' ? 'flex' : 'none', flexDirection:'column' }}>
-            <TrafficView visible={view === 'traffic'} />
-          </div>
+          {enableAircraft && (
+            <div style={{ position:'absolute', inset:0, display: view === 'aircraft' ? 'flex' : 'none', flexDirection:'column' }}>
+              <AircraftView visible={view === 'aircraft'} />
+            </div>
+          )}
+          {enableTraffic && (
+            <div style={{ position:'absolute', inset:0, display: view === 'traffic' ? 'flex' : 'none', flexDirection:'column' }}>
+              <TrafficView visible={view === 'traffic'} />
+            </div>
+          )}
           <div style={{ position:'absolute', inset:0, display: view === 'search' ? 'flex' : 'none', flexDirection:'column' }}>
             <SearchPanel results={searchResults} searching={searching}
               highlightRules={highlightRules} groups={groups}

@@ -3,6 +3,7 @@
 // station positions + status icon from a GeoJSON feed, per-station readings
 // scraped from the same small HTML fragment SMOK's own map popup uses.
 const proj4 = require('proj4');
+const { getSetting } = require('./database');
 const logger = require('../utils/logger');
 
 const BASE = 'https://smok.sos112.si';
@@ -108,6 +109,7 @@ let cache = { stations: [], updatedAt: null };
 let timer = null;
 
 async function refresh() {
+  if (getSetting('site_settings', {}).enableArsoWeather === false) return;
   const list = await fetchStationList();
   const stations = [];
   let idx = 0;

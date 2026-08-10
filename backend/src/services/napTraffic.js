@@ -57,7 +57,10 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 const cache  = Object.fromEntries([...Object.keys(FEEDS), 'vms'].map(k => [k, { data: EMPTY_FC, updatedAt: null }]));
 const timers = Object.fromEntries([...Object.keys(FEEDS), 'vmsTable', 'vmsStatus'].map(k => [k, null]));
 
+function trafficEnabled() { return getSetting('site_settings', {}).enableTraffic !== false; }
+
 async function refresh(key) {
+  if (!trafficEnabled()) return;
   const res = await fetchAuthed(FEEDS[key].url);
   if (!res) return;
   cache[key] = { data: await res.json(), updatedAt: new Date().toISOString() };
@@ -126,6 +129,7 @@ function rebuildVms() {
 }
 
 async function refreshVmsTable() {
+  if (!trafficEnabled()) return;
   const res = await fetchAuthed(VMS_TABLE_URL);
   if (!res) return;
   vmsLocations = parseVmsTable(await res.text());
@@ -133,6 +137,7 @@ async function refreshVmsTable() {
 }
 
 async function refreshVmsStatus() {
+  if (!trafficEnabled()) return;
   const res = await fetchAuthed(VMS_STATUS_URL);
   if (!res) return;
   vmsStatuses = parseVmsStatus(await res.text());

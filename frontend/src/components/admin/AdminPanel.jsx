@@ -3,7 +3,7 @@ import { usePtrScroll } from '../../hooks/usePtrScroll.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
-         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera, Bot } from 'lucide-react';
+         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera, Bot, SlidersHorizontal } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
@@ -16,6 +16,7 @@ import UsersPanel     from './UsersPanel.jsx';
 import HighlightRules from './HighlightRules.jsx';
 import DedupConfig    from './DedupConfig.jsx';
 import SiteSettings   from './SiteSettings.jsx';
+import OptionalFeatures from './OptionalFeatures.jsx';
 import ClientSettings from './ClientSettings.jsx';
 import SdrClients     from './SdrClients.jsx';
 import KeywordAlerts  from './KeywordAlerts.jsx';
@@ -78,6 +79,7 @@ const TABS = [
 
   { group: 'Site' },
   { id:'site',        label:'Site Settings',  icon:<Settings2 size={14}/>,  platformOnly: true },
+  { id:'optionalfeatures', label:'Optional Features', icon:<SlidersHorizontal size={14}/>, platformOnly: true },
   { id:'aigeocode',   label:'AI Geocode',     icon:<Brain size={14}/>,      platformOnly: true },
   { id:'aircraft',    label:'Aircraft Tracking', icon:<Plane size={14}/>,  platformOnly: true },
   { id:'traffic',     label:'Traffic Data (NAP)', icon:<Camera size={14}/>, platformOnly: true },
@@ -111,6 +113,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'highlights':  return <HighlightRules onRulesChange={onRulesChange} />;
     case 'dedup':       return <DedupConfig />;
     case 'site':        return <SiteSettings onResetMap={onResetMap} />;
+    case 'optionalfeatures': return <OptionalFeatures />;
     case 'client':      return <ClientSettings />;
     case 'sdrclients':  return <SdrClients />;
     case 'users':          return <UsersPanel />;

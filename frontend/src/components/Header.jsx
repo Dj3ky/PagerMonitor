@@ -12,7 +12,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
   const debounceRef             = useRef(null);
   const { theme, toggle: toggleTheme } = useTheme();
   const { user, logout }        = useAuth();
-  const { siteName } = useSite();
+  const { siteName, enableTraffic, enableAircraft } = useSite();
 
   // Dynamic search — fires 350ms after user stops typing
   useEffect(() => {
@@ -96,8 +96,12 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             <NavBtn active={view==='map'}     onClick={() => nav('map')}     icon={<Map size={13}/>}     label="Map" />
             <NavBtn active={view==='archive'} onClick={() => nav('archive')} icon={<Archive size={13}/>} label="Archive" />
             <NavBtn active={view==='weather'} onClick={() => nav('weather')} icon={<CloudRain size={13}/>} label="Weather" />
-            <NavBtn active={view==='aircraft'} onClick={() => nav('aircraft')} icon={<Plane size={13}/>} label="Aircraft" />
-            <NavBtn active={view==='traffic'} onClick={() => nav('traffic')} icon={<Camera size={13}/>} label="Traffic" />
+            {enableAircraft && (
+              <NavBtn active={view==='aircraft'} onClick={() => nav('aircraft')} icon={<Plane size={13}/>} label="Aircraft" />
+            )}
+            {enableTraffic && (
+              <NavBtn active={view==='traffic'} onClick={() => nav('traffic')} icon={<Camera size={13}/>} label="Traffic" />
+            )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
               <NavBtn active={view==='admin'} onClick={() => nav('admin')} icon={<Settings size={13}/>} label="Settings" />
             )}
@@ -202,8 +206,12 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             <MenuRow icon={<Map size={16}/>}     label="Map"     active={view==='map'}     onClick={() => nav('map')} />
             <MenuRow icon={<Archive size={16}/>} label="Archive" active={view==='archive'} onClick={() => nav('archive')} />
             <MenuRow icon={<CloudRain size={16}/>} label="Weather" active={view==='weather'} onClick={() => nav('weather')} />
-            <MenuRow icon={<Plane size={16}/>} label="Aircraft" active={view==='aircraft'} onClick={() => nav('aircraft')} />
-            <MenuRow icon={<Camera size={16}/>} label="Traffic" active={view==='traffic'} onClick={() => nav('traffic')} />
+            {enableAircraft && (
+              <MenuRow icon={<Plane size={16}/>} label="Aircraft" active={view==='aircraft'} onClick={() => nav('aircraft')} />
+            )}
+            {enableTraffic && (
+              <MenuRow icon={<Camera size={16}/>} label="Traffic" active={view==='traffic'} onClick={() => nav('traffic')} />
+            )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
               <MenuRow icon={<Settings size={16}/>} label="Settings" active={view==='admin'} onClick={() => nav('admin')} />
             )}

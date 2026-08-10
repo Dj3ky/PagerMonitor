@@ -389,27 +389,39 @@ router.get('/user-locations', adminOnly, (req, res) => {
 });
 
 // ── Site settings (instance-wide) ──────────────────────────────────────────────
+const SITE_SETTINGS_DEFAULTS = { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'si', locale:'sl-SI', timezone:'Europe/Ljubljana', windyApiKey:'', enableTraffic:true, enableAircraft:true, enableArsoWeather:true };
+
 router.get('/site-settings', platformOnly, (_req, res) => {
-  try { res.json(_gs('site_settings', { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'si', locale:'sl-SI', timezone:'Europe/Ljubljana', windyApiKey:'' })); }
+  try { res.json(_gs('site_settings', SITE_SETTINGS_DEFAULTS)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.put('/site-settings', platformOnly, (req, res) => {
   try {
-    const { siteName, siteDescription, newBadgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays, publicMode, geocodeCountry, locale, hour12, timezone, windyApiKey } = req.body;
+    const cur = _gs('site_settings', SITE_SETTINGS_DEFAULTS);
+    const b = req.body;
     const validTz = tz => { try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; } catch (_) { return false; } };
-    _ss('site_settings', {
-      siteName: siteName || 'PagerMonitor', siteDescription: siteDescription || '',
-      newBadgeSeconds: Math.max(0, Math.min(300, parseInt(newBadgeSeconds,10)||0)),
-      mapDotColor: mapDotColor || '#00ff9d', showMapButton: showMapButton !== false,
-      mapMaxAgeDays: Math.max(1/24, Math.min(365, parseFloat(mapMaxAgeDays)||30)),
-      publicMode: !!publicMode,
-      geocodeCountry: /^[a-z]{2}$/.test(geocodeCountry) ? geocodeCountry : 'si',
-      locale: /^[a-z]{2}-[A-Z]{2}$/.test(locale) ? locale : 'sl-SI',
-      hour12: !!hour12,
-      timezone: (typeof timezone === 'string' && validTz(timezone)) ? timezone : 'Europe/Ljubljana',
-      windyApiKey: typeof windyApiKey === 'string' ? windyApiKey.trim() : '',
-    });
-    addAuditLog(req.session?.username||'admin', 'site.settings', `publicMode=${!!publicMode}`);
+    // Merge onto the existing stored blob — only fields present in the request body
+    // are validated/overwritten, so a page that only edits e.g. the feature toggles
+    // doesn't clobber unrelated settings saved from another admin tab.
+    const next = {
+      siteName: b.siteName !== undefined ? (b.siteName || 'PagerMonitor') : cur.siteName,
+      siteDescription: b.siteDescription !== undefined ? (b.siteDescription || '') : cur.siteDescription,
+      newBadgeSeconds: b.newBadgeSeconds !== undefined ? Math.max(0, Math.min(300, parseInt(b.newBadgeSeconds,10)||0)) : cur.newBadgeSeconds,
+      mapDotColor: b.mapDotColor !== undefined ? (b.mapDotColor || '#00ff9d') : cur.mapDotColor,
+      showMapButton: b.showMapButton !== undefined ? (b.showMapButton !== false) : cur.showMapButton,
+      mapMaxAgeDays: b.mapMaxAgeDays !== undefined ? Math.max(1/24, Math.min(365, parseFloat(b.mapMaxAgeDays)||30)) : cur.mapMaxAgeDays,
+      publicMode: b.publicMode !== undefined ? !!b.publicMode : cur.publicMode,
+      geocodeCountry: b.geocodeCountry !== undefined ? (/^[a-z]{2}$/.test(b.geocodeCountry) ? b.geocodeCountry : 'si') : cur.geocodeCountry,
+      locale: b.locale !== undefined ? (/^[a-z]{2}-[A-Z]{2}$/.test(b.locale) ? b.locale : 'sl-SI') : cur.locale,
+      hour12: b.hour12 !== undefined ? !!b.hour12 : cur.hour12,
+      timezone: b.timezone !== undefined ? ((typeof b.timezone === 'string' && validTz(b.timezone)) ? b.timezone : 'Europe/Ljubljana') : cur.timezone,
+      windyApiKey: b.windyApiKey !== undefined ? (typeof b.windyApiKey === 'string' ? b.windyApiKey.trim() : '') : cur.windyApiKey,
+      enableTraffic: b.enableTraffic !== undefined ? (b.enableTraffic !== false) : (cur.enableTraffic !== false),
+      enableAircraft: b.enableAircraft !== undefined ? (b.enableAircraft !== false) : (cur.enableAircraft !== false),
+      enableArsoWeather: b.enableArsoWeather !== undefined ? (b.enableArsoWeather !== false) : (cur.enableArsoWeather !== false),
+    };
+    _ss('site_settings', next);
+    addAuditLog(req.session?.username||'admin', 'site.settings', `publicMode=${!!next.publicMode}`);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
