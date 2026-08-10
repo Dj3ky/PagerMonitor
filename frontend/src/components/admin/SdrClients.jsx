@@ -7,6 +7,26 @@ import { sendWsMessage, subscribeWsMessages } from '../../hooks/useWebSocket.js'
 const GITHUB_REPO = 'Dj3ky/PagerMonitor';
 const GITHUB_API  = `https://api.github.com/repos/${GITHUB_REPO}/commits/main`;
 
+// This is a monorepo (client/, backend/, frontend/ all in one repo) — a client's reported
+// gitHash differing from latestSha doesn't mean ITS code is outdated, only that the repo
+// moved on since it last pulled. Diff the two hashes via GitHub's compare API and only
+// call it an update if the changed files actually fall under client/. Same approach as
+// the status-bar badge in App.jsx.
+async function clientPathChanged(fromHash, latestSha, cacheRef) {
+  if (!fromHash || !latestSha || fromHash === latestSha) return false;
+  const cacheKey = `${fromHash}..${latestSha}`;
+  const cached = cacheRef.current.get(cacheKey);
+  if (cached) return cached.some(f => f.startsWith('client/'));
+  try {
+    const r = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/compare/${fromHash}...${latestSha}`);
+    if (!r.ok) return false;
+    const d = await r.json();
+    const files = (d.files || []).map(f => f.filename);
+    cacheRef.current.set(cacheKey, files);
+    return files.some(f => f.startsWith('client/'));
+  } catch { return false; }
+}
+
 function FieldLabel({ text }) {
   const m = text.match(/^(.*?)(\s*\(-[a-zA-Z]+\))$/);
   if (!m) return text;
@@ -67,7 +87,7 @@ function Flash({ msg }) {
   }}>{msg.text}</div>;
 }
 
-function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, onViewLogs, flash }) {
+function ClientCard({ client, configs, channels, latestSha, clientUpdate, onRemove, onSaveConfig, onSendCommand, onRename, onSetColor, onViewLogs, flash }) {
   const { locale, hour12 } = useSite();
   const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
@@ -221,8 +241,8 @@ function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConf
           );
         })()}
 
-        {/* Update availability badge */}
-        {latestSha && client.gitHash && latestSha !== client.gitHash && (
+        {/* Update availability badge — only when the client/ subtree actually changed */}
+        {latestSha && client.gitHash && clientUpdate && (
           <span title={`Client: ${client.gitHash.slice(0,7)} · GitHub: ${latestSha.slice(0,7)}`}
             style={{ fontSize:'0.7rem', fontWeight:700, padding:'0.2rem 0.55rem', borderRadius:'0.75rem',
               color:'var(--accent-amber)',
@@ -233,7 +253,7 @@ function ClientCard({ client, configs, channels, latestSha, onRemove, onSaveConf
             <GitCommit size={10}/> Update available
           </span>
         )}
-        {latestSha && client.gitHash && latestSha === client.gitHash && (
+        {latestSha && client.gitHash && !clientUpdate && (
           <span title={`Up to date · ${client.gitHash.slice(0,7)}`}
             style={{ fontSize:'0.7rem', color:'var(--text-3)', display:'flex', alignItems:'center', gap:'0.3rem' }}>
             <GitCommit size={10}/> Up to date
@@ -422,6 +442,8 @@ export default function SdrClients() {
   const [loading, setLoading]     = useState(true);
   const [msg, setMsg]             = useState(null);
   const [latestSha, setLatestSha] = useState(null); // latest GitHub commit SHA
+  const [clientUpdateFlags, setClientUpdateFlags] = useState({}); // gitHash -> update-relevant?
+  const compareCacheRef = useRef(new Map());
   const [viewingLogsId, setViewingLogsId] = useState(null);
   const [logLines, setLogLines]   = useState([]);
   const timerRef                  = useRef(null);
@@ -468,6 +490,17 @@ export default function SdrClients() {
       .then(data => { if (data?.sha) setLatestSha(data.sha); })
       .catch(() => {});
   }, []);
+
+  // For each distinct client hash, resolve whether the gap to latestSha actually
+  // touches client/ — see clientPathChanged() above.
+  useEffect(() => {
+    if (!latestSha) return;
+    const hashes = [...new Set(clients.map(c => c.gitHash).filter(Boolean))];
+    let cancelled = false;
+    Promise.all(hashes.map(h => clientPathChanged(h, latestSha, compareCacheRef).then(v => [h, v])))
+      .then(entries => { if (!cancelled) setClientUpdateFlags(Object.fromEntries(entries)); });
+    return () => { cancelled = true; };
+  }, [latestSha, JSON.stringify(clients.map(c => c.gitHash))]);
 
   useEffect(() => {
     load();
@@ -535,6 +568,7 @@ export default function SdrClients() {
 
       {!loading && clients.map(c => (
         <ClientCard key={c.id} client={c} configs={configs} channels={channels} latestSha={latestSha}
+          clientUpdate={!!clientUpdateFlags[c.gitHash]}
           onRemove={remove} onSaveConfig={saveConfig} onSendCommand={sendCommand} onRename={rename} onSetColor={setColor}
           onViewLogs={setViewingLogsId} flash={flash} />
       ))}
