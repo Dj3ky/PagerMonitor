@@ -114,6 +114,34 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
           const combinedTip = clientTips.join('\n');
           return (<>
             {clients.map((c, i) => {
+              const name    = c.displayName || c.id;
+              const dongles = Array.isArray(c.dongleStatuses) ? c.dongleStatuses : [];
+              // Multiple dongles on this client → one dot each, same as the local-dongle
+              // branch below. Falls back to a single client-level dot when the client hasn't
+              // reported per-dongle status yet (older client build, or genuinely one dongle).
+              if (dongles.length > 1) {
+                return dongles.map((d, j) => {
+                  const dOk     = c.online && d.running;
+                  const dotBg   = dOk ? 'var(--accent-green)' : c.online ? 'var(--accent-amber)' : 'var(--accent-red)';
+                  const dotGlow = dOk ? 'var(--glow-green)'   : c.online ? 'var(--glow-amber)'   : 'var(--glow-red)';
+                  const dLabel  = d.label ? ` (${d.label})` : '';
+                  const tip = !c.online
+                    ? `${name} · Dongle ${d.device}${dLabel} · OFFLINE · ${fmtSilent(c.silentSec)}`
+                    : dOk
+                      ? `${name} · Dongle ${d.device}${dLabel} · ${d.freq}${d.protocols ? ` · ${d.protocols}` : ''} · ACTIVE`
+                      : `${name} · Dongle ${d.device}${dLabel} · not running`;
+                  return (
+                    <span key={`${i}-${j}`} title={tip} style={{ display:'inline-flex', alignItems:'center' }}>
+                      <span style={{
+                        width:'7px', height:'7px', borderRadius:'50%',
+                        background: dotBg, boxShadow: dotGlow,
+                        animation:  c.online ? 'blink 2s ease-in-out infinite' : 'none',
+                        flexShrink: 0,
+                      }}/>
+                    </span>
+                  );
+                });
+              }
               const sdrOk   = c.online && c.sdrRunning !== false;
               const dotBg   = sdrOk ? 'var(--accent-green)' : c.online ? 'var(--accent-amber)' : 'var(--accent-red)';
               const dotGlow = sdrOk ? 'var(--glow-green)'   : c.online ? 'var(--glow-amber)'   : 'var(--glow-red)';

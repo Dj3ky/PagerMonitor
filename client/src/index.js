@@ -612,6 +612,13 @@ async function pollConfig(pipelines) {
     const freqs      = list.map(p => p.getCfg().freq).join(':');
     const protocols  = [...new Set(list.map(p => p.getCfg().protocols))].join(' ');
     const sdrRunning = list.every(p => p.isRunning());
+    // Per-dongle breakdown so the status bar can show one dot per dongle on this client,
+    // same as it already does for the server's own local dongles — the flat freq/protocols/
+    // sdrRunning above collapse multiple dongles into one summary and can't drive that.
+    const dongleStatuses = list.map(p => {
+      const c = p.getCfg();
+      return { device: c.device, serial: c.serial || null, label: c.label || null, mode: c.mode || 'single', freq: c.freq, protocols: c.protocols, running: p.isRunning() };
+    });
     // Report the full running config of the primary (first-added) dongle so the server UI
     // can show .env values as grey placeholders for fields that have no DB override.
     const mainCfg  = list[0].getCfg();
@@ -631,7 +638,8 @@ async function pollConfig(pipelines) {
     // hardware without waiting on anything beyond the next regular poll.
     const detected = await listAttachedDongles();
     const detectedParam = detected.length ? `&detectedDongles=${encodeURIComponent(JSON.stringify(detected))}` : '';
-    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}&sdrRunning=${sdrRunning}&cfg=${encodeURIComponent(JSON.stringify(liveCfg))}${hashParam}${detectedParam}`);
+    const dongleStatusesParam = `&dongleStatuses=${encodeURIComponent(JSON.stringify(dongleStatuses))}`;
+    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}&sdrRunning=${sdrRunning}&cfg=${encodeURIComponent(JSON.stringify(liveCfg))}${hashParam}${detectedParam}${dongleStatusesParam}`);
     if (r.status !== 200 || !r.body) return;
 
     // Handle remote command (one-shot — server clears it after delivery)

@@ -240,8 +240,34 @@ function ClientCard({ client, configs, channels, latestSha, clientUpdate, onRemo
           {client.online ? '● ONLINE' : '○ OFFLINE'}
         </span>
 
-        {/* SDR dongle status badge — same pill style as the ONLINE/OFFLINE badge */}
+        {/* SDR dongle status badge — same pill style as the ONLINE/OFFLINE badge. Tri-state
+            (ACTIVE/PARTIAL/OFFLINE) once this client reports per-dongle status, since the
+            old flat sdrRunning/freq/protocols can't tell "all up" from "one of two down". */}
         {(() => {
+          const dongles = Array.isArray(client.dongleStatuses) ? client.dongleStatuses : [];
+          if (dongles.length > 1) {
+            const allOn  = client.online && dongles.every(d => d.running);
+            const someOn = client.online && dongles.some(d => d.running);
+            const tip = dongles.map(d => {
+              const dOk = client.online && d.running;
+              const dLabel = d.label ? ` (${d.label})` : '';
+              return !client.online
+                ? `Dongle ${d.device}${dLabel} · OFFLINE`
+                : dOk
+                  ? `Dongle ${d.device}${dLabel} · ${d.freq}${d.protocols ? ` · ${d.protocols}` : ''} · ACTIVE`
+                  : `Dongle ${d.device}${dLabel} · not running`;
+            }).join('\n');
+            const color  = allOn ? 'var(--accent-green)' : someOn ? 'var(--accent-amber)' : 'var(--text-3)';
+            const bg     = allOn ? 'color-mix(in srgb,var(--accent-green) 15%,transparent)' : someOn ? 'color-mix(in srgb,var(--accent-amber) 15%,transparent)' : 'var(--bg-3)';
+            const border = allOn ? 'color-mix(in srgb,var(--accent-green) 30%,transparent)' : someOn ? 'color-mix(in srgb,var(--accent-amber) 35%,transparent)' : 'var(--border)';
+            const runningCount = dongles.filter(d => d.running).length;
+            return (
+              <span title={tip} style={{ fontSize:'0.72rem', fontWeight:700, padding:'0.2rem 0.6rem', borderRadius:'0.75rem',
+                color, background: bg, border:`1px solid ${border}` }}>
+                {allOn ? `● ${dongles.length} DONGLES ACTIVE` : someOn ? `◐ SDR PARTIAL (${runningCount}/${dongles.length})` : '○ SDR OFFLINE'}
+              </span>
+            );
+          }
           const sdrOk = client.online && client.sdrRunning !== false;
           const tip   = client.online
             ? (sdrOk ? `${client.freq || ''}${client.protocols ? ` · ${client.protocols}` : ''} · dongle active`.trim()

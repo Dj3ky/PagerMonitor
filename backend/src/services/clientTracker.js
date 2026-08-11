@@ -45,6 +45,7 @@ function ensureTables() {
     ['display_name',     'TEXT'],
     ['color',            'TEXT'],
     ['detected_dongles', 'TEXT'],
+    ['dongle_statuses',  'TEXT'],
   ]) {
     if (!cols.includes(col)) {
       db.exec(`ALTER TABLE sdr_clients ADD COLUMN ${col} ${def}`);
@@ -89,9 +90,10 @@ function recordClientPing(clientId, ip, extra = {}) {
     const sdrRunning  = extra.sdrRunning != null ? (extra.sdrRunning ? 1 : 0) : null;
     const liveConfig  = extra.liveConfig ? JSON.stringify(extra.liveConfig) : null;
     const detectedDongles = Array.isArray(extra.detectedDongles) ? JSON.stringify(extra.detectedDongles) : null;
+    const dongleStatuses  = Array.isArray(extra.dongleStatuses)  ? JSON.stringify(extra.dongleStatuses)  : null;
     getDb().prepare(`
-      INSERT INTO sdr_clients (id, last_seen, ip, freq, protocols, sdr_running, live_config, git_hash, detected_dongles)
-      VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sdr_clients (id, last_seen, ip, freq, protocols, sdr_running, live_config, git_hash, detected_dongles, dongle_statuses)
+      VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         last_seen        = datetime('now'),
         ip               = COALESCE(excluded.ip, ip),
@@ -100,8 +102,9 @@ function recordClientPing(clientId, ip, extra = {}) {
         sdr_running      = COALESCE(excluded.sdr_running, sdr_running),
         live_config      = COALESCE(excluded.live_config, live_config),
         git_hash         = COALESCE(excluded.git_hash, git_hash),
-        detected_dongles = COALESCE(excluded.detected_dongles, detected_dongles)
-    `).run(clientId, ip || null, extra.freq || null, extra.protocols || null, sdrRunning, liveConfig, extra.gitHash || null, detectedDongles);
+        detected_dongles = COALESCE(excluded.detected_dongles, detected_dongles),
+        dongle_statuses  = COALESCE(excluded.dongle_statuses, dongle_statuses)
+    `).run(clientId, ip || null, extra.freq || null, extra.protocols || null, sdrRunning, liveConfig, extra.gitHash || null, detectedDongles, dongleStatuses);
   } catch (e) {
     logger.warn(`clientTracker.recordClientPing: ${e.message}`);
   }
@@ -137,6 +140,7 @@ function getClients() {
         liveConfig:      r.live_config ? JSON.parse(r.live_config) : null,
         gitHash:         r.git_hash || null,
         detectedDongles: r.detected_dongles ? JSON.parse(r.detected_dongles) : [],
+        dongleStatuses:  r.dongle_statuses ? JSON.parse(r.dongle_statuses) : [],
       };
     });
     // Online clients first (stable), offline last. Within each group, sort by

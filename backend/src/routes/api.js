@@ -66,6 +66,7 @@ router.get('/status', requireAuth, (_req, res) => {
       sdrClients = require('../services/clientTracker').getClients().map(c => ({
         id: c.id, displayName: c.displayName || null, online: c.online, freq: c.freq, protocols: c.protocols, silentSec: c.silentSec,
         sdrRunning: c.sdrRunning, gitHash: c.gitHash || null,
+        dongleStatuses: Array.isArray(c.dongleStatuses) ? c.dongleStatuses : [],
       }));
     } catch (_) { sdrClients = []; }
   }
