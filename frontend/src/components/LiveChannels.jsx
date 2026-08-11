@@ -290,6 +290,10 @@ export default function LiveChannels() {
   if (channels.length === 0) return null;
 
   const activeChannel = channels.find(c => c.id === playingId);
+  // Auto is on, nothing's playing yet — standing by for the next transmission. Distinct
+  // from "playing", which always means red-with-name whether it got there manually or
+  // via auto-listen — the icon shouldn't look different depending on how you got there.
+  const armed = autoListen && playingId == null && status !== 'error';
 
   return (
     <div ref={panelRef} style={{ position:'relative', flexShrink:0, marginLeft:'auto',
@@ -303,7 +307,12 @@ export default function LiveChannels() {
           {activeChannel.description}
         </span>
       )}
-      <button title={activeChannels.size > 0 ? 'Live voice channels — someone is transmitting' : 'Live voice channels'}
+      <button title={
+          status === 'playing' ? 'Listening — tap to view channels'
+          : armed ? 'Auto-listen armed — waiting for activity'
+          : activeChannels.size > 0 ? 'Live voice channels — someone is transmitting'
+          : 'Live voice channels'
+        }
         onClick={() => setOpen(o => !o)} style={{
         position:'relative', display:'flex', alignItems:'center', justifyContent:'center',
         width:'36px', height:'36px', borderRadius:'0.4rem',
@@ -311,10 +320,14 @@ export default function LiveChannels() {
         background: open ? 'var(--bg-4)'
           : status === 'error' ? 'color-mix(in srgb, var(--accent-amber) 12%, transparent)'
           : status === 'playing' ? 'color-mix(in srgb, var(--accent-red) 12%, transparent)'
+          : armed ? 'color-mix(in srgb, var(--accent-green) 12%, transparent)'
           : 'var(--bg-3)',
-        color: status === 'error' ? 'var(--accent-amber)' : status === 'playing' ? 'var(--accent-red)' : 'var(--text-1)',
+        color: status === 'error' ? 'var(--accent-amber)' : status === 'playing' ? 'var(--accent-red)' : armed ? 'var(--accent-green)' : 'var(--text-1)',
       }}>
-        <Radio size={18} />
+        {/* Breathing green = auto-armed, standing by. Solid red + name = actually listening
+            (same look whether that started manually or via auto). Corner dot = "some channel
+            has activity" independent of whether you're tuned in — three separate signals. */}
+        <Radio size={18} className={armed ? 'animate-blink' : undefined} />
         {activeChannels.size > 0 && (
           <span className="animate-blink" style={{
             position:'absolute', top:'3px', right:'3px', width:'8px', height:'8px',
