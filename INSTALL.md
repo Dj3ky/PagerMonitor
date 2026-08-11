@@ -244,6 +244,34 @@ rtl_eeprom -d 0 -s PM-DONGLE-1
 rtl_eeprom -d 0 -s PM-DONGLE-2
 ```
 
+The new serial only takes effect after the dongle is unplugged and replugged (Linux caches
+the USB descriptor until it re-enumerates). Do them **one dongle at a time** — with two
+identical, unmodified dongles attached together, `-d 0` is ambiguous and you can't tell which
+one you're writing to. If you have RTL-SDR Blog V4 dongles, make sure `rtl_eeprom` actually
+comes from [RTL-SDR Blog's fork](https://github.com/rtlsdrblog/rtl-sdr-blog) (which
+`install.sh`/`update.sh` already build for the reasons described below under "Voice channels")
+rather than a stock/other `rtl-sdr` package — a stock build can misread or fail to write V4's
+EEPROM. Check with `which rtl_eeprom` / `rtl_eeprom -d 0` (read-only) before writing.
+
+**From Windows** (e.g. dongles normally plugged into a Windows PC rather than the Pi/server
+directly): download `Release.zip` from the
+[RTL-SDR Blog GitHub releases page](https://github.com/rtlsdrblog/rtl-sdr-blog/releases),
+which bundles a `rtl_eeprom.exe` alongside `rtl_test.exe`/`rtl_sdr.exe`. If you haven't
+already installed the WinUSB driver for these dongles (needed for any RTL-SDR software to see
+them at all), do that first via Zadig, one dongle at a time. Then, from a Command Prompt in
+the extracted folder:
+
+```
+rtl_eeprom.exe -d 0
+rtl_eeprom.exe -d 0 -s PM-DONGLE-1
+```
+
+Same rules apply: read first, one dongle attached at a time, unplug/replug after writing.
+
+⚠️ EEPROM writes carry a small risk of bricking a dongle if power drops mid-write (more of a
+concern on cheap/counterfeit units) — uncommon, but worth knowing before you do this to
+hardware you're relying on.
+
 Once serials are set, pick each dongle from the **Serial** dropdown in Admin → SDR Control
 (local dongles) or Admin → SDR Clients (remote Pis) instead of typing a device index — it's
 populated from hardware actually detected on that machine. The `device` field remains as a
