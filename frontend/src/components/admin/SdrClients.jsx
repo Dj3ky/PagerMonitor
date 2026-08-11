@@ -46,7 +46,7 @@ const CFG_FIELDS = [
   { key:'modulation',     label:'Modulation (-M)',     placeholder:'fm',       hint:'fm | am | usb | lsb | wbfm | raw',                  group:'rtl' },
   { key:'sampleRate',     label:'Sample rate (-s)',    placeholder:'22050',    hint:'Hz — 22050 recommended for POCSAG',                 group:'rtl' },
   { key:'gain',           label:'Gain (-g)',           placeholder:'40',       hint:'dB — 0 = auto AGC, 40 = typical',                  group:'rtl' },
-  { key:'device',         label:'Device index (-d)',   placeholder:'0',        hint:'0 = first dongle, 1 = second, …',                  group:'rtl' },
+  { key:'device',         label:'Device index (-d)',   placeholder:'0',        hint:'Legacy fallback, only used when Serial above is not set', group:'rtl' },
   { key:'ppm',            label:'PPM (-p)',            placeholder:'0',        hint:'Frequency correction (run rtl_test -p)',             group:'rtl' },
   { key:'squelch',        label:'Squelch (-l)',        placeholder:'0',        hint:'0 = disabled',                                      group:'rtl' },
   { key:'resampleRate',   label:'Resample rate (-r)',   placeholder:'',         hint:'Hz — leave empty to skip',                               group:'rtl' },
@@ -61,6 +61,19 @@ const CFG_FIELDS = [
   { key:'pocsagSpecial',  label:'POCSAG special (-s)',  placeholder:'0',        hint:'1 = on (special char decoding for numeric msgs), 0 = off', group:'mmon' },
   { key:'charset',        label:'Charset (-C)',         placeholder:'',         hint:'Set charset: US (default), FR, DE, SE, DK, SI',          group:'mmon' },
 ];
+
+const DONGLE_DEFAULTS = { serial:'', label:'', device:'0', mode:'single', pocsagEnabled:true, voiceChannelIds:[] };
+
+// A saved config is either the current shape ({ dongles: [...] }) or the older flat
+// single-dongle shape (fields directly on the object) — normalize to an array either way
+// so the UI always renders a repeatable per-dongle list, even for configs saved before
+// multi-dongle support existed.
+function normalizeDongleConfig(config) {
+  if (!config) return [];
+  if (Array.isArray(config.dongles)) return config.dongles;
+  if (Object.keys(config).length > 0) return [config];
+  return [];
+}
 
 function fmtTime(ts, locale, hour12) {
   if (!ts) return '—';
@@ -92,7 +105,7 @@ function ClientCard({ client, configs, channels, latestSha, clientUpdate, onRemo
   const live = client.liveConfig || {};
   const [expanded, setExpanded] = useState(false);
   const existingCfg = configs.find(c => c.clientId === client.id);
-  const [form, setForm] = useState(existingCfg?.config || {});
+  const [dongles, setDongles] = useState(() => normalizeDongleConfig(existingCfg?.config));
   const [saving, setSaving] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [cfgMsg, setCfgMsg] = useState(null);
@@ -115,16 +128,20 @@ function ClientCard({ client, configs, channels, latestSha, clientUpdate, onRemo
     catch (e) { flashCfg('err', e.message); }
   };
 
-  const toggleChannel = (channelId) => setForm(f => {
-    const ids = Array.isArray(f.voiceChannelIds) ? f.voiceChannelIds : [];
+  const addDongle = () => setDongles(d => [...d, { ...DONGLE_DEFAULTS, device: String(d.length) }]);
+  const removeDongle = (i) => setDongles(d => d.filter((_, j) => j !== i));
+  const updateDongle = (i, key, val) => setDongles(d => d.map((x, j) => j === i ? { ...x, [key]: val } : x));
+  const toggleDongleChannel = (i, channelId) => setDongles(d => d.map((x, j) => {
+    if (j !== i) return x;
+    const ids = Array.isArray(x.voiceChannelIds) ? x.voiceChannelIds : [];
     const next = ids.includes(channelId) ? ids.filter(id => id !== channelId) : [...ids, channelId];
-    return { ...f, voiceChannelIds: next };
-  });
+    return { ...x, voiceChannelIds: next };
+  }));
 
   const save = async () => {
     setSaving(true);
     try {
-      const r = await onSaveConfig(client.id, form);
+      const r = await onSaveConfig(client.id, { dongles });
       flashCfg('ok', `Config saved (v${r.version}) — client will pick up in ≤60s`);
     } catch (e) { flashCfg('err', e.message); }
     finally { setSaving(false); }
@@ -310,87 +327,158 @@ function ClientCard({ client, configs, channels, latestSha, clientUpdate, onRemo
               {' · '}Updated: {fmtTime(existingCfg.updatedAt, locale, hour12)}
             </div>
           )}
-          {/* Mode: plain rtl_fm (POCSAG only) vs rtl_airband (POCSAG + voice channels) */}
-          <div style={{ marginBottom:'0.65rem' }}>
-            <label className="pm-label">Mode</label>
-            <select className="pm-input" value={form.mode || 'single'}
-              onChange={e => setForm(p => ({ ...p, mode: e.target.value }))}>
-              <option value="single">Single (rtl_fm — POCSAG only)</option>
-              <option value="airband">Multi (rtl_airband — POCSAG + voice channels)</option>
-            </select>
-          </div>
+          {dongles.length === 0 ? (
+            <div style={{ fontSize:'0.8rem', color:'var(--text-3)', marginBottom:'0.75rem' }}>
+              No dongles configured — this Pi runs purely off its local .env settings.
+            </div>
+          ) : dongles.map((d, i) => (
+            <div key={i} style={{ marginBottom:'0.75rem', padding:'0.6rem 0.75rem',
+              background:'var(--bg-0)', borderRadius:'0.5rem', border:'1px solid var(--border-soft)' }}>
 
-          {form.mode === 'airband' && (
-            <div style={{ marginBottom:'0.65rem', padding:'0.5rem 0.6rem',
-              background:'var(--bg-3)', borderRadius:'0.4rem' }}>
-              <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
-                textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
-                Voice channels to decode alongside POCSAG
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.6rem' }}>
+                <span style={{ fontFamily:'monospace', fontSize:'0.78rem', fontWeight:700, color:'var(--accent-blue)' }}>
+                  Dongle {i}{d.label ? ` — ${d.label}` : ''}
+                </span>
+                <button className="pm-btn pm-btn-danger" onClick={() => removeDongle(i)} style={{ padding:'0.15rem 0.4rem' }}>
+                  <Trash2 size={11}/>
+                </button>
               </div>
-              {(!channels || channels.length === 0) ? (
-                <div style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>
-                  No channels defined yet — add some in Admin → Voice Channels.
+
+              <div style={{ marginBottom:'0.65rem' }}>
+                <label className="pm-label"><FieldLabel text="Label" /></label>
+                <input className="pm-input" value={d.label ?? ''}
+                  onChange={e => updateDongle(i, 'label', e.target.value)}
+                  placeholder="e.g. North Pager / Backup SDR" />
+              </div>
+
+              {/* Serial: stable identity across reboots/replugs — device index (below) is
+                  only a legacy fallback used when no serial is selected. Sourced from what
+                  this Pi itself last reported as attached (client.detectedDongles). */}
+              <div style={{ marginBottom:'0.65rem' }}>
+                <label className="pm-label">Serial</label>
+                <select className="pm-input" value={d.serial || ''}
+                  onChange={e => updateDongle(i, 'serial', e.target.value)}>
+                  <option value="">— Not set (uses device index below) —</option>
+                  {(client.detectedDongles || []).map(dev => {
+                    const usedElsewhere = dongles.some((x, j) => j !== i && x.serial === dev.serial);
+                    return (
+                      <option key={dev.serial} value={dev.serial} disabled={usedElsewhere}>
+                        {dev.vendor} {dev.product} — SN:{dev.serial}{usedElsewhere ? ' (assigned to another dongle)' : ''}
+                      </option>
+                    );
+                  })}
+                  {d.serial && !(client.detectedDongles || []).some(dev => dev.serial === d.serial) && (
+                    <option value={d.serial}>SN:{d.serial} (not currently detected)</option>
+                  )}
+                </select>
+                <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginTop:'0.2rem' }}>
+                  {(client.detectedDongles || []).length === 0
+                    ? 'This Pi hasn’t reported any attached dongles yet — burn a unique serial with rtl_eeprom, then wait for its next check-in.'
+                    : `${client.detectedDongles.length} dongle(s) currently reported by this Pi.`}
                 </div>
-              ) : (
-                <div style={{ display:'grid', gap:'0.3rem' }}>
-                  {channels.map(c => (
-                    <label key={c.id} style={{ display:'flex', alignItems:'center', gap:'0.5rem',
-                      fontSize:'0.8rem', cursor:'pointer', color:'var(--text-1)' }}>
-                      <input type="checkbox"
-                        checked={(form.voiceChannelIds || []).includes(c.id)}
-                        onChange={() => toggleChannel(c.id)} />
-                      <span style={{ fontFamily:'monospace', color:'var(--accent-amber)' }}>{c.freq}</span>
-                      {' — '}{c.description}
-                    </label>
-                  ))}
+              </div>
+
+              {/* Mode: plain rtl_fm (POCSAG only) vs rtl_airband (POCSAG + voice channels) */}
+              <div style={{ marginBottom:'0.65rem' }}>
+                <label className="pm-label">Mode</label>
+                <select className="pm-input" value={d.mode || 'single'}
+                  onChange={e => updateDongle(i, 'mode', e.target.value)}>
+                  <option value="single">Single (rtl_fm — POCSAG only)</option>
+                  <option value="airband">Multi (rtl_airband — POCSAG + voice channels)</option>
+                </select>
+              </div>
+
+              {d.mode === 'airband' && (
+                <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.8rem',
+                  cursor:'pointer', color:'var(--text-1)', marginBottom:'0.65rem' }}>
+                  <input type="checkbox" checked={d.pocsagEnabled !== false}
+                    onChange={e => updateDongle(i, 'pocsagEnabled', e.target.checked)} />
+                  Include POCSAG channel
+                  <span style={{ fontSize:'0.72rem', color:'var(--text-3)' }}>
+                    (uncheck for voice-only listening on this dongle — no multimon-ng)
+                  </span>
+                </label>
+              )}
+
+              {d.mode === 'airband' && (
+                <div style={{ marginBottom:'0.65rem', padding:'0.5rem 0.6rem',
+                  background:'var(--bg-3)', borderRadius:'0.4rem' }}>
+                  <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
+                    textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
+                    Voice channels to decode{d.pocsagEnabled !== false ? ' alongside POCSAG' : ''}
+                  </div>
+                  {(!channels || channels.length === 0) ? (
+                    <div style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>
+                      No channels defined yet — add some in Admin → Voice Channels.
+                    </div>
+                  ) : (
+                    <div style={{ display:'grid', gap:'0.3rem' }}>
+                      {channels.map(c => (
+                        <label key={c.id} style={{ display:'flex', alignItems:'center', gap:'0.5rem',
+                          fontSize:'0.8rem', cursor:'pointer', color:'var(--text-1)' }}>
+                          <input type="checkbox"
+                            checked={(d.voiceChannelIds || []).includes(c.id)}
+                            onChange={() => toggleDongleChannel(i, c.id)} />
+                          <span style={{ fontFamily:'monospace', color:'var(--accent-amber)' }}>{c.freq}</span>
+                          {' — '}{c.description}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginTop:'0.4rem' }}>
+                    rtl_airband must be installed on this Pi — see INSTALL.md's "Voice channels" section.
+                  </div>
                 </div>
               )}
 
-              <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginTop:'0.4rem' }}>
-                rtl_airband must be installed on this Pi — see INSTALL.md's "Voice channels" section.
+              {/* rtl_fm settings */}
+              <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
+                textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
+                rtl_fm settings
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem', marginBottom:'0.65rem' }}>
+                {CFG_FIELDS.filter(f => f.group === 'rtl').map(f => (
+                  <div key={f.key}>
+                    <label className="pm-label"><FieldLabel text={f.label} /></label>
+                    <input className="pm-input" value={d[f.key] || ''}
+                      onChange={e => updateDongle(i, f.key, e.target.value)}
+                      placeholder={i === 0 ? (live[f.key] || f.placeholder) : f.placeholder}/>
+                    <div style={{ fontSize:'0.62rem', color:'var(--text-3)', marginTop:'0.15rem' }}>{f.hint}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* divider */}
+              <div style={{ height:'1px', background:'var(--border-soft)', margin:'0.5rem 0 0.65rem' }}/>
+
+              {/* multimon-ng settings */}
+              <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
+                textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
+                multimon-ng settings
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem' }}>
+                {CFG_FIELDS.filter(f => f.group === 'mmon').map(f => (
+                  <div key={f.key}>
+                    <label className="pm-label"><FieldLabel text={f.label} /></label>
+                    <input className="pm-input" value={d[f.key] || ''}
+                      onChange={e => updateDongle(i, f.key, e.target.value)}
+                      placeholder={i === 0 ? (live[f.key] || f.placeholder) : f.placeholder}/>
+                    <div style={{ fontSize:'0.62rem', color:'var(--text-3)', marginTop:'0.15rem' }}>{f.hint}</div>
+                  </div>
+                ))}
               </div>
             </div>
-          )}
+          ))}
 
-          {/* rtl_fm settings */}
-          <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
-            textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
-            rtl_fm settings
+          <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.5rem' }}>
+            <button className="pm-btn" onClick={addDongle}>
+              + Add dongle
+            </button>
+            <button className="pm-btn pm-btn-primary" onClick={save} disabled={saving}>
+              <Save size={13}/> {saving ? 'Saving…' : 'Save & push to client'}
+            </button>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem', marginBottom:'0.65rem' }}>
-            {CFG_FIELDS.filter(f => f.group === 'rtl').map(f => (
-              <div key={f.key}>
-                <label className="pm-label"><FieldLabel text={f.label} /></label>
-                <input className="pm-input" value={form[f.key] || ''}
-                  onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-                  placeholder={live[f.key] || f.placeholder}/>
-                <div style={{ fontSize:'0.62rem', color:'var(--text-3)', marginTop:'0.15rem' }}>{f.hint}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* divider */}
-          <div style={{ height:'1px', background:'var(--border-soft)', margin:'0.5rem 0 0.65rem' }}/>
-
-          {/* multimon-ng settings */}
-          <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
-            textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
-            multimon-ng settings
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem', marginBottom:'0.75rem' }}>
-            {CFG_FIELDS.filter(f => f.group === 'mmon').map(f => (
-              <div key={f.key}>
-                <label className="pm-label"><FieldLabel text={f.label} /></label>
-                <input className="pm-input" value={form[f.key] || ''}
-                  onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-                  placeholder={live[f.key] || f.placeholder}/>
-                <div style={{ fontSize:'0.62rem', color:'var(--text-3)', marginTop:'0.15rem' }}>{f.hint}</div>
-              </div>
-            ))}
-          </div>
-          <button className="pm-btn pm-btn-primary" onClick={save} disabled={saving}>
-            <Save size={13}/> {saving ? 'Saving…' : 'Save & push to client'}
-          </button>
         </div>
       )}
     </div>

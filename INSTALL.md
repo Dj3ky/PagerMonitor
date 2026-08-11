@@ -226,7 +226,28 @@ To run multiple dongles in parallel on one machine, set `DONGLES` as a JSON arra
 DONGLES=[{"device":0,"freq":"173.250M","gain":"40","protocols":"POCSAG1200"},{"device":1,"freq":"152.240M","gain":"35","protocols":"POCSAG512 FLEX"}]
 ```
 
-Or configure per-dongle in **Admin → SDR Control → Multiple SDR dongles**.
+Or configure per-dongle in **Admin → SDR Control → Multiple SDR dongles**. The same applies
+to remote RPi clients via **Admin → SDR Clients** — a client's dongle list is fully
+config-driven from the server, no `.env` editing or SSH required once the client is running.
+
+#### Identifying dongles by serial (recommended once you have 2+)
+
+By default, dongles are addressed by USB enumeration order (`device: 0`, `1`, …), which is
+**not stable** across reboots or replugs — if two dongles are attached, a reboot can silently
+swap which one is `0` vs `1`. Most cheap RTL-SDR dongles also ship with the exact same factory
+serial (`00000001`), so before relying on serial-based selection, burn a unique serial into
+each one (one dongle plugged in at a time):
+
+```bash
+rtl_eeprom -d 0 -s PM-DONGLE-1
+# unplug, plug in the next dongle, repeat with a different id
+rtl_eeprom -d 0 -s PM-DONGLE-2
+```
+
+Once serials are set, pick each dongle from the **Serial** dropdown in Admin → SDR Control
+(local dongles) or Admin → SDR Clients (remote Pis) instead of typing a device index — it's
+populated from hardware actually detected on that machine. The `device` field remains as a
+legacy fallback, only used when no serial is selected.
 
 ### Voice channels (listen live alongside POCSAG)
 
@@ -248,6 +269,12 @@ port to run) — no inbound ports needed on the Pi.
 4. That's it — assigned channels are pushed down automatically via the existing remote-config
    mechanism, and audio relays over the same `CLIENT_KEY`-authenticated connection used for
    messages. No extra password/service to configure.
+
+**Voice-only dongles**: a second (or third) dongle doesn't have to carry POCSAG at all —
+uncheck **Include POCSAG channel** on that dongle's airband settings to run it purely for
+voice channels, with no multimon-ng process spawned for it. Useful once you've dedicated one
+dongle to POCSAG and want another purely for wider-spread voice listening without the two
+sharing capture bandwidth.
 
 **Hardware requirement: Raspberry Pi 3 or 4 only.** rtl_airband's FFT channelizer is
 meaningfully heavier than plain `rtl_fm` — confirmed in the field on Pi 1 and Pi 2 hardware,
@@ -479,6 +506,7 @@ Returns JSON — use with Uptime Kuma, Zabbix, etc.:
 |---|---|---|
 | `GET/POST` | `/admin/sdr/config` | SDR config (POST restarts) |
 | `GET/PUT` | `/admin/sdr/dongles` | Multi-dongle config |
+| `GET` | `/admin/sdr/detected-dongles` | RTL-SDR hardware detected on this server, by serial |
 | `POST` | `/admin/sdr/start\|stop\|restart` | Pipeline control |
 | `GET` | `/admin/sdr/logs` | Last 300 log lines |
 | `GET` | `/admin/system` | System stats |
@@ -691,7 +719,9 @@ Check Admin → Live Logs. Common causes:
 
 ### Multiple dongles: one shows as down
 
-Each dongle needs a unique device index (`0`, `1`, `2`…). Find indices with `rtl_test`. The status bar shows one dot per dongle — green = OK, red = down. Hover for details.
+Each dongle needs either a unique serial (recommended — see "Identifying dongles by serial"
+above) or a unique device index (`0`, `1`, `2`…, found with `rtl_test`) if you're not using
+serials. The status bar shows one dot per dongle — green = OK, red = down. Hover for details.
 
 ### RPi client not connecting
 

@@ -146,6 +146,8 @@ router.get('/config', requireClientKey, (req, res) => {
 
   let liveConfig = null;
   try { if (req.query.cfg) liveConfig = JSON.parse(req.query.cfg); } catch (_) {}
+  let detectedDongles = null;
+  try { if (req.query.detectedDongles) detectedDongles = JSON.parse(req.query.detectedDongles); } catch (_) {}
 
   recordClientPing(clientId, req.ip, {
     freq:       req.query.freq       || null,
@@ -153,6 +155,7 @@ router.get('/config', requireClientKey, (req, res) => {
     sdrRunning: req.query.sdrRunning === 'true' ? true : req.query.sdrRunning === 'false' ? false : null,
     gitHash:    req.query.gitHash    || null,
     liveConfig,
+    detectedDongles,
   });
 
   const cfg     = getClientConfig(clientId);

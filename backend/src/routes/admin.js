@@ -7,6 +7,7 @@ const { version } = require('../../package.json');
 
 const { requireAdmin, requireEditor, requirePlatformAdmin } = require('../services/auth');
 const { startSdrPipeline, stopSdrPipeline, restartSdrPipeline, getStatus, getLogs } = require('../services/sdr');
+const { listAttachedDongles } = require('../services/rtlDevices');
 const { getDb, getStats, getMessageStats,
         getGroups, createGroup, updateGroup, deleteGroup,
         getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
@@ -68,6 +69,9 @@ router.post('/sdr/config',  platformOnly, (req, res)  => {
 
 // Multi-dongle configs
 router.get('/sdr/dongles',  platformOnly, (_req, res) => { try{ res.json(getDongleConfigs() || []); } catch(e){ res.status(500).json({error:e.message}); }});
+router.get('/sdr/detected-dongles', platformOnly, async (_req, res) => {
+  try { res.json(await listAttachedDongles()); } catch(e){ res.status(500).json({error:e.message}); }
+});
 router.put('/sdr/dongles',  platformOnly, (req, res)  => {
   try {
     const dongles = Array.isArray(req.body) ? req.body : [];
