@@ -52,12 +52,22 @@ export default function LiveChannels() {
   const [playingId, setPlayingId] = useState(null);
   const [status, setStatus]       = useState(null); // 'connecting' | 'playing' | 'error'
   const [activeChannels, setActiveChannels] = useState(() => new Set()); // channel ids currently transmitting (any listener or none)
+  const [autoListen, setAutoListen] = useState(() => localStorage.getItem('pm_auto_listen') === '1');
 
   const audioCtxRef  = useRef(null);
   const nextTimeRef  = useRef(0);
   const unsubRef     = useRef(null);
   const timeoutRef   = useRef(null);
   const panelRef     = useRef(null);
+  const autoGraceTimerRef = useRef(null); // pending "give up on this channel" timer while auto-listen is on
+
+  // Mirrors of the latest state, readable from inside the grace-period setTimeout below —
+  // a plain closure over channels/activeChannels/playingId/autoListen would see whatever
+  // those were 3-4s ago when the timer was scheduled, not what they are when it actually fires.
+  const channelsRef = useRef(channels); channelsRef.current = channels;
+  const activeChannelsRef = useRef(activeChannels); activeChannelsRef.current = activeChannels;
+  const playingIdRef = useRef(playingId); playingIdRef.current = playingId;
+  const autoListenRef = useRef(autoListen); autoListenRef.current = autoListen;
 
   useEffect(() => {
     fetchVoiceChannels().then(r => setChannels(Array.isArray(r) ? r : [])).catch(() => {});
@@ -89,7 +99,54 @@ export default function LiveChannels() {
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
 
-  useEffect(() => () => stop(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { localStorage.setItem('pm_auto_listen', autoListen ? '1' : '0'); }, [autoListen]);
+
+  // Auto-listen: while enabled, keeps you tuned to whichever channel is transmitting,
+  // switching or stopping as activity changes. Manual play/stop (see userAction below)
+  // turns this off immediately, so a human's choice is never overridden — only this
+  // effect drives playback while the toggle is on.
+  const AUTO_SWITCH_GRACE_MS = 3500; // stay put briefly after "quiet" — radio chatter often has a few-second pause mid-conversation, not the end of it
+  useEffect(() => {
+    if (!autoListen) {
+      clearTimeout(autoGraceTimerRef.current);
+      autoGraceTimerRef.current = null;
+      return;
+    }
+
+    if (playingId != null) {
+      if (activeChannels.has(playingId)) {
+        // Back (or never left) — cancel any pending "give up on this channel" timer.
+        clearTimeout(autoGraceTimerRef.current);
+        autoGraceTimerRef.current = null;
+        return;
+      }
+      // Currently-playing channel just went quiet. Don't switch away immediately — wait out
+      // the grace period first, re-checking the *latest* state (via refs) once it elapses,
+      // since a lot can change in 3-4s. Guarded so an unrelated dep change (some other
+      // channel's activity flipping) while already waiting doesn't reset the countdown.
+      if (!autoGraceTimerRef.current) {
+        autoGraceTimerRef.current = setTimeout(() => {
+          autoGraceTimerRef.current = null;
+          if (!autoListenRef.current) return;
+          const curId = playingIdRef.current;
+          const curActive = activeChannelsRef.current;
+          if (curId != null && curActive.has(curId)) return; // resumed just before the timer fired
+          stop();
+          const next = channelsRef.current.find(c => curActive.has(c.id));
+          if (next) play(next);
+        }, AUTO_SWITCH_GRACE_MS);
+      }
+      return;
+    }
+
+    // Nothing playing — jump straight to any active channel, no grace period needed here.
+    const next = channels.find(c => activeChannels.has(c.id));
+    if (next) play(next);
+  }, [autoListen, activeChannels, playingId, channels]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const userAction = (fn) => { if (autoListen) setAutoListen(false); fn(); };
+
+  useEffect(() => () => { clearTimeout(autoGraceTimerRef.current); stop(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reflects LiveAudioService's status — the service is the source of truth on native,
   // this just mirrors it into the UI (connecting/playing/error, or stopped -> idle).
@@ -208,9 +265,9 @@ export default function LiveChannels() {
         if ('mediaSession' in navigator) {
           navigator.mediaSession.metadata = new MediaMetadata({ title: ch.description || 'Live channel', artist: 'PagerMonitor' });
           navigator.mediaSession.playbackState = 'playing';
-          navigator.mediaSession.setActionHandler('play',  () => play(ch));
-          navigator.mediaSession.setActionHandler('pause', () => stop());
-          navigator.mediaSession.setActionHandler('stop',  () => stop());
+          navigator.mediaSession.setActionHandler('play',  () => userAction(() => play(ch)));
+          navigator.mediaSession.setActionHandler('pause', () => userAction(() => stop()));
+          navigator.mediaSession.setActionHandler('stop',  () => userAction(() => stop()));
         }
         return 'playing';
       });
@@ -274,9 +331,23 @@ export default function LiveChannels() {
           background:'var(--bg-1)', border:'1px solid var(--border)',
           borderRadius:'0.5rem', boxShadow:'0 8px 24px rgba(0,0,0,0.5)', padding:'0.4rem',
         }}>
-          <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
-            textTransform:'uppercase', letterSpacing:'0.05em', padding:'0.3rem 0.4rem' }}>
-            Live channels
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.3rem 0.4rem' }}>
+            <span style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
+              textTransform:'uppercase', letterSpacing:'0.05em' }}>
+              Live channels
+            </span>
+            <button
+              title={autoListen ? 'Auto-listen is on — automatically tunes to whichever channel is active. Tap to turn off.'
+                : 'Auto-listen is off. Tap to automatically tune to whichever channel is active.'}
+              onClick={() => setAutoListen(a => !a)}
+              style={{
+                padding:'0.15rem 0.45rem', borderRadius:'999px', border:'1px solid var(--border)',
+                cursor:'pointer', fontSize:'0.65rem', fontWeight:600, whiteSpace:'nowrap',
+                background: autoListen ? 'color-mix(in srgb, var(--accent-green) 15%, transparent)' : 'var(--bg-3)',
+                color: autoListen ? 'var(--accent-green)' : 'var(--text-3)',
+              }}>
+              Auto {autoListen ? 'on' : 'off'}
+            </button>
           </div>
           {channels.map(ch => {
             const isActive = playingId === ch.id;
@@ -291,7 +362,7 @@ export default function LiveChannels() {
               chStatus === 'playing' ? 'color-mix(in srgb, var(--accent-red) 10%, transparent)' :
               'transparent';
             return (
-              <button key={ch.id} onClick={() => !isActive ? play(ch) : chStatus === 'error' ? play(ch) : (hapticTap(), stop())}
+              <button key={ch.id} onClick={() => userAction(() => !isActive ? play(ch) : chStatus === 'error' ? play(ch) : (hapticTap(), stop()))}
                 style={{
                   display:'flex', alignItems:'center', gap:'0.5rem', width:'100%',
                   padding:'0.4rem 0.5rem', borderRadius:'0.4rem', border:'none',
