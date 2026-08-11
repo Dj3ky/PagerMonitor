@@ -31,7 +31,7 @@ function FeedHeader() {
   );
 }
 
-export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete, wsStatus }) {
+export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete, wsStatus, onRefresh }) {
   // settingsLoaded is true once the /api/site-settings fetch has resolved (success or fail).
   // We must NOT start the badge timer until then — otherwise a slow mobile network causes
   // the timer to fire with the hard-coded default (10 s) before the real configured value
@@ -42,7 +42,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   const [lastSeenId, setLastSeenId] = useState(null); // null = not yet loaded
   const markSeenTimer = useRef(null);
   const pendingMarkId = useRef(null);
-  const scrollRef     = usePtrScroll();
+  const { ref: scrollRef, pull, refreshing } = usePtrScroll(onRefresh);
 
   // After WS connects or reconnects, scroll to top so newest messages are visible.
   // rAF defers until after React flushes, then history prepend keeps us at the top.
@@ -143,6 +143,19 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
 
   return (
     <div ref={scrollRef} style={{ height:'100%', overflowY:'auto', display:'flex', flexDirection:'column' }}>
+      {(pull > 0 || refreshing) && (
+        <div style={{ height: refreshing ? 40 : pull, flexShrink:0, overflow:'hidden',
+          display:'flex', alignItems:'center', justifyContent:'center',
+          transition: refreshing ? 'height 0.15s' : 'none' }}>
+          <span style={{
+            width:18, height:18, borderRadius:'50%',
+            border:'2px solid var(--accent-green)', borderTopColor:'transparent',
+            opacity: refreshing ? 1 : Math.min(pull / 64, 1),
+            transform: refreshing ? undefined : `rotate(${pull * 3}deg)`,
+            animation: refreshing ? 'ptr-spin 0.6s linear infinite' : 'none',
+          }} />
+        </div>
+      )}
       <FeedHeader />
       {messages.map((msg, i) => {
         const msgId = msg.id ?? 0;
@@ -178,6 +191,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
       <style>{`
         @media(max-width:600px){.feed-header{display:none!important}}
         @keyframes new-pulse { 0%,100%{opacity:1} 50%{opacity:0.45} }
+        @keyframes ptr-spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );

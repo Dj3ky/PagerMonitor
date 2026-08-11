@@ -16,7 +16,7 @@ function fmtDate(ts, locale) {
 
 export default function ArchivePanel({ highlightRules = [], groups = [] }) {
   const { locale } = useSite();
-  const scrollRef  = usePtrScroll();
+  const { ref: scrollRef } = usePtrScroll();
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState([]);
   const [stats, setStats]     = useState(null);

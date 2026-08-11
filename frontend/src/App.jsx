@@ -112,6 +112,12 @@ export default function App() {
     fetchGroups().then(r => Array.isArray(r) ? setGroups(r) : null).catch(console.warn);
   }, [user]);
 
+  // Pull-to-refresh (native only — see usePtrScroll) re-catches-up the feed the same way
+  // a WS reconnect does, without needing to actually drop the socket.
+  const refreshFeed = useCallback(() => (
+    fetchHistory(200).then(prependHistory).catch(console.warn)
+  ), [prependHistory]);
+
   useEffect(() => {
     if (!user) return;
     const poll = () => fetchStatus().then(s => {
@@ -319,7 +325,8 @@ export default function App() {
               totalInDb={serverStatus?.stats?.total || 0}
               totalLoaded={messages.length}
               onDelete={removeMessage}
-              wsStatus={wsStatus} />
+              wsStatus={wsStatus}
+              onRefresh={refreshFeed} />
           </div>
           {/* MapView always mounted so geocoding/state persists across tab switches */}
           <div style={{ position:'absolute', inset:0, display: view === 'map' ? 'block' : 'none' }}>

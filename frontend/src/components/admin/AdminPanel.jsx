@@ -157,7 +157,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
   const [tab, setTab]               = useState(() => sessionStorage.getItem('pm_admin_tab') || 'sdr');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pickerRef                   = useRef(null);
-  const contentRef                  = usePtrScroll();
+  const { ref: contentRef }         = usePtrScroll();
 
   const actualTabs  = visibleTabs.filter(t => !t.group);
   const currentTab  = actualTabs.find(t => t.id === tab) || actualTabs[0];

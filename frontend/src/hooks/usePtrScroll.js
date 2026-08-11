@@ -1,11 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 
 // The native Android shell has no Chrome browser UI to hand the overscroll to —
 // "pull down at the top reloads the page" is a Chrome-app feature, not something
 // a bare WebView does on its own — so letting it through there just produces a
-// dead rubber-band gap instead of a refresh. Keep it contained everywhere on native.
+// dead rubber-band gap instead of a refresh. Keep it contained everywhere on
+// native, and drive an actual pull-to-refresh ourselves (see onRefresh below).
 const isNative = Capacitor.isNativePlatform();
+
+const THRESHOLD = 64; // px of pull before release triggers a refresh
+const MAX_PULL  = 90;
+const DAMPING   = 0.5; // finger travels further than the indicator, like most native PTR
 
 /**
  * Attaches dynamic overscroll-behavior-y to a scroll container so that:
@@ -13,17 +18,26 @@ const isNative = Capacitor.isNativePlatform();
  *   • at top + touching    → 'auto'     (deliberate pull-to-refresh reaches the browser)
  *   • at top + NOT touching→ 'contain'  (momentum coasted to top — absorb here, not body)
  *
- * Returns a ref to attach to the scrollable element.
+ * On native, additionally implements a real pull-to-refresh gesture (since the OS/browser
+ * one is unavailable there): pulling past THRESHOLD at scrollTop 0 and releasing calls
+ * onRefresh(). Returns { ref, pull, refreshing } — ref attaches to the scrollable element,
+ * pull/refreshing drive the visual indicator.
  */
-export function usePtrScroll() {
+export function usePtrScroll(onRefresh) {
   const ref = useRef(null);
+  const [pull, setPull]           = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     let touching = false;
+    let pulling  = false;
+    let startY   = 0;
+    let pullDist = 0;
+    let busy     = false;
 
-    const update = () => {
+    const updateOverscroll = () => {
       if (isNative || el.scrollTop > 0) {
         el.style.overscrollBehaviorY = 'contain';
       } else {
@@ -31,22 +45,56 @@ export function usePtrScroll() {
       }
     };
 
-    const onTouchStart  = () => { touching = true;  update(); };
-    const onTouchEnd    = () => { touching = false; };
+    const onTouchStart = (e) => {
+      touching = true;
+      updateOverscroll();
+      if (isNative && onRefresh && !busy && el.scrollTop === 0) {
+        startY  = e.touches[0].clientY;
+        pulling = true;
+      }
+    };
 
-    update();
-    el.addEventListener('scroll',      update,       { passive: true });
-    el.addEventListener('touchstart',  onTouchStart, { passive: true });
-    el.addEventListener('touchend',    onTouchEnd,   { passive: true });
-    el.addEventListener('touchcancel', onTouchEnd,   { passive: true });
+    const onTouchMove = (e) => {
+      if (!pulling) return;
+      if (el.scrollTop > 0) { pulling = false; pullDist = 0; setPull(0); return; }
+      const delta = e.touches[0].clientY - startY;
+      pullDist = delta > 0 ? Math.min(delta * DAMPING, MAX_PULL) : 0;
+      setPull(pullDist);
+    };
+
+    const onTouchEnd = () => {
+      touching = false;
+      if (!pulling) return;
+      pulling = false;
+      if (pullDist >= THRESHOLD) {
+        busy = true;
+        setRefreshing(true);
+        Promise.resolve().then(onRefresh).catch(() => {}).finally(() => {
+          busy = false;
+          setRefreshing(false);
+          setPull(0);
+        });
+      } else {
+        setPull(0);
+      }
+      pullDist = 0;
+    };
+
+    updateOverscroll();
+    el.addEventListener('scroll',      updateOverscroll, { passive: true });
+    el.addEventListener('touchstart',  onTouchStart,      { passive: true });
+    el.addEventListener('touchmove',   onTouchMove,       { passive: true });
+    el.addEventListener('touchend',    onTouchEnd,        { passive: true });
+    el.addEventListener('touchcancel', onTouchEnd,        { passive: true });
 
     return () => {
-      el.removeEventListener('scroll',      update);
+      el.removeEventListener('scroll',      updateOverscroll);
       el.removeEventListener('touchstart',  onTouchStart);
+      el.removeEventListener('touchmove',   onTouchMove);
       el.removeEventListener('touchend',    onTouchEnd);
       el.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, []);
+  }, [onRefresh]);
 
-  return ref;
+  return { ref, pull, refreshing };
 }
