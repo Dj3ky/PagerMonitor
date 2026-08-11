@@ -36,8 +36,12 @@ try {
  *
  * If DONGLES is not set, falls back to single-dongle mode using the legacy env vars.
  */
-function buildDongleConfigs() {
-  const global = {
+// Shared base fields (freq/gain/protocols/...) sourced from the Pi's local .env — used both
+// as the starting point for every DONGLES-array entry at boot, and as what a dongle newly
+// added via the server's Admin UI inherits for any field it doesn't explicitly set (mirrors
+// how a blank field in the old flat per-client config always meant "use the Pi's .env value").
+function buildGlobalDongleDefaults() {
+  return {
     freq:           process.env.RTL_FM_FREQ                || '173.250M',
     modulation:     process.env.RTL_FM_MODULATION          || 'fm',
     sampleRate:     process.env.RTL_FM_SAMPLE_RATE         || '22050',
@@ -56,6 +60,10 @@ function buildDongleConfigs() {
     pocsagSpecial:  process.env.MULTIMON_POCSAG_SPECIAL    || '0',
     charset:        process.env.MULTIMON_POCSAG_CHARSET    || '',
   };
+}
+
+function buildDongleConfigs() {
+  const global = buildGlobalDongleDefaults();
 
   if (process.env.DONGLES) {
     try {
@@ -551,10 +559,14 @@ let globalConfigVersion = null;
 let globalOverrideCfg   = null; // remote config overlay (applies to all dongles)
 
 // Stable identity for a dongle config — serial when set (survives reboots/replugs),
-// else its legacy device index. Used both to key the `pipelines` Map and to match
-// server-pushed per-dongle config against the pipeline it targets.
+// else its legacy device index (defaulting to '0' when absent, matching the single-dongle
+// fallback in buildDongleConfigs() — a saved config that never explicitly set `device`,
+// e.g. an old flat single-dongle config with blank fields stripped before storage, must
+// still resolve to the SAME key as the locally-booted single-dongle pipeline it's meant to
+// override, or reconcileDongles would wrongly treat it as a brand new dongle). Used both to
+// key the `pipelines` Map and to match server-pushed per-dongle config against its pipeline.
 function dongleKey(cfg) {
-  return cfg.serial ? `serial:${cfg.serial}` : `device:${cfg.device}`;
+  return cfg.serial ? `serial:${cfg.serial}` : `device:${cfg.device ?? '0'}`;
 }
 
 // Reconciles the live `pipelines` Map against a server-pushed `dongles[]` array —
@@ -580,7 +592,13 @@ function reconcileDongles(pipelines, serverDongles) {
       existing.applyRemoteConfig(d);
     } else {
       log('info', `New dongle ${key} added via remote config — starting`);
-      const p = createPipeline(d, pipelines.size);
+      // No local pipeline ever existed for this one — unlike applyRemoteConfig (which
+      // merges over an already-running pipeline's env-derived baseCfg), there's nothing to
+      // merge over here, so any field the admin left unset would otherwise come through as
+      // literally undefined (crashing buildMmonArgs' cfg.protocols.split, etc). Seed it from
+      // the same global .env defaults every other dongle on this Pi inherits from.
+      const merged = { ...buildGlobalDongleDefaults(), device: String(pipelines.size), ...d, device: String(d.device ?? pipelines.size) };
+      const p = createPipeline(merged, pipelines.size);
       pipelines.set(key, p);
       p.start();
     }
