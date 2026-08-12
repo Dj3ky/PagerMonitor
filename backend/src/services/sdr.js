@@ -5,11 +5,12 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 const iconv      = require('iconv-lite');
-const { insertMessage, getSetting, normCapcode, getVoiceChannelById } = require('./database');
+const { insertMessage, getSetting, normCapcode, getVoiceChannelById, getAliasNameForCapcode } = require('./database');
 const { broadcast }          = require('./websocket');
 const { broadcastAll, notifyAll } = require('./fanout');
 const { recordMessage, registerSource, unregisterSource } = require('./deadair');
 const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
+const { resolveAliasHome } = require('../utils/aliasPlace');
 const { loadSdrConfigIntoEnv, getDedupConfig, getDongleConfigs, getMessageNormalizations } = require('./config');
 const { resolveDeviceIndex } = require('./rtlDevices');
 const logger = require('../utils/logger');
@@ -663,7 +664,12 @@ function handleLine(line, sourceId = 'sdr') {
 
   const timestamp = new Date().toISOString();
   const geocodeCountry = (getSetting('site_settings', {}).geocodeCountry || 'si');
-  const location = parseLocation(parsed.message, geocodeCountry);
+  // Soft geographic anchor for this capcode's reporting unit, derived from its
+  // alias name — used to disambiguate settlement name clashes and as a fallback
+  // settlement when the message text names none. See utils/aliasPlace.js.
+  const aliasName = getAliasNameForCapcode(parsed.capcode);
+  const homeHint  = aliasName ? resolveAliasHome(aliasName, geocodeCountry) : null;
+  const location = parseLocation(parsed.message, geocodeCountry, homeHint);
   const { lat, lng } = location;
   // Raw, alias-agnostic — alias/group naming is resolved per-org at broadcast/read
   // time (an alias can differ per org, or be a global shared default; see services/fanout.js).
@@ -683,7 +689,7 @@ function handleLine(line, sourceId = 'sdr') {
   ;(async () => {
     let coordsPatch = null;
     if (!lat) {
-      const result = await geocodeAddress(location.candidates || [], geocodeCountry, parsed.message).catch(() => null);
+      const result = await geocodeAddress(location.candidates || [], geocodeCountry, parsed.message, homeHint).catch(() => null);
       if (result) {
         try { require('./database').getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(result.lat, result.lng, id); } catch (_) {}
         broadcast({ type: 'message_location', id, lat: result.lat, lng: result.lng });

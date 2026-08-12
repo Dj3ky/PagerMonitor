@@ -70,15 +70,28 @@ function lookupWord(word, countryCode = 'si') {
   return idx.get(_norm(word)) || [];
 }
 
+function _haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
 /**
  * Given hint words extracted from message context near a street keyword, return
  * the best settlement+municipality match or null.
+ *
+ * homeHint (optional): {lat, lng} of the reporting unit's home base (see
+ * aliasPlace.js). When a settlement name matches multiple municipalities and the
+ * message text doesn't name one explicitly, the candidate closest to homeHint wins.
  *
  * confidence = 1.0  — only one municipality matches
  * confidence ≥ 0.70 — multiple matches but score gap is clear (municipality named in message)
  * confidence < 0.70 — ambiguous tie; caller should omit municipality from Nominatim query
  */
-function disambiguate(hints, messageText, countryCode = 'si') {
+function disambiguate(hints, messageText, countryCode = 'si', homeHint = null) {
   const msgNorm = _norm(messageText);
 
   for (const hint of hints) {
@@ -92,6 +105,14 @@ function disambiguate(hints, messageText, countryCode = 'si') {
       let score = 0.5;
       // Municipality name explicitly present in message → strong disambiguation signal
       if (msgNorm.includes(_norm(m.municipality))) score += 0.45;
+      // Proximity to the reporting unit's home base — softer tiebreaker for when
+      // the message doesn't name the municipality at all. Full bonus at 0km,
+      // tapering to 0 by 35km out.
+      if (homeHint && Number.isFinite(homeHint.lat) && Number.isFinite(homeHint.lng) &&
+          Number.isFinite(m.lat) && Number.isFinite(m.lng)) {
+        const km = _haversineKm(homeHint.lat, homeHint.lng, m.lat, m.lng);
+        score += Math.max(0, 0.35 - km * 0.01);
+      }
       return { ...m, score };
     }).sort((a, b) => b.score - a.score);
 

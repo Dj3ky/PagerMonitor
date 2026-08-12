@@ -161,13 +161,16 @@ const SI_HINT_STOPWORDS = new Set([
 ]);
 
 // ── SI-specific candidate extraction ─────────────────────────────────────────
-function siCandidates(text, country, countryCode) {
+// homeHint (optional): {name, municipality, lat, lng} home place of the reporting
+// unit (see aliasPlace.js) — used as a fallback settlement when the message text
+// names none, and to break settlement-name ties by proximity (see placeIndex.js).
+function siCandidates(text, country, countryCode, homeHint) {
   // Strip punctuation attached to word ends (e.g. "stanovanju," → "stanovanju", "15," → "15")
   const clean  = text.replace(/([^\s])[,;:.!]+(?=\s|$)/g, '$1');
   const words  = clean.trim().split(/\s+/);
   const idx    = si();
   const hasIdx = idx.hasData();
-  const cityHint = detectCity(text, countryCode);
+  const cityHint = detectCity(text, countryCode) || (homeHint ? homeHint.name : null);
   const seen   = new Set();
   const ranked = [];
 
@@ -177,7 +180,7 @@ function siCandidates(text, country, countryCode) {
 
     // ── Place disambiguation ──────────────────────────────────────────────────
     const placeMatch = hints.length
-      ? pi().disambiguate(hints, text, countryCode)
+      ? pi().disambiguate(hints, text, countryCode, homeHint)
       : null;
 
     const sc = confScore({
@@ -410,7 +413,9 @@ function legacyCandidates(text, country) {
 }
 
 // ── Main parser ───────────────────────────────────────────────────────────────
-function parseLocation(text, countryCode = 'si') {
+// homeHint (optional): {name, municipality, lat, lng} home place of the reporting
+// unit — see aliasPlace.js. Only affects the 'si' regex pipeline.
+function parseLocation(text, countryCode = 'si', homeHint = null) {
   if (!text) return { lat: null, lng: null };
 
   let m = DECIMAL_RE.exec(text);
@@ -446,7 +451,7 @@ function parseLocation(text, countryCode = 'si') {
   }
 
   const candidates = countryCode === 'si'
-    ? siCandidates(text, country, countryCode)
+    ? siCandidates(text, country, countryCode, homeHint)
     : legacyCandidates(text, country);
 
   if (candidates.length > 0) return { lat: null, lng: null, candidates };
@@ -503,16 +508,23 @@ async function _nominatim(query, countryCode) {
 }
 
 // HERE Geocoding API — no rate limit, much better house-number coverage.
-async function _here(query, countryCode) {
-  const key = `here|${query}|${countryCode}`;
+// homeHint (optional): {lat, lng} of the reporting unit's home base — passed as
+// HERE's `at=` search-context center so ties among same-named places elsewhere in
+// the country are biased toward the department. `in` (hard country filter) and
+// `at` (context center) are independent HERE params and combine fine.
+async function _here(query, countryCode, homeHint = null) {
+  const atKey = homeHint && Number.isFinite(homeHint.lat) && Number.isFinite(homeHint.lng)
+    ? `${homeHint.lat},${homeHint.lng}` : '';
+  const key = `here|${query}|${countryCode}|${atKey}`;
   if (_geoCache.has(key)) return _geoCache.get(key);
   try {
     const { getConfig } = require('./aiGeocode');
     const { hereKey } = getConfig();
     if (!hereKey) return null;
     const cc3 = HERE_CC[countryCode] || countryCode.toUpperCase();
-    const url  = `https://geocode.search.hereapi.com/v1/geocode` +
+    let url  = `https://geocode.search.hereapi.com/v1/geocode` +
       `?q=${encodeURIComponent(query)}&in=countryCode:${cc3}&limit=1&apiKey=${hereKey}`;
+    if (atKey) url += `&at=${atKey}`;
     const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!r.ok) return null;
     const data = await r.json();
@@ -529,20 +541,23 @@ async function _here(query, countryCode) {
 }
 
 // Dispatcher — uses HERE when configured, falls back to Nominatim.
-async function _geocode(query, countryCode) {
+async function _geocode(query, countryCode, homeHint = null) {
   try {
     const { getConfig } = require('./aiGeocode');
     const cfg = getConfig();
     if (cfg.geocoder === 'here' && cfg.hereKey) {
-      const result = await _here(query, countryCode);
+      const result = await _here(query, countryCode, homeHint);
       if (result) return result;
       // HERE failed — fall through to Nominatim
     }
   } catch { /* fall through */ }
-  return _nominatim(query, countryCode);
+  return _nominatim(query, countryCode); // Nominatim has no proximity-bias param to feed homeHint into
 }
 
-async function geocodeAddress(candidates, countryCode = 'si', originalText = null) {
+// homeHint (optional): {name, municipality, lat, lng} home place of the reporting
+// unit's alias (see aliasPlace.js) — fills in the settlement when the AI extracts
+// a street but no settlement, and biases the HERE geocoder call by proximity.
+async function geocodeAddress(candidates, countryCode = 'si', originalText = null, homeHint = null) {
   const country = COUNTRY_NAMES[countryCode] || countryCode;
 
   // ── 1. AI-first path ─────────────────────────────────────────────────────────
@@ -557,8 +572,9 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
         const extracted = await extractAddress(originalText, countryCode);
         if (extracted && (extracted.street || extracted.settlement)) {
           const parts = [extracted.street, extracted.houseNumber].filter(Boolean).join(' ');
-          const query = [parts, extracted.settlement, country].filter(Boolean).join(', ');
-          const aiResult = await _geocode(query, countryCode);
+          const settlement = extracted.settlement || (homeHint ? homeHint.name : null);
+          const query = [parts, settlement, country].filter(Boolean).join(', ');
+          const aiResult = await _geocode(query, countryCode, homeHint);
           if (aiResult) return { ...aiResult, aiAssisted: true };
         }
       }
@@ -571,7 +587,7 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
   const toTry   = queries.slice(0, 1).filter(q => q?.trim());
 
   for (const query of toTry) {
-    const result = await _geocode(query, countryCode);
+    const result = await _geocode(query, countryCode, homeHint);
     if (result) return result;
   }
 

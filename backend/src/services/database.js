@@ -708,6 +708,17 @@ function getAliases(orgId) {
 // from user-supplied values so aliases always match decoded messages.
 const normCapcode = c => /^\d+$/.test(c) ? String(parseInt(c, 10)) : c;
 
+// Best-effort alias name lookup for a capcode, ignoring org scoping — used only as
+// a soft geocoding hint (department home-place anchor, see utils/aliasPlace.js),
+// never for display/identity. Prefers the global/shared-default alias, falling
+// back to any org-specific one when no global row exists.
+function getAliasNameForCapcode(capcode) {
+  const row = getDb().prepare(
+    'SELECT name FROM aliases WHERE capcode = ? ORDER BY (org_id IS NULL) DESC LIMIT 1'
+  ).get(normCapcode(capcode));
+  return row?.name || null;
+}
+
 // orgId null (platform admin only — enforced by isPlatformAdmin check) writes a global/shared
 // default alias; otherwise writes/overrides within that org. Two separate upsert statements
 // because each targets a different partial unique index (SQLite's ON CONFLICT arbiter must
@@ -1126,7 +1137,7 @@ module.exports = {
   ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL,
   insertMessage, getHistory, searchMessages, getMessageStats, deleteMessage,
   getGroups, createGroup, updateGroup, deleteGroup,
-  getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
+  getAliases, upsertAlias, deleteAlias, bulkUpsertAliases, getAliasNameForCapcode,
   getSetting, setSetting,
   createOrganization, getOrganizations, getOrganization, renameOrganization, deleteOrganization,
   createInvite, getInviteByCode, listInvites, revokeInvite, consumeInvite,
