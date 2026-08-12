@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 
 // The native Android shell has no Chrome browser UI to hand the overscroll to —
@@ -22,14 +22,20 @@ const DAMPING   = 0.5; // finger travels further than the indicator, like most n
  * one is unavailable there): pulling past THRESHOLD at scrollTop 0 and releasing calls
  * onRefresh(). Returns { ref, pull, refreshing } — ref attaches to the scrollable element,
  * pull/refreshing drive the visual indicator.
+ *
+ * ref is a callback ref (not useRef) on purpose: several callers conditionally render a
+ * different subtree (e.g. an empty-state placeholder) before the real scrollable element
+ * exists, so the node this hook attaches to can show up on a later render than the first.
+ * A useRef-based effect would capture that first (null) node once and never revisit it.
  */
 export function usePtrScroll(onRefresh) {
-  const ref = useRef(null);
+  const [node, setNode] = useState(null);
+  const ref = useCallback((el) => setNode(el), []);
   const [pull, setPull]           = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    const el = ref.current;
+    const el = node;
     if (!el) return;
     let touching = false;
     let pulling  = false;
@@ -94,7 +100,7 @@ export function usePtrScroll(onRefresh) {
       el.removeEventListener('touchend',    onTouchEnd);
       el.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [onRefresh]);
+  }, [node, onRefresh]);
 
   return { ref, pull, refreshing };
 }
