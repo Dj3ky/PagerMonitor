@@ -170,7 +170,27 @@ function siCandidates(text, country, countryCode, homeHint) {
   const words  = clean.trim().split(/\s+/);
   const idx    = si();
   const hasIdx = idx.hasData();
-  const cityHint = detectCity(text, countryCode) || (homeHint ? homeHint.name : null);
+
+  // detectCity() only text-matches a place name — it doesn't know whether that
+  // name is shared by several places (e.g. many Slovenian villages named the
+  // same thing). Route it through the same disambiguation as any other hint so
+  // an ambiguous text match doesn't silently short-circuit homeHint or geocode
+  // to the wrong same-named place elsewhere in the country.
+  const textCityHint = detectCity(text, countryCode);
+  let cityHint = textCityHint;
+  let cityHintMatch = null;
+  if (textCityHint) {
+    const cityMatches = pi().lookupWord(textCityHint, countryCode);
+    if (cityMatches.length > 1) {
+      cityHintMatch = pi().disambiguate([textCityHint], text, countryCode, homeHint);
+      if (cityHintMatch) cityHint = cityHintMatch.name;
+    } else if (cityMatches.length === 1) {
+      cityHintMatch = { ...cityMatches[0], confidence: 1.0 };
+    }
+  } else if (homeHint) {
+    cityHint = homeHint.name;
+  }
+
   const seen   = new Set();
   const ranked = [];
 
@@ -225,7 +245,15 @@ function siCandidates(text, country, countryCode, homeHint) {
         ? `${parts}, ${placeMatch.name}, ${placeMatch.municipality}, ${country}`
         : `${parts}, ${placeMatch.name}, ${country}`;
     } else if (cityHint) {
-      query = `${parts}, ${cityHint}, ${country}`;
+      // Unlike placeMatch (built from speculative hint words that might not be a
+      // place at all), cityHint already passed a strict place-name regex match —
+      // once disambiguate() has picked a specific municipality for it, include it
+      // even at moderate confidence; a best guess beats an unqualified, still-
+      // ambiguous settlement name.
+      const addMuni = cityHintMatch && cityHintMatch.municipality !== cityHintMatch.name;
+      query = addMuni
+        ? `${parts}, ${cityHint}, ${cityHintMatch.municipality}, ${country}`
+        : `${parts}, ${cityHint}, ${country}`;
     } else if (hints.length > 0) {
       // No place index match — pass the most proximate context words directly to
       // Nominatim (e.g. "GABRJE 30, DOBROVA-POLHOV GRADEC, Slovenia")

@@ -103,8 +103,11 @@ function disambiguate(hints, messageText, countryCode = 'si', homeHint = null) {
     // Multiple municipalities for this settlement — score by context signals
     const scored = matches.map(m => {
       let score = 0.5;
-      // Municipality name explicitly present in message → strong disambiguation signal
-      if (msgNorm.includes(_norm(m.municipality))) score += 0.45;
+      // Municipality name explicitly present in message → strong disambiguation signal.
+      // Skipped when name === municipality (a self-referential/seat entry): the hint
+      // word that got us here already equals that municipality name, so the check
+      // would trivially pass for every such candidate and tell us nothing real.
+      if (m.municipality !== m.name && msgNorm.includes(_norm(m.municipality))) score += 0.45;
       // Proximity to the reporting unit's home base — softer tiebreaker for when
       // the message doesn't name the municipality at all. Full bonus at 0km,
       // tapering to 0 by 35km out.
