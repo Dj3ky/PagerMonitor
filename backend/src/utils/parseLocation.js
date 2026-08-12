@@ -604,8 +604,24 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
       if (getConfig().provider !== 'none') {
         const extracted = await extractAddress(originalText, countryCode);
         if (extracted && (extracted.street || extracted.settlement)) {
-          const parts = [extracted.street, extracted.houseNumber].filter(Boolean).join(' ');
-          let settlement = extracted.settlement || (homeHint ? homeHint.name : null);
+          let street     = extracted.street || null;
+          let settlement = extracted.settlement || null;
+
+          // Slovenian rural addresses are often just "<Settlement> <HouseNumber>"
+          // with no separate street at all — the AI has nowhere else to put that
+          // word but `street`, since it wasn't told this pattern exists. If there's
+          // no settlement but `street` itself resolves as a known place, treat it
+          // as the settlement too (kept in `parts` for the address line, same as
+          // the regex pipeline's own candidates) instead of discarding it in favor
+          // of homeHint — which is the reporting unit's own base, not the message's.
+          if (!settlement && street && countryCode === 'si') {
+            const looksLikePlace = pi().lookupWord(street, countryCode).length > 0 ||
+                                    pi().lookupWordLoose(street, countryCode).length > 0;
+            if (looksLikePlace) settlement = street;
+          }
+          settlement = settlement || (homeHint ? homeHint.name : null);
+
+          const parts = [street, extracted.houseNumber].filter(Boolean).join(' ');
           // The AI has no way to know which same-named place is meant (e.g. one of
           // several Slovenian villages sharing a name) — disambiguate its settlement
           // guess the same way as the regex pipeline's cityHint, using homeHint as
