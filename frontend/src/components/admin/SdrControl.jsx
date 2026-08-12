@@ -125,12 +125,14 @@ export default function SdrControl({ sdrStatus }) {
     try {
       if (multiMode && dongles.length > 1) {
         // Save dongle configs then explicitly restart
-        await api('PUT', '/admin/sdr/dongles', dongles);
+        const r = await api('PUT', '/admin/sdr/dongles', dongles);
+        if (!r.ok) throw new Error(r.error || 'Save failed');
         await adminSdrRestart();
         flash('ok', `${dongles.length} dongles configured — pipeline restarting…`);
       } else {
         // Clear dongle configs first, then save single config (which triggers restart)
-        await api('PUT', '/admin/sdr/dongles', []);
+        const r = await api('PUT', '/admin/sdr/dongles', []);
+        if (!r.ok) throw new Error(r.error || 'Save failed');
         await adminSdrSetConfig(config);
         flash('ok', 'Config applied — pipeline restarting…');
       }

@@ -58,6 +58,58 @@ function resolveChannelOwner(channelId) {
   return null;
 }
 
+// A voice channel assigned to more than one dongle only ever gets forwarded from one of
+// them (see resolveChannelOwner, which just picks the first match it finds) — every other
+// dongle assigned the same channel decodes it for nothing, with no error surfaced anywhere.
+// Used by the admin routes to block a save that would create this before it happens, rather
+// than silently going quiet on one source. `self` identifies which source is being saved
+// (so it's excluded from the "elsewhere" scan) — { type: 'local' } or { type: 'remote', clientId }.
+function findVoiceChannelConflicts(candidateDongles, self) {
+  const { getDongleConfigs } = require('./config');
+  const { getAllClientConfigs } = require('./clientTracker');
+  const isAirband = d => d?.mode === 'airband' && Array.isArray(d.voiceChannelIds);
+
+  // channelId -> [{ type, clientId? }, ...] already using it, outside of what's being saved
+  const existing = new Map();
+  const addExisting = (id, owner) => {
+    if (!existing.has(id)) existing.set(id, []);
+    existing.get(id).push(owner);
+  };
+
+  if (self?.type !== 'local') {
+    for (const d of (getDongleConfigs() || [])) {
+      if (!isAirband(d)) continue;
+      for (const id of d.voiceChannelIds.map(Number)) addExisting(id, { type: 'local' });
+    }
+  }
+  for (const { clientId, config } of getAllClientConfigs()) {
+    if (self?.type === 'remote' && self.clientId === clientId) continue;
+    const dongles = Array.isArray(config?.dongles) ? config.dongles : [config];
+    for (const d of dongles) {
+      if (!isAirband(d)) continue;
+      for (const id of d.voiceChannelIds.map(Number)) addExisting(id, { type: 'remote', clientId });
+    }
+  }
+
+  // Count how many times each channel appears within the save itself too — two dongles on
+  // the same box/client claiming the same channel is just as broken (UDP port collision for
+  // local dongles) as a collision with some other source entirely.
+  const countInCandidate = new Map();
+  for (const d of (candidateDongles || [])) {
+    if (!isAirband(d)) continue;
+    for (const id of d.voiceChannelIds.map(Number)) {
+      countInCandidate.set(id, (countInCandidate.get(id) || 0) + 1);
+    }
+  }
+
+  const conflicts = [];
+  for (const [id, count] of countInCandidate) {
+    const owners = existing.get(id) || [];
+    if (count > 1 || owners.length > 0) conflicts.push({ channelId: id, duplicatedHere: count > 1, owners });
+  }
+  return conflicts;
+}
+
 function encodeFrame(channelId, payload) {
   const header = Buffer.alloc(FRAME_HEADER_BYTES);
   header.writeUInt32LE(Number(channelId), 0);
@@ -362,4 +414,5 @@ module.exports = {
   handleBrowserUnwatchClientLogs,
   subscribeChannel,
   reconcileClientChannels,
+  findVoiceChannelConflicts,
 };

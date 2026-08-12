@@ -67,6 +67,22 @@ router.post('/sdr/config',  platformOnly, (req, res)  => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Turns findVoiceChannelConflicts' structured output into one readable sentence for the
+// error toast — resolving channel ids/client ids to their display names so it actually
+// says something actionable instead of "channel 3 conflicts with client a1b2c3".
+function describeChannelConflicts(conflicts) {
+  const { getVoiceChannelById } = require('../services/database');
+  const { getClients } = require('../services/clientTracker');
+  const clients = getClients();
+  const clientLabel = id => clients.find(c => c.id === id)?.displayName || id;
+  return conflicts.map(c => {
+    const name = getVoiceChannelById(c.channelId)?.description || `channel ${c.channelId}`;
+    if (c.duplicatedHere) return `"${name}" is assigned to more than one dongle in this save`;
+    const where = c.owners.map(o => o.type === 'local' ? 'a local dongle' : `remote client "${clientLabel(o.clientId)}"`).join(', ');
+    return `"${name}" is already assigned to ${where}`;
+  }).join('; ');
+}
+
 // Multi-dongle configs
 router.get('/sdr/dongles',  platformOnly, (_req, res) => { try{ res.json(getDongleConfigs() || []); } catch(e){ res.status(500).json({error:e.message}); }});
 router.get('/sdr/detected-dongles', platformOnly, async (_req, res) => {
@@ -75,6 +91,10 @@ router.get('/sdr/detected-dongles', platformOnly, async (_req, res) => {
 router.put('/sdr/dongles',  platformOnly, (req, res)  => {
   try {
     const dongles = Array.isArray(req.body) ? req.body : [];
+    const conflicts = require('../services/audioRelay').findVoiceChannelConflicts(dongles, { type: 'local' });
+    if (conflicts.length > 0) {
+      return res.status(409).json({ error: describeChannelConflicts(conflicts), conflicts });
+    }
     saveDongleConfigs(dongles.length > 0 ? dongles : null);
     // Don't restart here — caller will restart after setting all configs
     addAuditLog(req.session?.username||'admin', 'sdr.dongles', `count=${dongles.length}`);
@@ -760,7 +780,13 @@ router.get('/sdr-clients/configs', platformOnly, (_req, res) => {
 
 router.put('/sdr-clients/:id/config', platformOnly, (req, res) => {
   try {
-    const version = saveClientConfig(decodeURIComponent(req.params.id), req.body);
+    const clientId = decodeURIComponent(req.params.id);
+    const dongles = Array.isArray(req.body?.dongles) ? req.body.dongles : [req.body];
+    const conflicts = require('../services/audioRelay').findVoiceChannelConflicts(dongles, { type: 'remote', clientId });
+    if (conflicts.length > 0) {
+      return res.status(409).json({ error: describeChannelConflicts(conflicts), conflicts });
+    }
+    const version = saveClientConfig(clientId, req.body);
     res.json({ ok: true, version });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
