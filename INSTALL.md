@@ -214,8 +214,18 @@ Edit `backend/.env` (native) or `.env` (Docker):
 | `MULTIMON_POCSAG_CHARSET` | _(empty)_ | Charset: `US` (default), `FR`, `DE`, `SE`, `DK`, `SI` |
 | `LOG_LEVEL` | `info` | `error` / `warn` / `info` / `debug` |
 | `DEFAULT_ADMIN_PASS` | _(random)_ | First-run admin password. If unset, a random password is generated and printed to the startup log. |
+| `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` | _(unset)_ | Optional OpenSky Network OAuth2 credentials for the Aircraft Tracking map — raises the poll rate from 5 min (anonymous, 400 credits/day) to 1 min (4000 credits/day). Can also be set in Admin → Site → Aircraft Tracking |
+| `NAP_B2B_USER` / `NAP_B2B_PASS` | _(unset)_ | NAP (b2b.nap.si) B2B account credentials for the Traffic map (DARS/DRSI cameras, roadworks, VMS signs). Layer stays empty without them. Can also be set in Admin → Site → Traffic Data (NAP) |
 
 All SDR settings can also be changed live in **Admin → SDR Control** without editing files.
+
+### Regional data overlays (Slovenia)
+
+Optional map layers for Slovenia-based deployments — Aircraft Tracking, Traffic (NAP), ARSO
+Weather stations, and ARSO earthquakes. Each is independently toggleable under **Admin → Site
+→ Optional Features** and makes no API calls at all while disabled. Weather and earthquake
+layers need no credentials; Aircraft Tracking and Traffic work with reduced limits (or an
+empty layer, for Traffic) until the optional credentials above are configured.
 
 ### Multiple SDR dongles
 
@@ -304,6 +314,29 @@ voice channels, with no multimon-ng process spawned for it. Useful once you've d
 dongle to POCSAG and want another purely for wider-spread voice listening without the two
 sharing capture bandwidth.
 
+**Live listener counts**: Admin → Voice Channels shows a live count of who's currently
+listening to each channel, with usernames on hover (anonymous/public-mode listeners show as
+"guest"). **Auto-listen** can be armed per channel so it starts playing automatically the
+instant it keys up, instead of waiting for someone to click play.
+
+### Discord voice relay
+
+Stream any configured voice channel live into a Discord voice channel via a bot — separate
+from the Discord *message* notification service under Admin → Notifications.
+
+1. Create a Discord bot at the [Discord Developer Portal](https://discord.com/developers/applications),
+   enable the **Voice States** intent, and invite it to your server with `Connect` +
+   `Speak` permissions.
+2. Admin → SDR → Discord Relay → add a relay: pick the source voice channel (from Admin →
+   Voice Channels), paste the bot token, guild ID, and target Discord voice channel ID, then
+   enable it.
+3. Multiple independent relay mappings are supported. One bot token can only join one voice
+   channel per Discord server at a time — use a separate bot token if you need to relay two
+   channels into the same server simultaneously.
+
+Audio is resampled server-side; no native build tools are required (the pure-JS Opus/encryption
+stack is used, not the native `@discordjs/opus`/`sodium-native` packages).
+
 **Hardware requirement: Raspberry Pi 3 or 4 only.** rtl_airband's FFT channelizer is
 meaningfully heavier than plain `rtl_fm` — confirmed in the field on Pi 1 and Pi 2 hardware,
 both running rtl_airband even for POCSAG alone (no voice channels assigned at all):
@@ -339,9 +372,12 @@ in single mode but fails to bring SDR up at all in multi mode is the telltale sy
 |---|---|---|
 | **SDR** | SDR Control | Start/stop/restart pipeline. Edit rtl_fm and multimon-ng settings. Multi-dongle config. |
 | | Dead Air | Alert when no messages received for configurable time period |
-| | Live Logs | Real-time rtl_fm and multimon-ng output |
+| | Live Logs | Real-time rtl_fm and multimon-ng output (local SDR only) |
 | | SDR Clients | Monitor connected remote RPi clients |
+| | Client Logs | Unified, filterable log viewer merging output from all remote RPi clients |
 | | Client Key | Generate authentication key for remote clients |
+| | Voice Channels | Configure live voice channels (rtl_airband), listener counts, auto-listen |
+| | Discord Relay | Stream a voice channel live into a Discord voice channel via a bot |
 | **Messages** | Database | Stats, purge old messages, export CSV |
 | | Archive | View/search archived messages, CSV export |
 | | Statistics | Message counts by hour/day, protocol breakdown |
@@ -360,7 +396,11 @@ in single mode but fails to bring SDR up at all in multi mode is the telltale sy
 | | Backup & Restore | Download `.pmbackup`, restore from backup |
 | | Audit Log | Full audit trail with filtering |
 | **Site** | Site Settings | Site name, description, public read-only mode |
+| | Optional Features | Toggle Aircraft Tracking / Traffic / ARSO Weather map layers on or off |
+| | Aircraft Tracking | OpenSky Network config for the Fire Boss aircraft-tracking map |
+| | Traffic Data (NAP) | NAP B2B credentials for the traffic camera/roadworks map |
 | | Users | Create/delete users, assign roles, reset passwords |
+| | User Locations | See which logged-in users have shared their live location, and when |
 
 ---
 
@@ -380,6 +420,19 @@ in single mode but fails to bring SDR up at all in multi mode is the telltale sy
 - Three modes: individual pins, clustered, heatmap
 - Fly-to when clicking map button on any message
 - Marker popup with message details
+
+**Voice channels**
+- Live audio (rtl_airband) alongside POCSAG decoding on the same dongle
+- Live listener counts per channel, with usernames on hover
+- Auto-listen — arm a channel to play automatically when it keys up
+- Voice-only dongle mode — no multimon-ng process spawned
+- Discord voice relay — stream a channel into a Discord voice channel via a bot
+
+**Regional data overlays (Slovenia)**
+- Aircraft tracking (OpenSky Network) — Fire Boss wildfire-response aircraft
+- Traffic (NAP) — cameras, roadworks, live events, VMS signs
+- ARSO weather stations and earthquake feed
+- Each layer independently toggleable in Admin → Site → Optional Features
 
 **Message notes / annotations**
 - Any user can add notes to any message
@@ -472,7 +525,7 @@ Returns JSON — use with Uptime Kuma, Zabbix, etc.:
 {
   "ok": true,
   "status": "healthy",
-  "version": "2.0.0",
+  "version": "2.5.0",
   "uptime": { "seconds": 3661, "human": "1h 1m" },
   "database": { "ok": true, "messages": 1247, "today": 23 },
   "sdr": { "running": true, "lastMessage": "2026-05-20T10:14:33.000Z" },
@@ -691,7 +744,7 @@ bash update.sh
 Admin → System → Update shows installed commit vs latest on GitHub. Or:
 ```bash
 curl -s http://localhost:3000/health | grep version
-# → "version": "2.3.0"
+# → "version": "2.5.0"
 ```
 
 ### After a major version bump (x.0.0)

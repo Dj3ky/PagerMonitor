@@ -11,6 +11,37 @@ Versioning follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATC
 
 ---
 
+## [2.5.0] — 2026-08-12
+
+### Added
+- **Live voice channels** — listen to a voice frequency (e.g. dispatch) live in the browser alongside POCSAG decoding on the same dongle, via `rtl_airband`. Audio relays over the existing WebSocket connection, no extra server or port
+- **Discord voice relay** — stream any voice channel live into a Discord voice channel via a bot (Admin → SDR → Discord Relay), independent of the existing Discord message-notification service. Multiple relay mappings supported, org-scoped
+- **Live listener counts** for voice channels, with usernames shown on hover
+- **Auto-listen** — arm a voice channel to start playing automatically the moment it keys up
+- **Voice-only dongle mode** — dedicate a dongle purely to voice channels with no multimon-ng process spawned
+- **Per-channel NFM de-emphasis (tau)** setting for voice channels
+- **Client Logs** — unified, filterable admin page merging log output from all remote RPi clients (Admin → SDR → Client Logs), replacing per-client ad-hoc log tailing. Server buffers the last 300 lines per client so history persists even if nobody was watching
+- **Multi-dongle serial ID selection** — pick dongles by hardware serial (stable across reboots/replugs) instead of USB enumeration order, for both local and remote-client dongles. Documented Windows `rtl_eeprom` workflow for burning serials from a PC
+- **Regional data overlays (Slovenia)** — optional live map layers for Aircraft Tracking (OpenSky Network), Traffic (NAP — cameras, roadworks, VMS signs), ARSO weather stations, and ARSO earthquakes. Each independently toggleable under Admin → Site → Optional Features, dormant with no API calls until enabled
+- **Alias colour inheritance** — new aliases can inherit their parent group's colour instead of a random one
+- **Dongle/client source labels** on feed and archive rows, included in archive CSV export
+- Live channel-activity indicator (pulsing dot) in the header for active voice channels
+- Audio-relay connection status indicator per client on the SDR Clients admin page
+
+### Fixed
+- **Users tab scoped to the admin's own organization**, even for platform admins
+- Remote client crash when reconciling a legacy single-dongle config
+- Voice-channel edits (squelch/tau/frequency) not propagating to remote clients
+- Saving the same voice channel to more than one dongle/client is now blocked
+- False-positive update-available badges from unrelated monorepo commits
+- Stale "playing" state when a voice channel's source goes offline
+- WebSocket connection breakage from two `WebSocketServer` instances sharing one HTTP server
+- Archive search clear action not resetting the view
+- Zero-byte `.env` now treated the same as a missing one during install
+- `apt-get` calls now retry on dpkg lock contention instead of failing outright
+
+---
+
 ## [2.4.0] — 2026-07-30
 
 ### Added

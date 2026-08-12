@@ -96,7 +96,7 @@ Configure under **Admin → Messages → Message Normalizations**.
 ### 📋 Aliases & groups
 - Give capcodes friendly names: `1234567` → `Fire Station Alpha`
 - Organise aliases into **groups and subgroups** with colour coding
-- Per-alias and per-group row colours and notification sounds
+- Per-alias and per-group row colours and notification sounds — new aliases can inherit their group's colour automatically
 - **CSV import/export** — manage hundreds of aliases in a spreadsheet
 
 ### 📝 Message notes & annotations
@@ -144,7 +144,30 @@ Configure under **Admin → Site → Organizations** (platform admins only).
 - Session tokens with 7-day expiry
 
 ### 📡 Multi-SDR support
-Run **multiple RTL-SDR dongles in parallel** — each on its own frequency, protocol, or gain setting. Status bar shows per-dongle health with individual indicators and hover tooltips. Distributed RPi clients can be assigned a **colour**, shown on their badge in the feed so messages are easy to trace back to their source dongle.
+Run **multiple RTL-SDR dongles in parallel** — each on its own frequency, protocol, or gain setting. Status bar shows per-dongle health with individual indicators and hover tooltips. Distributed RPi clients can be assigned a **colour**, shown on their badge in the feed so messages are easy to trace back to their source dongle. Dongles can also be identified by hardware **serial number** instead of USB enumeration order, which stays stable across reboots and replugs.
+
+### 🎙️ Live voice channels
+Listen to a voice frequency (e.g. fire/EMS dispatch) live in the browser, on the same dongle that's decoding POCSAG — powered by [rtl_airband](https://github.com/rtl-airband/RTLSDR-Airband).
+- Low-latency PCM audio relayed over the same WebSocket connection used for the message feed — no separate media server or extra open port
+- **Live listener counts** per channel, with usernames shown on hover
+- **Auto-listen** — arm a channel to start playing automatically the instant it keys up
+- **Voice-only dongles** — dedicate a second/third dongle purely to voice channels, with no multimon-ng process spawned for it
+- **Discord voice relay** — stream any voice channel live into a Discord voice channel via a bot (separate from the Discord *message* notifications below)
+- Per-channel squelch and NFM de-emphasis (tau) tuning
+
+Configure under **Admin → SDR → Voice Channels** and **Admin → SDR → Discord Relay**. See [INSTALL.md](INSTALL.md#voice-channels-listen-live-alongside-pocsag) for hardware requirements (Pi 3/4 only) and setup.
+
+### 🗺️ Regional data overlays (Slovenia)
+Optional live map layers for Slovenia-based deployments, each independently toggleable and dormant (no API traffic) until enabled:
+
+| Layer | Source | Notes |
+|---|---|---|
+| **Aircraft tracking** | OpenSky Network | Tracks Slovenia's Fire Boss wildfire-response aircraft; optional API credentials raise the poll rate from 5 min to 1 min |
+| **Traffic** | NAP (national access point, b2b.nap.si) | DARS/DRSI traffic cameras, roadworks, live events, VMS signs — requires a free NAP B2B account |
+| **Weather stations** | ARSO | Full automatic station network, regional forecasts, CAP severe-weather warnings |
+| **Earthquakes** | ARSO seismology | Recent quakes near Slovenia |
+
+Enable/disable each under **Admin → Site → Optional Features**.
 
 ### 🗄️ Archive & history
 - Auto-archive old messages to a separate `archive.db`
@@ -156,12 +179,12 @@ Run **multiple RTL-SDR dongles in parallel** — each on its own frequency, prot
 
 | Group | Tabs |
 |---|---|
-| **SDR** | SDR Control (start/stop/restart) · Dead Air detection · Live log viewer · SDR Clients dashboard (per-client colour) · Client Key |
+| **SDR** | SDR Control (start/stop/restart) · Dead Air detection · Live log viewer · SDR Clients dashboard (per-client colour) · **Client Logs** (unified remote-client log viewer) · Client Key · **Voice Channels** · **Discord Relay** |
 | **Messages** | Database tools (purge, export) · Archive config · Statistics dashboard · Dedup · Highlight rules · Keyword alerts · **Feed Filter** (capcode/group/alias + content filters) · **Message Normalizations** |
 | **Notifications** | Services (Discord / Telegram / Gotify / Pushover / MQTT) · Webhooks · Email (SMTP) · User notification preferences |
 | **Aliases & Groups** | Group manager · Alias manager (with CSV import/export) |
 | **System** | System stats · **One-click update** · Backup & Restore · Audit log |
-| **Site** | Site settings · **AI Geocode** (Nominatim / HERE · Groq / OpenAI / Ollama) · User management · **Organizations** (platform admins) |
+| **Site** | Site settings · **Optional Features** (toggle Aircraft/Traffic/Weather map layers) · **AI Geocode** (Nominatim / HERE · Groq / OpenAI / Ollama) · Aircraft Tracking · Traffic Data (NAP) · User management · User Locations · **Organizations** (platform admins) |
 
 ---
 
