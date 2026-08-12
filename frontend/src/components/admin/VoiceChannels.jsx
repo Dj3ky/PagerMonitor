@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Radio, Trash2, Plus, Save, Headphones } from 'lucide-react';
+import { Radio, Trash2, Plus, Save, Headphones, Cpu, Clock } from 'lucide-react';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
@@ -9,6 +9,15 @@ const MODES = ['nfm','am'];
 const EMPTY = { description:'', freq:'', mode:'nfm', squelch:'', tau:'', sort_order:0 };
 
 function Flash({msg}){ if(!msg)return null; const ok=msg.type==='ok'; return <div style={{padding:'0.4rem 0.75rem',borderRadius:'0.4rem',fontSize:'0.78rem',fontFamily:'monospace',marginBottom:'0.75rem',color:ok?'var(--accent-green)':'var(--accent-red)',background:`color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 10%,transparent)`,border:`1px solid color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 30%,transparent)`}}>{msg.text}</div>; }
+
+// Relative "last heard" label — mirrors SdrClients.jsx's fmtSilent for consistency.
+function fmtAgo(ms) {
+  const sec = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (sec < 60)         return `${sec}s ago`;
+  if (sec < 3600)       return `${Math.floor(sec/60)}m ago`;
+  if (sec < 86400)      return `${Math.floor(sec/3600)}h ago`;
+  return `${Math.floor(sec/86400)}d ago`;
+}
 
 export default function VoiceChannels() {
   const [channels, setChannels] = useState([]);
@@ -66,6 +75,15 @@ export default function VoiceChannels() {
               {' · '}<span style={{color:'var(--accent-blue)'}}>{c.mode}</span>
               {c.squelch ? <>{' · squelch '}{c.squelch}</> : null}
               {c.tau ? <>{' · tau '}{c.tau}µs</> : null}
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:'0.75rem',flexWrap:'wrap',marginTop:'0.2rem',fontSize:'0.72rem',color:'var(--text-3)'}}>
+              <span style={{display:'flex',alignItems:'center',gap:'0.25rem'}} title="Dongle/client this channel is assigned to">
+                <Cpu size={11}/> {listeners[c.id]?.owner?.label || 'unassigned'}
+              </span>
+              <span style={{display:'flex',alignItems:'center',gap:'0.25rem'}}
+                title={listeners[c.id]?.lastHeardAt ? new Date(listeners[c.id].lastHeardAt).toLocaleString() : 'No confirmed transmission since server start'}>
+                <Clock size={11}/> {listeners[c.id]?.lastHeardAt ? fmtAgo(listeners[c.id].lastHeardAt) : 'never heard'}
+              </span>
             </div>
           </div>
           {!!listeners[c.id]?.count && (

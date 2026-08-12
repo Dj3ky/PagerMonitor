@@ -51,11 +51,15 @@ function resolveChannelOwner(channelId) {
     && dongle.voiceChannelIds.map(Number).includes(id);
 
   const local = getDongleConfigs();
-  if (Array.isArray(local) && local.some(matches)) return { type: 'local' };
+  if (Array.isArray(local)) {
+    const dongle = local.find(matches);
+    if (dongle) return { type: 'local', dongleLabel: dongle.label || null };
+  }
 
   for (const { clientId, config } of getAllClientConfigs()) {
     const dongles = Array.isArray(config?.dongles) ? config.dongles : [config];
-    if (dongles.some(matches)) return { type: 'remote', clientId };
+    const dongle = dongles.find(matches);
+    if (dongle) return { type: 'remote', clientId, dongleLabel: dongle.label || null };
   }
   return null;
 }
@@ -153,6 +157,13 @@ function pushLocalFrame(channelId, payload) {
 const ACTIVITY_RMS_THRESHOLD = 0.02; // starting point — rtl_airband's float32 samples are ~[-1,1]; tune if too sensitive/insensitive
 const ACTIVITY_HANG_MS = 800;
 
+// "Last heard" bookkeeping — a channel must stay continuously active (per channelActivity,
+// which is already hang-debounced above) for this long before it counts as a real
+// transmission, so a brief RF noise blip doesn't update the timestamp shown to admins.
+const ACTIVITY_CONFIRM_MS = 2000;
+const channelHeardAt      = new Map(); // channelId -> ms epoch of last confirmed transmission
+const channelConfirmTimer = new Map(); // channelId -> pending "confirm as heard" timer while active but not yet confirmed
+
 function computeRms(buf) {
   const n = buf.length >> 2;
   if (n === 0) return 0;
@@ -167,6 +178,20 @@ function setChannelActive(channelId, active) {
   channelActivity.set(id, active);
   const { broadcast } = require('./websocket');
   broadcast({ type: 'channel_activity', channelId: id, active });
+
+  clearTimeout(channelConfirmTimer.get(id));
+  channelConfirmTimer.delete(id);
+  if (active) {
+    channelConfirmTimer.set(id, setTimeout(() => {
+      channelConfirmTimer.delete(id);
+      channelHeardAt.set(id, Date.now());
+    }, ACTIVITY_CONFIRM_MS));
+  }
+}
+
+/** { channelId: msEpoch } for every channel with at least one confirmed (>= ACTIVITY_CONFIRM_MS) transmission since server start. */
+function getHeardTimestamps() {
+  return Object.fromEntries(channelHeardAt);
 }
 
 // isLoud: whether *this particular sample* was above threshold — the hang-time debounce
@@ -428,6 +453,8 @@ module.exports = {
   isAudioConnected,
   getListenerCounts,
   getActiveChannels,
+  getHeardTimestamps,
+  resolveChannelOwner,
   pushLocalFrame,
   reportLocalActivitySample,
   handleBrowserListen,

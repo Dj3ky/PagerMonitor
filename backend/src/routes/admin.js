@@ -535,11 +535,33 @@ router.delete('/voice-channels/:id', (req,res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
-// Live listener counts per channel id — polled by the admin UI, not org-scoped (this is
-// instance infrastructure, same rationale as sdr-clients/audioConnected above).
-router.get('/voice-channels/listeners', (_req, res) => {
-  try { res.json(require('../services/audioRelay').getListenerCounts()); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+// Live per-channel status — listener counts, which dongle/client owns the channel, and
+// when it was last confirmed transmitting. Polled by the admin UI. Owner/listener data
+// is instance infrastructure (not org-scoped, same rationale as sdr-clients/audioConnected
+// above); the channel list itself is scoped to the requesting org.
+router.get('/voice-channels/listeners', (req, res) => {
+  try {
+    const audioRelay   = require('../services/audioRelay');
+    const { getClients } = require('../services/clientTracker');
+    const listenerCounts = audioRelay.getListenerCounts();
+    const heardAt         = audioRelay.getHeardTimestamps();
+    const clientLabel = (id) => getClients().find(c => c.id === id)?.displayName || id;
+
+    const out = {};
+    for (const c of getVoiceChannels(req.session.orgId)) {
+      const owner = audioRelay.resolveChannelOwner(c.id);
+      out[c.id] = {
+        count: listenerCounts[c.id]?.count || 0,
+        usernames: listenerCounts[c.id]?.usernames || [],
+        owner: owner && {
+          type: owner.type,
+          label: owner.dongleLabel || (owner.type === 'remote' ? clientLabel(owner.clientId) : 'This server'),
+        },
+        lastHeardAt: heardAt[c.id] || null,
+      };
+    }
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Discord relays (org-scoped) — streams a voice channel live into a Discord voice
