@@ -56,7 +56,7 @@ function UserRow({ u, me, onRole, onDelete, onEdit }) {
 
 export default function UsersPanel() {
   const { user: me, logout, refreshUser } = useAuth();
-  const { data: users, loading, reload } = useAdminFetch(authUsers, []);
+  const { data: users, loading, reload } = useAdminFetch(() => authUsers(me?.orgId), [me?.orgId]);
   const { data: invites, loading: invitesLoading, reload: reloadInvites } = useAdminFetch(adminFetchInvites, []);
   const [msg, setMsg]         = useState(null);
   const [newUser, setNewUser] = useState({ username:'', password:'', email:'', role:'viewer' });
