@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Siren, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag, Siren, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -36,6 +36,7 @@ export default function UserProfile({ onClose }) {
   const [email, setEmail]   = useState('');
   const [prefs, setPrefs]   = useState({
     enabled:false, mode:'all', group_ids:[], capcodes:[], keywords:[],
+    alias_color_from_group:false,
     push_enabled:false, push_mode:'all', push_group_ids:[], push_capcodes:[], push_keywords:[],
     alert_enabled:false, alert_mode:'all', alert_group_ids:[], alert_capcodes:[], alert_keywords:[],
   });
@@ -85,7 +86,11 @@ export default function UserProfile({ onClose }) {
 
   const savePrefs = async () => {
     setSaving(true);
-    try { await api('PUT', '/auth/me/notif-prefs', prefs); flashPref('ok', 'Preferences saved'); }
+    try {
+      await api('PUT', '/auth/me/notif-prefs', prefs);
+      window.dispatchEvent(new CustomEvent('pm:notif-prefs-updated', { detail: { alias_color_from_group: !!prefs.alias_color_from_group } }));
+      flashPref('ok', 'Preferences saved');
+    }
     catch (e) { flashPref('err', e.message); }
     finally { setSaving(false); }
   };
@@ -162,7 +167,7 @@ export default function UserProfile({ onClose }) {
             </button>
           </div>
 
-          {/* Notification prefs */}
+	          {/* Notification prefs */}
           <div className="pm-card">
             <div className="pm-section-title"><Bell size={13}/> Email notification preferences</div>
             <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
@@ -402,6 +407,26 @@ export default function UserProfile({ onClose }) {
 
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.25rem' }}>
+              <Save size={13}/> Save preferences
+            </button>
+          </div>
+
+          {/* Alias creation prefs */}
+          <div className="pm-card">
+            <div className="pm-section-title"><Tag size={13}/> Alias creation</div>
+            <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
+              Controls how the alias form behaves when you create a new alias in the admin area.
+            </p>
+
+            <label style={{ display:'flex', alignItems:'flex-start', gap:'0.5rem',
+              fontSize:'0.82rem', cursor:'pointer', color:'var(--text-1)', lineHeight:1.45 }}>
+              <input type="checkbox" checked={!!prefs.alias_color_from_group}
+                onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
+              <span>Automatically use the selected group's colour and keep it in sync while the group changes.</span>
+            </label>
+
+            <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
+              style={{ marginTop:'0.75rem' }}>
               <Save size={13}/> Save preferences
             </button>
           </div>

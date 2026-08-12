@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { Tag, Trash2, Save, Pencil, X, Upload, Download, Search } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
 import { adminFetchAliases, adminSaveAlias, adminDeleteAlias, adminDeleteAllAliases,
@@ -36,6 +36,7 @@ export default function AliasManager() {
   const [msg, setMsg]         = useState(null);
   const [importAsGlobal, setImportAsGlobal] = useState(false);
   const [search, setSearch]   = useState('');
+  const [aliasColorFromGroup, setAliasColorFromGroup] = useState(false);
   const fileRef               = useRef();
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 3500); };
@@ -50,6 +51,39 @@ export default function AliasManager() {
       a.group_name?.toLowerCase().includes(q)
     );
   }, [aliases, search]);
+
+  const loadAliasColorPreference = () => {
+    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/auth/me/notif-prefs`, {
+      headers: { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('pm_token') || ''}` },
+    })
+      .then(r => r.json())
+      .then(d => setAliasColorFromGroup(!!d?.alias_color_from_group))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    const onPrefsUpdate = (e) => {
+      if (typeof e.detail?.alias_color_from_group === 'boolean') {
+        setAliasColorFromGroup(e.detail.alias_color_from_group);
+      } else {
+        loadAliasColorPreference();
+      }
+    };
+    loadAliasColorPreference();
+    window.addEventListener('pm:notif-prefs-updated', onPrefsUpdate);
+    return () => window.removeEventListener('pm:notif-prefs-updated', onPrefsUpdate);
+  }, []);
+
+  const applyGroupSelection = (groupId) => {
+    setForm(f => {
+      const next = { ...f, group_id: groupId };
+      if (!editing && aliasColorFromGroup) {
+        const selected = groups.find(g => String(g.id) === String(groupId));
+        if (selected?.color) next.color = selected.color;
+      }
+      return next;
+    });
+  };
 
   const handleSave = async () => {
     if (!form.capcode.trim() || !form.name.trim()) { flash('err', 'Capcode and name are required'); return; }
@@ -156,7 +190,7 @@ export default function AliasManager() {
           </div>
           <div>
             <label className="pm-label">Group (optional)</label>
-            <select className="pm-input" value={form.group_id||''} onChange={e => setForm(f=>({...f,group_id:e.target.value}))}>
+            <select className="pm-input" value={form.group_id||''} onChange={e => applyGroupSelection(e.target.value)}>
               <option value="">— No group —</option>
               {groups.map(g => (
                 <option key={g.id} value={g.id}>{g.parent_id ? '  ↳ ' : ''}{g.name}</option>

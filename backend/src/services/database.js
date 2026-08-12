@@ -386,6 +386,7 @@ function _migrate() {
       group_ids        TEXT    NOT NULL DEFAULT '[]',
       capcodes         TEXT    NOT NULL DEFAULT '[]',
       keywords         TEXT    NOT NULL DEFAULT '[]',
+      alias_color_from_group INTEGER NOT NULL DEFAULT 0,
       push_enabled     INTEGER NOT NULL DEFAULT 0,
       push_mode        TEXT    NOT NULL DEFAULT 'all',
       push_group_ids   TEXT    NOT NULL DEFAULT '[]',
@@ -400,6 +401,10 @@ function _migrate() {
   `);
 
   const prefCols = db.prepare('PRAGMA table_info(user_notif_prefs)').all().map(c => c.name);
+  if (!prefCols.includes('alias_color_from_group')) {
+    db.exec('ALTER TABLE user_notif_prefs ADD COLUMN alias_color_from_group INTEGER NOT NULL DEFAULT 0');
+    logger.info('Migration: added alias_color_from_group to user_notif_prefs');
+  }
   if (!prefCols.includes('push_enabled')) {
     db.exec('ALTER TABLE user_notif_prefs ADD COLUMN push_enabled   INTEGER NOT NULL DEFAULT 0');
     db.exec('ALTER TABLE user_notif_prefs ADD COLUMN push_mode      TEXT    NOT NULL DEFAULT \'all\'');
@@ -837,6 +842,7 @@ function getUserNotifPrefs(userId) {
   const row = getDb().prepare('SELECT * FROM user_notif_prefs WHERE user_id=?').get(userId);
   if (!row) return {
     enabled: false, mode: 'all', group_ids: [], capcodes: [], keywords: [],
+    alias_color_from_group: false,
     push_enabled: false, push_mode: 'all', push_group_ids: [], push_capcodes: [], push_keywords: [],
     alert_enabled: false, alert_mode: 'all', alert_group_ids: [], alert_capcodes: [], alert_keywords: [],
   };
@@ -846,6 +852,7 @@ function getUserNotifPrefs(userId) {
     group_ids:       JSON.parse(row.group_ids       || '[]'),
     capcodes:        JSON.parse(row.capcodes        || '[]').map(normCapcode),
     keywords:        JSON.parse(row.keywords        || '[]'),
+    alias_color_from_group: !!row.alias_color_from_group,
     push_enabled:    !!row.push_enabled,
     push_mode:       row.push_mode || 'all',
     push_group_ids:  JSON.parse(row.push_group_ids  || '[]'),
@@ -862,13 +869,14 @@ function getUserNotifPrefs(userId) {
 function setUserNotifPrefs(userId, prefs) {
   getDb().prepare(`
     INSERT INTO user_notif_prefs
-      (user_id, enabled, mode, group_ids, capcodes, keywords,
+      (user_id, enabled, mode, group_ids, capcodes, keywords, alias_color_from_group,
        push_enabled, push_mode, push_group_ids, push_capcodes, push_keywords,
        alert_enabled, alert_mode, alert_group_ids, alert_capcodes, alert_keywords)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       enabled=excluded.enabled, mode=excluded.mode,
       group_ids=excluded.group_ids, capcodes=excluded.capcodes, keywords=excluded.keywords,
+      alias_color_from_group=excluded.alias_color_from_group,
       push_enabled=excluded.push_enabled, push_mode=excluded.push_mode,
       push_group_ids=excluded.push_group_ids, push_capcodes=excluded.push_capcodes,
       push_keywords=excluded.push_keywords,
@@ -880,6 +888,7 @@ function setUserNotifPrefs(userId, prefs) {
     JSON.stringify(prefs.group_ids       || []),
     JSON.stringify((prefs.capcodes       || []).map(normCapcode)),
     JSON.stringify(prefs.keywords        || []),
+    prefs.alias_color_from_group ? 1 : 0,
     prefs.push_enabled ? 1 : 0, prefs.push_mode || 'all',
     JSON.stringify(prefs.push_group_ids  || []),
     JSON.stringify((prefs.push_capcodes  || []).map(normCapcode)),

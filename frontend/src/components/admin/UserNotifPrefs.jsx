@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Bell, Save, RefreshCw, Mail, Smartphone, Siren } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
@@ -18,6 +19,7 @@ const MODES = [
 
 const DEFAULT_PREFS = {
   enabled: false, mode: 'all', group_ids: [], capcodes: [], keywords: [],
+  alias_color_from_group: false,
   push_enabled: false, push_mode: 'all', push_group_ids: [], push_capcodes: [], push_keywords: [],
   alert_enabled: false, alert_mode: 'all', alert_group_ids: [], alert_capcodes: [], alert_keywords: [],
 };
@@ -137,6 +139,7 @@ function FilterSection({ label, icon: Icon, accentVar, enabled, onToggle, prefs,
 }
 
 function UserCard({ user, groups, aliases, onSave }) {
+  const { user: currentUser } = useAuth();
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFS, ...user.prefs });
   const [email, setEmail] = useState(user.email || '');
   const [saving, setSaving] = useState(false);
@@ -149,6 +152,9 @@ function UserCard({ user, groups, aliases, onSave }) {
     try {
       await api('PUT', `/admin/users/${user.id}/email`, { email });
       await api('PUT', `/admin/user-notif-prefs/${user.id}`, prefs);
+      if (currentUser?.id === user.id) {
+        window.dispatchEvent(new CustomEvent('pm:notif-prefs-updated', { detail: { alias_color_from_group: !!prefs.alias_color_from_group } }));
+      }
       flash('ok', 'Saved');
       onSave?.();
     } catch (e) { flash('err', e.message); }
@@ -179,6 +185,12 @@ function UserCard({ user, groups, aliases, onSave }) {
       </div>
 
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <div className="pm-section-title" style={{ marginBottom: '0.45rem' }}>Notifications</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', lineHeight: 1.5 }}>
+            Configure which messages trigger email and push notifications for this user.
+          </div>
+        </div>
         <FilterSection
           label="Email notifications"
           icon={Mail}
@@ -215,6 +227,16 @@ function UserCard({ user, groups, aliases, onSave }) {
           aliases={aliases}
           prefixKey="alert_"
         />
+
+        <div style={{ marginTop: '1rem', paddingTop: '0.9rem', borderTop: '1px solid var(--border-soft)' }}>
+          <div className="pm-section-title" style={{ marginBottom: '0.45rem' }}>Alias creation</div>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem', cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-2)', lineHeight: 1.45 }}>
+            <input type="checkbox"
+              checked={!!prefs.alias_color_from_group}
+              onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
+            <span>Automatically use the selected group's colour for new aliases and update it while the group changes.</span>
+          </label>
+        </div>
       </div>
 
       <div style={{ marginTop: '0.5rem' }}>
@@ -252,13 +274,13 @@ export default function UserNotifPrefs() {
       <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-1)', marginBottom: '0.5rem',
         display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'space-between' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Bell size={16} style={{ color: 'var(--accent-amber)' }} /> User Notification Preferences
+          <Bell size={16} style={{ color: 'var(--accent-amber)' }} /> User Preferences
         </span>
         <button className="pm-btn" onClick={load}><RefreshCw size={12} /></button>
       </h2>
       <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginBottom: '1rem', lineHeight: 1.6 }}>
-        Set email address, email notification filter, push notification filter, and alert filter
-        (bypasses silent/Do Not Disturb on the Android app) for each user.
+        Set email address, email notification filter, push notification filter, alert filter
+        (bypasses silent/Do Not Disturb on the Android app), and alias creation preferences for each user.
         Users can also update their own preferences from the profile icon in the header.
       </p>
 
