@@ -555,7 +555,9 @@ router.get('/voice-channels/listeners', (req, res) => {
         usernames: listenerCounts[c.id]?.usernames || [],
         owner: owner && {
           type: owner.type,
-          label: owner.dongleLabel || (owner.type === 'remote' ? clientLabel(owner.clientId) : 'This server'),
+          label: owner.type === 'remote'
+            ? clientLabel(owner.clientId) + (owner.dongleLabel ? ` - ${owner.dongleLabel}` : '')
+            : (owner.dongleLabel || 'This server'),
         },
         lastHeardAt: heardAt[c.id] || null,
       };
