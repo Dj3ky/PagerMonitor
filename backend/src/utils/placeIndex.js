@@ -6,6 +6,12 @@ const path = require('path');
 // countryCode → Map<normKey → [{name, municipality, lat, lng}]> | null
 const _indexes = new Map();
 
+// countryCode → Map<lastWordNormKey → [{name, municipality, lat, lng}]> | null
+// Indexes multi-word place names by their last word only, so a bare base-name
+// search (e.g. "Kamence") can also find Slovenian directional/size-qualified
+// compounds like "Dolenje Kamence" / "Gorenje Kamence" — see lookupWordLoose().
+const _lastWordIndexes = new Map();
+
 // countryCode → compiled RegExp (city names where name===municipality) | null
 const _cityRegexCache = new Map();
 
@@ -33,31 +39,44 @@ function _stems(normName) {
   return variants;
 }
 
-function _buildIndex(places) {
+function _addTo(map, key, entry) {
+  if (!map.has(key)) map.set(key, []);
+  const arr = map.get(key);
+  if (!arr.some(x => x.name === entry.name && x.municipality === entry.municipality)) arr.push(entry);
+}
+
+function _buildIndexes(places) {
   const map = new Map();
+  const lastWordMap = new Map();
   for (const p of places) {
     if (!p.name || !p.municipality) continue;
-    for (const key of _stems(_norm(p.name))) {
-      if (!map.has(key)) map.set(key, []);
-      const arr = map.get(key);
-      if (!arr.some(x => x.name === p.name && x.municipality === p.municipality)) {
-        arr.push({ name: p.name, municipality: p.municipality, lat: p.lat, lng: p.lng });
-      }
+    const entry = { name: p.name, municipality: p.municipality, lat: p.lat, lng: p.lng };
+    const normName = _norm(p.name);
+    for (const key of _stems(normName)) _addTo(map, key, entry);
+
+    const nameWords = normName.split(/\s+/);
+    if (nameWords.length > 1) {
+      for (const key of _stems(nameWords[nameWords.length - 1])) _addTo(lastWordMap, key, entry);
     }
   }
-  return map;
+  return { map, lastWordMap };
 }
 
 function _getIndex(countryCode = 'si') {
-  if (_indexes.has(countryCode)) return _indexes.get(countryCode);
+  _loadIndexes(countryCode);
+  return _indexes.get(countryCode) ?? null;
+}
+
+function _loadIndexes(countryCode) {
+  if (_indexes.has(countryCode)) return;
   const file = path.join(__dirname, `../../data/${countryCode}_places.json`);
-  let idx = null;
+  let idx = null, lastWordIdx = null;
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (Array.isArray(raw) && raw.length > 0) idx = _buildIndex(raw);
+    if (Array.isArray(raw) && raw.length > 0) ({ map: idx, lastWordMap: lastWordIdx } = _buildIndexes(raw));
   } catch (_) { /* file absent or malformed — graceful degradation */ }
   _indexes.set(countryCode, idx);
-  return idx;
+  _lastWordIndexes.set(countryCode, lastWordIdx);
 }
 
 function hasData(countryCode = 'si') {
@@ -66,6 +85,19 @@ function hasData(countryCode = 'si') {
 
 function lookupWord(word, countryCode = 'si') {
   const idx = _getIndex(countryCode);
+  if (!idx) return [];
+  return idx.get(_norm(word)) || [];
+}
+
+// Looser companion to lookupWord(): matches `word` against only the LAST word of
+// multi-word place names (e.g. searching "Kamence" finds "Dolenje Kamence" and
+// "Gorenje Kamence"). Slovenian villages are frequently named as
+// <directional/size qualifier> + <base name> pairs (Dolenje/Gorenje,
+// Spodnje/Zgornje, Mala/Velika...), and an alias naming just the base wouldn't
+// otherwise match at all.
+function lookupWordLoose(word, countryCode = 'si') {
+  _loadIndexes(countryCode);
+  const idx = _lastWordIndexes.get(countryCode);
   if (!idx) return [];
   return idx.get(_norm(word)) || [];
 }
@@ -161,11 +193,13 @@ function buildCityRegex(countryCode = 'si') {
 function invalidate(countryCode) {
   if (countryCode) {
     _indexes.delete(countryCode);
+    _lastWordIndexes.delete(countryCode);
     _cityRegexCache.delete(countryCode);
   } else {
     _indexes.clear();
+    _lastWordIndexes.clear();
     _cityRegexCache.clear();
   }
 }
 
-module.exports = { disambiguate, lookupWord, hasData, buildCityRegex, invalidate };
+module.exports = { disambiguate, lookupWord, lookupWordLoose, hasData, buildCityRegex, invalidate };

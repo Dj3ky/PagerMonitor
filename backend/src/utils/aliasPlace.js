@@ -6,7 +6,7 @@
 // placeIndex.js). Most Slovenian fire/rescue alias names are "<org type>
 // <place>", so stripping the org-type prefix leaves the place name.
 
-const { lookupWord } = require('./placeIndex');
+const { lookupWord, lookupWordLoose } = require('./placeIndex');
 
 // Leading tokens that identify an org type rather than a place. Best-effort list —
 // a deployment-specific abbreviation that isn't listed here just fails to resolve
@@ -43,16 +43,41 @@ function resolveAliasHome(aliasName, countryCode = 'si') {
   for (let len = words.length; len >= 1; len--) {
     for (let start = 0; start + len <= words.length; start++) {
       const candidate = words.slice(start, start + len).join(' ');
-      const matches = lookupWord(candidate, countryCode);
-      if (matches.length) {
-        result = matches.find(m => m.name.toLowerCase() === m.municipality.toLowerCase()) || matches[0];
-        break outer;
-      }
+      const found = _resolveCandidate(candidate, countryCode);
+      if (found) { result = found; break outer; }
     }
   }
 
   _cache.set(key, result);
   return result;
+}
+
+// Resolves one candidate place-name string to a single best entry, or null.
+// Priority:
+//   1. An unambiguous exact match, or one whose name IS its own municipality
+//      seat — highest confidence.
+//   2. A "twin village" compound family: 2+ directional/size-qualified compounds
+//      (e.g. "Dolenje Kamence" + "Gorenje Kamence") sharing a municipality — a
+//      bare alias name like "Kamence" almost certainly means that shared area,
+//      and this pattern is common enough in Slovenian place names to trust.
+//   3. Whatever ambiguous exact match(es) exist, first one — old behavior,
+//      weakest signal, kept as a last resort.
+//   4. A single (non-twin) compound match — better than nothing.
+function _resolveCandidate(candidate, countryCode) {
+  const exact = lookupWord(candidate, countryCode);
+  const seat  = exact.find(m => m.name.toLowerCase() === m.municipality.toLowerCase());
+  if (seat) return seat;
+  if (exact.length === 1) return exact[0];
+
+  const compound = lookupWordLoose(candidate, countryCode);
+  const muniCounts = new Map();
+  for (const m of compound) muniCounts.set(m.municipality, (muniCounts.get(m.municipality) || 0) + 1);
+  const twinMuni = [...muniCounts.entries()].find(([, n]) => n >= 2)?.[0];
+  if (twinMuni) return compound.find(m => m.municipality === twinMuni);
+
+  if (exact.length) return exact[0];
+  if (compound.length) return compound[0];
+  return null;
 }
 
 // Drops cached resolutions — needed after an admin geo-data refresh, since a
