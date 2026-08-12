@@ -20,7 +20,8 @@ const { getDb, getStats, getMessageStats,
         deleteMessage, getUserLocations, getUserById,
         createOrganization, getOrganizations, renameOrganization, deleteOrganization,
         createInvite, listInvites, revokeInvite,
-        getSetting: _gs, setSetting: _ss, normCapcode } = require('../services/database');
+        getSetting: _gs, setSetting: _ss, normCapcode, getAliasNameForCapcode } = require('../services/database');
+const { resolveAliasHome } = require('../utils/aliasPlace');
 const { getConfig, updateConfig, testNotification } = require('../services/notifications');
 const { getSdrConfig, saveSdrConfig, getDedupConfig, saveDedupConfig,
         getNotifFilter, saveNotifFilter, getDongleConfigs, saveDongleConfigs,
@@ -191,19 +192,24 @@ router.post('/messages/:id/regeocode', platformOnly, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id || isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   try {
-    const row = getDb().prepare('SELECT message FROM messages WHERE id = ?').get(id);
+    const row = getDb().prepare('SELECT message, capcode FROM messages WHERE id = ?').get(id);
     if (!row) return res.status(404).json({ ok: false, reason: 'Message not found' });
 
     const cc = (_gs('site_settings', {}).geocodeCountry || 'si');
     const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
-    const loc = parseLocation(row.message, cc);
+    // Same soft geographic anchor as the live ingest pipeline (see services/sdr.js)
+    // — without this, ambiguous settlement names default to whichever same-named
+    // place happens to be first in the data file, not necessarily the right one.
+    const aliasName = row.capcode ? getAliasNameForCapcode(row.capcode) : null;
+    const homeHint  = aliasName ? resolveAliasHome(aliasName, cc) : null;
+    const loc = parseLocation(row.message, cc, homeHint);
     if (loc.lat != null && loc.lng != null) {
       getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(loc.lat, loc.lng, id);
       require('../services/websocket').broadcast({ type: 'message_location', id, lat: loc.lat, lng: loc.lng });
       addAuditLog(req.session?.username||'admin', 'message.regeocode', `id=${id} type=coords`);
       return res.json({ ok: true, lat: loc.lat, lng: loc.lng, query: loc.raw });
     }
-    const result = await geocodeAddress(loc.candidates || [], cc, row.message);
+    const result = await geocodeAddress(loc.candidates || [], cc, row.message, homeHint);
     if (!result) return res.json({ ok: false, reason: 'No results found', query: loc.candidates?.[0] });
     getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(result.lat, result.lng, id);
     require('../services/websocket').broadcast({ type: 'message_location', id, lat: result.lat, lng: result.lng });

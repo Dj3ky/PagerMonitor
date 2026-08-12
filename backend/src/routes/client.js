@@ -11,10 +11,11 @@ const crypto  = require('crypto');
 const express = require('express');
 const router  = express.Router();
 
-const { insertMessage, getSetting } = require('../services/database');
+const { insertMessage, getSetting, getAliasNameForCapcode } = require('../services/database');
 const { broadcast }             = require('../services/websocket');
 const { broadcastAll, notifyAll } = require('../services/fanout');
 const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
+const { resolveAliasHome } = require('../utils/aliasPlace');
 const { recordMessage, unregisterSource } = require('../services/deadair');
 const { recordClientMessage, recordClientPing, recordClientOffline, getClientConfig, popPendingCommand } = require('../services/clientTracker');
 const { getDedupConfig } = require('../services/config');
@@ -77,7 +78,12 @@ router.post('/message', requireClientKey, (req, res) => {
     } catch (_) {}
 
     const geocodeCountry = (getSetting('site_settings', {}).geocodeCountry || 'si');
-    const location = parseLocation(message || '', geocodeCountry);
+    // Soft geographic anchor for this capcode's reporting unit, derived from its
+    // alias name — see utils/aliasPlace.js and services/sdr.js (same logic, this
+    // is the ingest path for remote SDR clients instead of the local dongle).
+    const aliasName = getAliasNameForCapcode(capcode);
+    const homeHint  = aliasName ? resolveAliasHome(aliasName, geocodeCountry) : null;
+    const location = parseLocation(message || '', geocodeCountry, homeHint);
     const { lat, lng } = location;
     const ts  = timestamp || new Date().toISOString();
     // Raw, alias-agnostic — alias/group naming is resolved per-org at broadcast/read
@@ -102,7 +108,7 @@ router.post('/message', requireClientKey, (req, res) => {
     ;(async () => {
       let coordsPatch = null;
       if (!lat) {
-        const result = await geocodeAddress(location.candidates || [], geocodeCountry, message).catch(() => null);
+        const result = await geocodeAddress(location.candidates || [], geocodeCountry, message, homeHint).catch(() => null);
         if (result) {
           try { require('../services/database').getDb().prepare('UPDATE messages SET lat=?, lng=? WHERE id=?').run(result.lat, result.lng, id); } catch (_) {}
           broadcast({ type: 'message_location', id, lat: result.lat, lng: result.lng });
