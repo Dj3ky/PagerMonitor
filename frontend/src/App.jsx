@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { useAuth }      from './context/AuthContext.jsx';
 import { useSite }      from './context/SiteContext.jsx';
@@ -11,16 +11,21 @@ import StatusBar     from './components/StatusBar.jsx';
 import MessageFeed   from './components/MessageFeed.jsx';
 import SearchPanel   from './components/SearchPanel.jsx';
 import FilterBar     from './components/FilterBar.jsx';
-import AdminPanel    from './components/admin/AdminPanel.jsx';
 import MapView       from './components/MapView.jsx';
 import ArchivePanel      from './components/ArchivePanel.jsx';
 import WeatherView       from './components/WeatherView.jsx';
-import AircraftView      from './components/AircraftView.jsx';
-import TrafficView       from './components/TrafficView.jsx';
 import PasswordResetPage from './components/PasswordResetPage.jsx';
 import JoinPage          from './components/JoinPage.jsx';
 import UserProfile       from './components/UserProfile.jsx';
 import ErrorBoundary     from './components/ErrorBoundary.jsx';
+
+// Admin tooling and the aircraft/traffic radars are large and only used by a
+// subset of sessions (admins, or sites with those features enabled) — split
+// them into their own chunks instead of bloating everyone's initial bundle.
+const AdminPanel   = lazy(() => import('./components/admin/AdminPanel.jsx'));
+const AircraftView = lazy(() => import('./components/AircraftView.jsx'));
+const TrafficView  = lazy(() => import('./components/TrafficView.jsx'));
+
 import { playAlertSound } from './components/admin/KeywordAlerts.jsx';
 
 // Register sound function globally for WebSocket hook
@@ -345,12 +350,16 @@ export default function App() {
           </div>
           {enableAircraft && (
             <div style={{ position:'absolute', inset:0, display: view === 'aircraft' ? 'flex' : 'none', flexDirection:'column' }}>
-              <AircraftView visible={view === 'aircraft'} />
+              <Suspense fallback={null}>
+                <AircraftView visible={view === 'aircraft'} />
+              </Suspense>
             </div>
           )}
           {enableTraffic && (
             <div style={{ position:'absolute', inset:0, display: view === 'traffic' ? 'flex' : 'none', flexDirection:'column' }}>
-              <TrafficView visible={view === 'traffic'} />
+              <Suspense fallback={null}>
+                <TrafficView visible={view === 'traffic'} />
+              </Suspense>
             </div>
           )}
           <div style={{ position:'absolute', inset:0, display: view === 'search' ? 'flex' : 'none', flexDirection:'column' }}>
@@ -361,11 +370,13 @@ export default function App() {
               onClear={() => { setSearchResults(null); handleSetView('feed'); }} />
           </div>
           {view === 'admin' && (
-            <AdminPanel sdrStatus={effectiveSdrStatus} serverStatus={serverStatus}
-              onRulesChange={setHighlightRules} onGroupsChange={setGroups}
-              requestedTab={requestedAdminTab}
-              onTabHandled={() => setRequestedAdminTab(null)}
-              onResetMap={handleResetMap} />
+            <Suspense fallback={null}>
+              <AdminPanel sdrStatus={effectiveSdrStatus} serverStatus={serverStatus}
+                onRulesChange={setHighlightRules} onGroupsChange={setGroups}
+                requestedTab={requestedAdminTab}
+                onTabHandled={() => setRequestedAdminTab(null)}
+                onResetMap={handleResetMap} />
+            </Suspense>
           )}
         </ErrorBoundary>
       </main>
