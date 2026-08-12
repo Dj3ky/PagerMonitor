@@ -62,6 +62,18 @@ function buildGlobalDongleDefaults() {
   };
 }
 
+// Overlays override fields onto base, treating '' / null / undefined as "no override" (falls
+// back to base) — e.g. a field left blank in Admin → SDR Clients means "use the Pi's .env
+// value", not "clear it". Shared by applyRemoteConfig() and the initial-boot config merge
+// below so both follow identical semantics.
+function mergeConfig(base, override) {
+  const merged = { ...base };
+  for (const [k, v] of Object.entries(override || {})) {
+    if (v !== '' && v != null) merged[k] = v;
+  }
+  return merged;
+}
+
 function buildDongleConfigs() {
   const global = buildGlobalDongleDefaults();
 
@@ -603,6 +615,20 @@ function reconcileDongles(pipelines, serverDongles) {
   }
 }
 
+// One-shot fetch of the server-saved config, awaited before the very first pipeline start.
+// Without this, every restart/update briefly spawns rtl_fm/rtl_airband with the Pi's local
+// .env defaults (e.g. gain=40) and only picks up the real saved settings once the regular
+// poll below catches up — anywhere from 10s to over a minute later if the first poll fails.
+async function fetchInitialConfig() {
+  try {
+    const r = await httpRequest('GET', '/client/config');
+    if (r.status === 200 && r.body && r.body.config) return r.body; // { config, version }
+  } catch (e) {
+    log('debug', `Initial config fetch failed: ${e.message}`);
+  }
+  return null;
+}
+
 async function pollConfig(pipelines) {
   try {
     const list = [...pipelines.values()];
@@ -890,10 +916,7 @@ function createPipeline(baseCfg, index) {
 
   function applyRemoteConfig(remote) {
     // Rebuild from baseCfg so cleared remote fields revert to .env defaults
-    const newCfg = { ...baseCfg };
-    for (const [k, v] of Object.entries(remote)) {
-      if (v !== '' && v != null) newCfg[k] = v;
-    }
+    const newCfg = mergeConfig(baseCfg, remote);
     // JSON-compare rather than !== — voiceChannels (and any other array/object field) is a
     // fresh reference on every poll even when its content is identical, which would
     // otherwise look "changed" every cycle and restart the pipeline every 60s forever.
@@ -916,31 +939,64 @@ function createPipeline(baseCfg, index) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-const dongleConfigs = buildDongleConfigs();
-log('info', `PagerMonitor Client — ID: ${CLIENT_ID}`);
-log('info', `Server: ${SERVER_URL}`);
-log('info', `Dongles: ${dongleConfigs.length}`);
-dongleConfigs.forEach((c, i) => log('info', `  [${i}] device=${c.device} freq=${c.freq} protocols=${c.protocols}`));
-
-// Create and start a pipeline per dongle. Keyed by serial (or device index as a legacy
-// fallback) so server-pushed config can add/remove dongles later via reconcileDongles()
-// without needing a full client restart — mirrors the server's own local dongles, which
-// are already fully config-driven.
+// Declared here (not inside main()) so the SIGTERM/SIGINT shutdown handler below can still
+// reach them.
 const pipelines = new Map();
-for (const cfg of dongleConfigs) pipelines.set(dongleKey(cfg), createPipeline(cfg, pipelines.size));
-for (const p of pipelines.values()) p.start();
+let configTimer = null;
+
+async function main() {
+  log('info', `PagerMonitor Client — ID: ${CLIENT_ID}`);
+  log('info', `Server: ${SERVER_URL}`);
+
+  const localConfigs = buildDongleConfigs();
+
+  // Pull the server-saved config before spawning anything — otherwise every dongle boots at
+  // the Pi's local .env defaults and only picks up the real saved settings on the next poll
+  // cycle. Bounded by httpRequest's own 5s timeout; falls back to local defaults on failure
+  // (server unreachable at boot, no saved config yet, etc.) so the client still comes up.
+  let dongleConfigs = localConfigs;
+  const initial = await fetchInitialConfig();
+  if (initial) {
+    globalOverrideCfg   = initial.config;
+    globalConfigVersion = initial.version;
+    if (Array.isArray(initial.config.dongles)) {
+      const global = buildGlobalDongleDefaults();
+      dongleConfigs = initial.config.dongles.map((d, i) => {
+        const local = localConfigs.find(c => dongleKey(c) === dongleKey(d));
+        // Mirrors reconcileDongles()'s two merge paths: an already-known dongle merges the
+        // server config onto its local .env-derived base, a brand new one merges onto the
+        // shared global defaults.
+        return local ? mergeConfig(local, d) : { ...global, device: String(i), ...d, device: String(d.device ?? i) };
+      });
+    } else {
+      dongleConfigs = localConfigs.map(c => mergeConfig(c, initial.config));
+    }
+    log('info', 'Applied saved server config before first start');
+  }
+
+  log('info', `Dongles: ${dongleConfigs.length}`);
+  dongleConfigs.forEach((c, i) => log('info', `  [${i}] device=${c.device} freq=${c.freq} protocols=${c.protocols}`));
+
+  // Create and start a pipeline per dongle. Keyed by serial (or device index as a legacy
+  // fallback) so server-pushed config can add/remove dongles later via reconcileDongles()
+  // without needing a full client restart — mirrors the server's own local dongles, which
+  // are already fully config-driven.
+  for (const cfg of dongleConfigs) pipelines.set(dongleKey(cfg), createPipeline(cfg, pipelines.size));
+  for (const p of pipelines.values()) p.start();
+
+  // Config polling — applies to all pipelines
+  async function startConfigPolling() {
+    await pollConfig(pipelines);
+    configTimer = setInterval(() => pollConfig(pipelines), 60_000);
+    log('info', 'Remote config polling started (every 60s)');
+  }
+  setTimeout(startConfigPolling, 10_000);
+}
 
 // Voice-channel audio relay — persistent, independent of any specific dongle's lifecycle
 connectAudioWs();
 
-// Config polling — applies to all pipelines
-let configTimer = null;
-async function startConfigPolling() {
-  await pollConfig(pipelines);  // poll once on start after 10s
-  configTimer = setInterval(() => pollConfig(pipelines), 60_000);
-  log('info', 'Remote config polling started (every 60s)');
-}
-setTimeout(startConfigPolling, 10_000);
+main();
 
 // Graceful shutdown — waits (bounded) for pipelines to actually release their SDR devices
 // before exiting, so a systemd restart doesn't outrace kill()'s own SIGKILL escalation and
