@@ -81,6 +81,12 @@ export function useWebSocket(backendUrl) {
             }
           })
           .catch(() => {});
+        // Other listeners keep incremental/delta state (e.g. LiveChannels' "who's
+        // transmitting" set, built from edge-triggered channel_activity broadcasts) that
+        // a dropped connection can desync — a transition that happens while offline never
+        // gets (re-)broadcast once we're back, since the server only sends on change. Let
+        // them know to do a full resync instead of trusting what they've got.
+        wsListeners.forEach(fn => { try { fn({ type: 'ws_reconnected' }); } catch (_) {} });
       }
       attemptsRef.current = 0;
     };

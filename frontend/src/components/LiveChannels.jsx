@@ -81,6 +81,15 @@ export default function LiveChannels() {
       .then(r => setActiveChannels(new Set(Object.keys(r || {}).map(Number))))
       .catch(() => {});
     return subscribeWsMessages(data => {
+      if (data.type === 'ws_reconnected') {
+        // A transition while we were offline never gets re-broadcast (the server only
+        // sends channel_activity on change) — re-fetch the real snapshot instead of
+        // trusting whatever this Set was left holding before the drop.
+        fetchActiveVoiceChannels()
+          .then(r => setActiveChannels(new Set(Object.keys(r || {}).map(Number))))
+          .catch(() => {});
+        return;
+      }
       if (data.type !== 'channel_activity') return;
       setActiveChannels(prev => {
         const has = prev.has(data.channelId);
