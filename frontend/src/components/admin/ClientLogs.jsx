@@ -13,7 +13,7 @@ const LEVEL_COLORS = {
 
 const MAX_LINES = 1000;
 
-function LogLine({ entry, clientName }) {
+function LogLine({ entry, clientName, clientColor }) {
   const { locale, hour12 } = useSite();
   const color = LEVEL_COLORS[entry.level] || 'var(--text-2)';
   const ts    = new Date(entry.ts).toLocaleTimeString(locale, { hour12 });
@@ -21,7 +21,7 @@ function LogLine({ entry, clientName }) {
     <div style={{ display: 'flex', gap: '0.6rem', padding: '0.15rem 0',
       borderBottom: '1px solid color-mix(in srgb, var(--border) 40%, transparent)' }}>
       <span style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: 'var(--text-3)', flexShrink: 0 }}>{ts}</span>
-      <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: 'var(--accent-blue)', flexShrink: 0, maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{clientName}</span>
+      <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: clientColor, flexShrink: 0, maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{clientName}</span>
       <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color, flexShrink: 0, minWidth: '40px' }}>{entry.level}</span>
       <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-1)', wordBreak: 'break-all', lineHeight: 1.4 }}>{entry.msg}</span>
     </div>
@@ -66,7 +66,8 @@ export default function ClientLogs() {
     }
   }, [logs, paused, selected]);
 
-  const nameFor = (id) => clients.find(c => c.id === id)?.displayName || id;
+  const nameFor  = (id) => clients.find(c => c.id === id)?.displayName || id;
+  const colorFor = (id) => clients.find(c => c.id === id)?.color || 'var(--accent-blue)';
 
   const visible = useMemo(
     () => selected === 'all' ? logs : logs.filter(l => l.clientId === selected),
@@ -104,7 +105,7 @@ export default function ClientLogs() {
           ? <div style={{ color: 'var(--text-3)', fontSize: '0.8rem', paddingTop: '0.5rem', fontFamily: 'monospace' }}>
               No logs yet — connect a remote client, or wait for it to log something.
             </div>
-          : visible.map((e, i) => <LogLine key={i} entry={e} clientName={nameFor(e.clientId)} />)
+          : visible.map((e, i) => <LogLine key={i} entry={e} clientName={nameFor(e.clientId)} clientColor={colorFor(e.clientId)} />)
         }
       </div>
 
