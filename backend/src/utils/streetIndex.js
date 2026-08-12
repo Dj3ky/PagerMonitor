@@ -105,4 +105,13 @@ function matchStreet(phrase, maxResults = 10) {
 
 function hasData() { _load(); return _streets.length > 0; }
 
-module.exports = { matchStreet, hasData };
+// Drops cached index state so the next lookup re-reads si_streets.json from disk
+// — needed after the admin "geo data" refresh writes an updated file, since
+// _load() otherwise caches a failed (empty) load forever via the _ready flag.
+function invalidate() {
+  _ready = false;
+  _index.clear();
+  _streets = [];
+}
+
+module.exports = { matchStreet, hasData, invalidate };

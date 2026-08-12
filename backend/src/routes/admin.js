@@ -494,6 +494,14 @@ router.get('/geo-data/fetch', platformOnly, (req, res) => {
 
   runScript('fetchStreets.js', () => {
     runScript('fetchPlaces.js', () => {
+      // The street/place indexes are lazy-loaded singletons that cache a failed
+      // (empty) load forever — without this, a freshly-written data file isn't
+      // picked up until the backend process restarts.
+      try {
+        require('../utils/streetIndex').invalidate();
+        require('../utils/placeIndex').invalidate(cc);
+        require('../utils/aliasPlace').invalidate();
+      } catch (_) {}
       send({ type: 'done' });
       clearInterval(hb);
       res.end();

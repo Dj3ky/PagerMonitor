@@ -155,4 +155,17 @@ function buildCityRegex(countryCode = 'si') {
   return re;
 }
 
-module.exports = { disambiguate, lookupWord, hasData, buildCityRegex };
+// Drops cached index/regex state so the next lookup re-reads the data file from
+// disk — needed after the admin "geo data" refresh writes a new/updated file,
+// since _getIndex()/buildCityRegex() otherwise cache a failed (null) load forever.
+function invalidate(countryCode) {
+  if (countryCode) {
+    _indexes.delete(countryCode);
+    _cityRegexCache.delete(countryCode);
+  } else {
+    _indexes.clear();
+    _cityRegexCache.clear();
+  }
+}
+
+module.exports = { disambiguate, lookupWord, hasData, buildCityRegex, invalidate };

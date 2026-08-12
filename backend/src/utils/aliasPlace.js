@@ -55,4 +55,11 @@ function resolveAliasHome(aliasName, countryCode = 'si') {
   return result;
 }
 
-module.exports = { resolveAliasHome, stripOrgPrefix };
+// Drops cached resolutions — needed after an admin geo-data refresh, since a
+// resolveAliasHome() call made before the place-index data existed would
+// otherwise cache `null` forever for that alias.
+function invalidate() {
+  _cache.clear();
+}
+
+module.exports = { resolveAliasHome, stripOrgPrefix, invalidate };
