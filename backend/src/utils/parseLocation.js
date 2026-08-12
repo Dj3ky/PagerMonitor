@@ -114,6 +114,21 @@ function pi() {
   return _pi;
 }
 
+// Resolves a bare settlement name (from text-detection or AI extraction) to its
+// municipality via the place index, disambiguating ambiguous names (shared by
+// several places) using message-text signals and/or the reporting unit's home
+// place (homeHint). Returns municipality: null when unambiguous (the settlement
+// IS its own municipality seat) or unresolvable — callers should then omit the
+// municipality from the geocoder query rather than send a wrong one.
+function resolveSettlementMunicipality(name, messageText, countryCode, homeHint) {
+  if (!name) return { name: null, municipality: null };
+  const matches = pi().lookupWord(name, countryCode);
+  if (matches.length === 0) return { name, municipality: null };
+  const m = matches.length === 1 ? matches[0] : pi().disambiguate([name], messageText, countryCode, homeHint);
+  if (!m) return { name, municipality: null };
+  return { name: m.name, municipality: m.municipality !== m.name ? m.municipality : null };
+}
+
 // ── Confidence scoring ────────────────────────────────────────────────────────
 // Returns 0..1. Candidates below CONF_MIN are discarded.
 const CONF_MIN = 0.55;
@@ -178,17 +193,13 @@ function siCandidates(text, country, countryCode, homeHint) {
   // to the wrong same-named place elsewhere in the country.
   const textCityHint = detectCity(text, countryCode);
   let cityHint = textCityHint;
-  let cityHintMatch = null;
+  let cityHintMuni = null;
   if (textCityHint) {
-    const cityMatches = pi().lookupWord(textCityHint, countryCode);
-    if (cityMatches.length > 1) {
-      cityHintMatch = pi().disambiguate([textCityHint], text, countryCode, homeHint);
-      if (cityHintMatch) cityHint = cityHintMatch.name;
-    } else if (cityMatches.length === 1) {
-      cityHintMatch = { ...cityMatches[0], confidence: 1.0 };
-    }
+    ({ name: cityHint, municipality: cityHintMuni } =
+      resolveSettlementMunicipality(textCityHint, text, countryCode, homeHint));
   } else if (homeHint) {
     cityHint = homeHint.name;
+    cityHintMuni = homeHint.municipality !== homeHint.name ? homeHint.municipality : null;
   }
 
   const seen   = new Set();
@@ -245,14 +256,8 @@ function siCandidates(text, country, countryCode, homeHint) {
         ? `${parts}, ${placeMatch.name}, ${placeMatch.municipality}, ${country}`
         : `${parts}, ${placeMatch.name}, ${country}`;
     } else if (cityHint) {
-      // Unlike placeMatch (built from speculative hint words that might not be a
-      // place at all), cityHint already passed a strict place-name regex match —
-      // once disambiguate() has picked a specific municipality for it, include it
-      // even at moderate confidence; a best guess beats an unqualified, still-
-      // ambiguous settlement name.
-      const addMuni = cityHintMatch && cityHintMatch.municipality !== cityHintMatch.name;
-      query = addMuni
-        ? `${parts}, ${cityHint}, ${cityHintMatch.municipality}, ${country}`
+      query = cityHintMuni
+        ? `${parts}, ${cityHint}, ${cityHintMuni}, ${country}`
         : `${parts}, ${cityHint}, ${country}`;
     } else if (hints.length > 0) {
       // No place index match — pass the most proximate context words directly to
@@ -600,8 +605,17 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
         const extracted = await extractAddress(originalText, countryCode);
         if (extracted && (extracted.street || extracted.settlement)) {
           const parts = [extracted.street, extracted.houseNumber].filter(Boolean).join(' ');
-          const settlement = extracted.settlement || (homeHint ? homeHint.name : null);
-          const query = [parts, settlement, country].filter(Boolean).join(', ');
+          let settlement = extracted.settlement || (homeHint ? homeHint.name : null);
+          // The AI has no way to know which same-named place is meant (e.g. one of
+          // several Slovenian villages sharing a name) — disambiguate its settlement
+          // guess the same way as the regex pipeline's cityHint, using homeHint as
+          // the proximity tiebreaker, before it reaches the geocoder.
+          let settlementMuni = null;
+          if (settlement && countryCode === 'si') {
+            ({ name: settlement, municipality: settlementMuni } =
+              resolveSettlementMunicipality(settlement, originalText, countryCode, homeHint));
+          }
+          const query = [parts, settlement, settlementMuni, country].filter(Boolean).join(', ');
           const aiResult = await _geocode(query, countryCode, homeHint);
           if (aiResult) return { ...aiResult, aiAssisted: true };
         }
