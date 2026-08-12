@@ -2,6 +2,7 @@
 // ARSO (Slovenian environment agency) weather data — current conditions from the
 // full 96-station automatic network, 15-region 5-day forecast, and CAP warnings.
 const { XMLParser } = require('fast-xml-parser');
+const { getSetting } = require('./database');
 const logger = require('../utils/logger');
 
 const BASE = 'https://meteo.arso.gov.si/uploads/probase/www';
@@ -305,6 +306,7 @@ async function refreshWarnings() {
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 async function refreshAll(seedHistory = false) {
+  if (getSetting('site_settings', {}).enableArsoWeather === false) return;
   const results = await Promise.allSettled([refreshCurrent(seedHistory), refreshForecast(), refreshWarnings()]);
   results.forEach((r, i) => {
     if (r.status === 'rejected') logger.warn(`ARSO weather refresh (${['current','forecast','warnings'][i]}): ${r.reason?.message}`);

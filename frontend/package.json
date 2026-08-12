@@ -5,19 +5,32 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/generate-icons.mjs && vite build",
+    "build:capacitor": "node scripts/generate-icons.mjs && vite build --mode capacitor",
     "preview": "vite preview",
-    "generate-icons": "node scripts/generate-icons.mjs"
+    "generate-icons": "node scripts/generate-icons.mjs",
+    "android:open": "npx cap open android",
+    "android:sync": "npm run build:capacitor && npx cap sync android"
   },
   "dependencies": {
+    "@capacitor-community/keep-awake": "^8.0.1",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
+    "lucide-react": "^0.383.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "lucide-react": "^0.383.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "sharp": "^0.33.5",
+    "@capacitor/assets": "^3.0.5",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
+    "sharp": "^0.33.5",
     "tailwindcss": "^3.4.3",
     "vite": "^5.2.10"
   }

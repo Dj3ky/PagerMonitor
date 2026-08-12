@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePtrScroll } from '../../hooks/usePtrScroll.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useSite } from '../../context/SiteContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
-         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera } from 'lucide-react';
+         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera, Bot, SlidersHorizontal } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
@@ -16,8 +17,10 @@ import UsersPanel     from './UsersPanel.jsx';
 import HighlightRules from './HighlightRules.jsx';
 import DedupConfig    from './DedupConfig.jsx';
 import SiteSettings   from './SiteSettings.jsx';
+import OptionalFeatures from './OptionalFeatures.jsx';
 import ClientSettings from './ClientSettings.jsx';
 import SdrClients     from './SdrClients.jsx';
+import ClientLogs     from './ClientLogs.jsx';
 import KeywordAlerts  from './KeywordAlerts.jsx';
 import DeadAirConfig  from './DeadAirConfig.jsx';
 import Webhooks       from './Webhooks.jsx';
@@ -36,6 +39,7 @@ import MsgNormalizations   from './MsgNormalizations.jsx';
 import UserLocations       from './UserLocations.jsx';
 import Organizations       from './Organizations.jsx';
 import VoiceChannels       from './VoiceChannels.jsx';
+import DiscordRelay        from './DiscordRelay.jsx';
 
 // platformOnly tabs are instance-wide infrastructure (shared by every org) — gated to
 // the platform admin, distinct from the org-admin `role==='admin'` used elsewhere.
@@ -44,9 +48,11 @@ const TABS = [
   { id:'sdr',         label:'SDR Control',    icon:<Cpu size={14}/>,        sdrOnly: true,    platformOnly: true },
   { id:'logs',        label:'Live Logs',      icon:<Terminal size={14}/>,   sdrOnly: true,    platformOnly: true },
   { id:'sdrclients',  label:'SDR Clients',    icon:<Activity size={14}/>,   serverOnly: true, platformOnly: true },
+  { id:'clientlogs',  label:'Client Logs',    icon:<Terminal size={14}/>,   serverOnly: true, platformOnly: true },
   { id:'client',      label:'Client Key',     icon:<Wifi size={14}/>,       serverOnly: true, platformOnly: true },
   { id:'deadair',     label:'Dead Air',       icon:<Radio size={14}/>,      platformOnly: true },
   { id:'voicechannels', label:'Voice Channels', icon:<Radio size={14}/> },
+  { id:'discordrelay',  label:'Discord Relay',  icon:<Bot size={14}/> },
 
   { group: 'Messages' },
   { id:'db',          label:'Database',       icon:<Database size={14}/>,   platformOnly: true },
@@ -76,9 +82,10 @@ const TABS = [
 
   { group: 'Site' },
   { id:'site',        label:'Site Settings',  icon:<Settings2 size={14}/>,  platformOnly: true },
+  { id:'optionalfeatures', label:'Optional Features', icon:<SlidersHorizontal size={14}/>, platformOnly: true },
   { id:'aigeocode',   label:'AI Geocode',     icon:<Brain size={14}/>,      platformOnly: true },
-  { id:'aircraft',    label:'Aircraft Tracking', icon:<Plane size={14}/>,  platformOnly: true },
-  { id:'traffic',     label:'Traffic Data (NAP)', icon:<Camera size={14}/>, platformOnly: true },
+  { id:'aircraft',    label:'Aircraft Tracking', icon:<Plane size={14}/>,  platformOnly: true, feature: 'enableAircraft' },
+  { id:'traffic',     label:'Traffic Data (NAP)', icon:<Camera size={14}/>, platformOnly: true, feature: 'enableTraffic' },
   { id:'users',       label:'Users',          icon:<Users size={14}/> },
   { id:'userlocations', label:'User Locations', icon:<MapPin size={14}/> },
 
@@ -100,6 +107,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'keyword':     return <KeywordAlerts />;
     case 'deadair':     return <DeadAirConfig />;
     case 'voicechannels': return <VoiceChannels />;
+    case 'discordrelay':  return <DiscordRelay />;
     case 'webhooks':    return <Webhooks />;
     case 'email':       return <EmailConfig />;
     case 'usernotif':   return <UserNotifPrefs />;
@@ -108,8 +116,10 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'highlights':  return <HighlightRules onRulesChange={onRulesChange} />;
     case 'dedup':       return <DedupConfig />;
     case 'site':        return <SiteSettings onResetMap={onResetMap} />;
+    case 'optionalfeatures': return <OptionalFeatures />;
     case 'client':      return <ClientSettings />;
     case 'sdrclients':  return <SdrClients />;
+    case 'clientlogs':  return <ClientLogs />;
     case 'users':          return <UsersPanel />;
     case 'userlocations':  return <UserLocations />;
     case 'backup':         return <BackupRestore />;
@@ -125,6 +135,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
 
 export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onGroupsChange, requestedTab, onTabHandled, onResetMap }) {
   const { user } = useAuth();
+  const site = useSite();
   const sdrDisabled = serverStatus?.sdrDisabled === true;
   const isEditor    = user?.role === 'editor';
   const isPlatformAdmin = !!user?.isPlatformAdmin;
@@ -138,6 +149,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
     if (t.sdrOnly    && sdrDisabled)  return false;
     if (t.serverOnly && !sdrDisabled) return false;
     if (t.platformOnly && !isPlatformAdmin) return false;
+    if (t.feature && site[t.feature] === false) return false;
     if (isEditor && !EDITOR_TABS.has(t.id)) return false;
     return true;
   }).filter((t, i, arr) => {
@@ -148,14 +160,14 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
   const [tab, setTab]               = useState(() => sessionStorage.getItem('pm_admin_tab') || 'sdr');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pickerRef                   = useRef(null);
-  const contentRef                  = usePtrScroll();
+  const { ref: contentRef }         = usePtrScroll();
 
   const actualTabs  = visibleTabs.filter(t => !t.group);
   const currentTab  = actualTabs.find(t => t.id === tab) || actualTabs[0];
 
-  // When sdrDisabled changes (serverStatus loads), the stored tab may no longer
-  // be visible (e.g. 'sdr' in server mode, 'sdrclients' in single-device mode).
-  // Reset to the first available tab so state, sidebar highlight and content stay in sync.
+  // When sdrDisabled changes (serverStatus loads) or a feature toggle turns off the
+  // tab currently open (e.g. Traffic Data while on it), reset to the first available
+  // tab so state, sidebar highlight and content stay in sync.
   useEffect(() => {
     if (actualTabs.length && !actualTabs.find(t => t.id === tab)) {
       const newTab = actualTabs[0].id;
@@ -163,7 +175,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
       setTab(newTab);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sdrDisabled]);
+  }, [sdrDisabled, site.enableTraffic, site.enableAircraft]);
 
   const handleSetTab = (t) => {
     sessionStorage.setItem('pm_admin_tab', t);

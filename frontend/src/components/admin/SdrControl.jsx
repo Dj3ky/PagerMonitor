@@ -22,11 +22,11 @@ const DONGLE_DEFAULTS = {
   gain:'40', ppm:'0', squelch:'0', resampleRate:'', lowpass:'',
   tunerBandwidth:'', directSampling:'0', offsetTuning:'0',
   protocols:'POCSAG1200', verbosity:'', quiet:'1', inputFormat:'', pocsagSpecial:'0', charset:'',
-  mode:'single', voiceChannelIds:[],
+  mode:'single', voiceChannelIds:[], pocsagEnabled:true,
 };
 const DONGLE_FIELDS = [
   { key:'label',          label:'Label',               hint:'Optional feed/archive label for this dongle',             group:'meta' },
-  { key:'device',         label:'Device index (-d)',   hint:'0 = first dongle, 1 = second, …',                      group:'rtl' },
+  { key:'device',         label:'Device index (-d)',   hint:'Legacy fallback, only used when Serial above is not set',  group:'rtl' },
   { key:'freq',           label:'Frequency (-f)',      hint:'e.g. 173.250M or 173.250M:152.240M',                   group:'rtl' },
   { key:'modulation',     label:'Modulation (-M)',     hint:'fm | am | usb | lsb | wbfm | raw',                     group:'rtl' },
   { key:'sampleRate',     label:'Sample rate (-s)',    hint:'Hz — 22050 recommended for POCSAG',                    group:'rtl' },
@@ -88,6 +88,7 @@ export default function SdrControl({ sdrStatus }) {
   const [dongles, setDongles] = useState([]);   // [] = single dongle mode
   const [multiMode, setMultiMode] = useState(false);
   const [channels, setChannels] = useState([]); // voice channel catalog, for airband mode's checklist
+  const [detected, setDetected] = useState([]); // hardware actually plugged into this server, by serial
 
   const load = () => {
     setLoading(true);
@@ -95,11 +96,13 @@ export default function SdrControl({ sdrStatus }) {
       adminFetchSdrConfig(),
       api('GET', '/admin/sdr/dongles'),
       api('GET', '/admin/voice-channels'),
-    ]).then(([cfg, d, ch]) => {
+      api('GET', '/admin/sdr/detected-dongles').catch(() => []),
+    ]).then(([cfg, d, ch, det]) => {
       setConfig(cfg && typeof cfg === 'object' ? cfg : {});
       const arr = Array.isArray(d) && d.length > 0 ? d : [];
       setDongles(arr);
       setChannels(Array.isArray(ch) ? ch : []);
+      setDetected(Array.isArray(det) ? det : []);
       const isMulti = arr.length > 1;
       setMultiMode(isMulti);
       // Collapse default single-dongle settings when multi-dongle mode is already active
@@ -122,12 +125,14 @@ export default function SdrControl({ sdrStatus }) {
     try {
       if (multiMode && dongles.length > 1) {
         // Save dongle configs then explicitly restart
-        await api('PUT', '/admin/sdr/dongles', dongles);
+        const r = await api('PUT', '/admin/sdr/dongles', dongles);
+        if (!r.ok) throw new Error(r.error || 'Save failed');
         await adminSdrRestart();
         flash('ok', `${dongles.length} dongles configured — pipeline restarting…`);
       } else {
         // Clear dongle configs first, then save single config (which triggers restart)
-        await api('PUT', '/admin/sdr/dongles', []);
+        const r = await api('PUT', '/admin/sdr/dongles', []);
+        if (!r.ok) throw new Error(r.error || 'Save failed');
         await adminSdrSetConfig(config);
         flash('ok', 'Config applied — pipeline restarting…');
       }
@@ -347,6 +352,32 @@ export default function SdrControl({ sdrStatus }) {
                         placeholder="e.g. North Pager / Backup SDR" />
                     </div>
 
+                    {/* Serial: stable identity across reboots/replugs — device index (below)
+                        is only a legacy fallback used when no serial is selected. */}
+                    <div style={{ marginBottom:'0.65rem' }}>
+                      <label className="pm-label">Serial</label>
+                      <select className="pm-input" value={d.serial || ''}
+                        onChange={e => updateDongle(i, 'serial', e.target.value)}>
+                        <option value="">— Not set (uses device index below) —</option>
+                        {detected.map(dev => {
+                          const usedElsewhere = dongles.some((x, j) => j !== i && x.serial === dev.serial);
+                          return (
+                            <option key={dev.serial} value={dev.serial} disabled={usedElsewhere}>
+                              {dev.vendor} {dev.product} — SN:{dev.serial}{usedElsewhere ? ' (assigned to another dongle)' : ''}
+                            </option>
+                          );
+                        })}
+                        {d.serial && !detected.some(dev => dev.serial === d.serial) && (
+                          <option value={d.serial}>SN:{d.serial} (not currently detected)</option>
+                        )}
+                      </select>
+                      <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginTop:'0.2rem' }}>
+                        {detected.length === 0
+                          ? 'No dongles detected on this server — burn a unique serial with rtl_eeprom first, then reload this page.'
+                          : `${detected.length} dongle(s) currently detected on this server.`}
+                      </div>
+                    </div>
+
                     {/* Mode: plain rtl_fm (POCSAG only) vs rtl_airband (POCSAG + voice channels) */}
                     <div style={{ marginBottom:'0.65rem' }}>
                       <label className="pm-label">Mode</label>
@@ -358,11 +389,23 @@ export default function SdrControl({ sdrStatus }) {
                     </div>
 
                     {d.mode === 'airband' && (
+                      <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.8rem',
+                        cursor:'pointer', color:'var(--text-1)', marginBottom:'0.65rem' }}>
+                        <input type="checkbox" checked={d.pocsagEnabled !== false}
+                          onChange={e => updateDongle(i, 'pocsagEnabled', e.target.checked)} />
+                        Include POCSAG channel
+                        <span style={{ fontSize:'0.72rem', color:'var(--text-3)' }}>
+                          (uncheck for voice-only listening on this dongle — no multimon-ng)
+                        </span>
+                      </label>
+                    )}
+
+                    {d.mode === 'airband' && (
                       <div style={{ marginBottom:'0.65rem', padding:'0.5rem 0.6rem',
                         background:'var(--bg-3)', borderRadius:'0.4rem' }}>
                         <div style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
                           textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.35rem' }}>
-                          Voice channels to decode alongside POCSAG
+                          Voice channels to decode{d.pocsagEnabled !== false ? ' alongside POCSAG' : ''}
                         </div>
                         {channels.length === 0 ? (
                           <div style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>

@@ -77,6 +77,21 @@
        'contain' when scrolled down, 'auto' only when at top + finger touching. */
     overscroll-behavior-x: contain;
     overscroll-behavior-y: auto;
+    /* Chrome's default blue tap-highlight rectangle and long-press text-selection
+       callout read as "web page", not "app" — every native Android app suppresses
+       both, so do the same here. */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+
+  button, [role="button"], a {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  button:active, [role="button"]:active {
+    transform: scale(0.97);
+    transition: transform 0.08s ease-out;
   }
 
   ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -185,8 +200,28 @@
     background: var(--bg-3);
     color: var(--text-2);
     cursor: pointer; transition: all 0.15s;
+    position: relative;
+    overflow: hidden;
   }
   .pm-btn:hover { background: var(--bg-4); color: var(--text-1); }
+
+  /* A centered radial "ripple" flash — not touch-position-accurate (that needs JS per
+     button, not worth it for ~35 files of plain buttons), but still reads as real tap
+     feedback: snaps in instantly on press, fades out slowly on release. */
+  .pm-btn::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at center, currentColor 0%, transparent 70%);
+    opacity: 0;
+    transform: scale(0.3);
+    transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+    pointer-events: none;
+  }
+  .pm-btn:active::after {
+    opacity: 0.18;
+    transform: scale(1);
+    transition: opacity 0.05s, transform 0.05s;
+  }
 
   .pm-btn-primary {
     background: color-mix(in srgb, var(--accent-green) 15%, transparent);
@@ -211,6 +246,10 @@
     border: 1px solid var(--border);
     border-radius: 0.75rem;
     padding: 1rem;
+    /* Dark theme leans on the existing bg-N tonal scale for depth (Material's own dark-theme
+       guidance: shadows are secondary there); this shadow mainly earns its keep in light
+       theme, where there's much less tonal contrast between a card and its background. */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.1);
   }
 
   .pm-label {

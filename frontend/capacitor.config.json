@@ -1,0 +1,22 @@
+{
+  "appId": "link.drhub.pagermonitor",
+  "appName": "PagerMonitor",
+  "webDir": "dist",
+  "backgroundColor": "#0d1117",
+  "android": {
+    "backgroundColor": "#0d1117",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "backgroundColor": "#0d1117",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0d1117"
+    }
+  }
+}

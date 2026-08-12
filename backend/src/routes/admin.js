@@ -7,12 +7,14 @@ const { version } = require('../../package.json');
 
 const { requireAdmin, requireEditor, requirePlatformAdmin } = require('../services/auth');
 const { startSdrPipeline, stopSdrPipeline, restartSdrPipeline, getStatus, getLogs } = require('../services/sdr');
+const { listAttachedDongles } = require('../services/rtlDevices');
 const { getDb, getStats, getMessageStats,
         getGroups, createGroup, updateGroup, deleteGroup,
         getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
         getHighlightRules, upsertHighlightRule, deleteHighlightRule,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
         getVoiceChannels, upsertVoiceChannel, deleteVoiceChannel,
+        getDiscordRelays, upsertDiscordRelay, deleteDiscordRelay,
         getWebhooks, upsertWebhook, deleteWebhook,
         addAuditLog, getAuditLog,
         deleteMessage, getUserLocations, getUserById,
@@ -65,11 +67,34 @@ router.post('/sdr/config',  platformOnly, (req, res)  => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Turns findVoiceChannelConflicts' structured output into one readable sentence for the
+// error toast — resolving channel ids/client ids to their display names so it actually
+// says something actionable instead of "channel 3 conflicts with client a1b2c3".
+function describeChannelConflicts(conflicts) {
+  const { getVoiceChannelById } = require('../services/database');
+  const { getClients } = require('../services/clientTracker');
+  const clients = getClients();
+  const clientLabel = id => clients.find(c => c.id === id)?.displayName || id;
+  return conflicts.map(c => {
+    const name = getVoiceChannelById(c.channelId)?.description || `channel ${c.channelId}`;
+    if (c.duplicatedHere) return `"${name}" is assigned to more than one dongle in this save`;
+    const where = c.owners.map(o => o.type === 'local' ? 'a local dongle' : `remote client "${clientLabel(o.clientId)}"`).join(', ');
+    return `"${name}" is already assigned to ${where}`;
+  }).join('; ');
+}
+
 // Multi-dongle configs
 router.get('/sdr/dongles',  platformOnly, (_req, res) => { try{ res.json(getDongleConfigs() || []); } catch(e){ res.status(500).json({error:e.message}); }});
+router.get('/sdr/detected-dongles', platformOnly, async (_req, res) => {
+  try { res.json(await listAttachedDongles()); } catch(e){ res.status(500).json({error:e.message}); }
+});
 router.put('/sdr/dongles',  platformOnly, (req, res)  => {
   try {
     const dongles = Array.isArray(req.body) ? req.body : [];
+    const conflicts = require('../services/audioRelay').findVoiceChannelConflicts(dongles, { type: 'local' });
+    if (conflicts.length > 0) {
+      return res.status(409).json({ error: describeChannelConflicts(conflicts), conflicts });
+    }
     saveDongleConfigs(dongles.length > 0 ? dongles : null);
     // Don't restart here — caller will restart after setting all configs
     addAuditLog(req.session?.username||'admin', 'sdr.dongles', `count=${dongles.length}`);
@@ -388,27 +413,39 @@ router.get('/user-locations', adminOnly, (req, res) => {
 });
 
 // ── Site settings (instance-wide) ──────────────────────────────────────────────
+const SITE_SETTINGS_DEFAULTS = { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'si', locale:'sl-SI', timezone:'Europe/Ljubljana', windyApiKey:'', enableTraffic:true, enableAircraft:true, enableArsoWeather:true };
+
 router.get('/site-settings', platformOnly, (_req, res) => {
-  try { res.json(_gs('site_settings', { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'si', locale:'sl-SI', timezone:'Europe/Ljubljana', windyApiKey:'' })); }
+  try { res.json(_gs('site_settings', SITE_SETTINGS_DEFAULTS)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.put('/site-settings', platformOnly, (req, res) => {
   try {
-    const { siteName, siteDescription, newBadgeSeconds, mapDotColor, showMapButton, mapMaxAgeDays, publicMode, geocodeCountry, locale, hour12, timezone, windyApiKey } = req.body;
+    const cur = _gs('site_settings', SITE_SETTINGS_DEFAULTS);
+    const b = req.body;
     const validTz = tz => { try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; } catch (_) { return false; } };
-    _ss('site_settings', {
-      siteName: siteName || 'PagerMonitor', siteDescription: siteDescription || '',
-      newBadgeSeconds: Math.max(0, Math.min(300, parseInt(newBadgeSeconds,10)||0)),
-      mapDotColor: mapDotColor || '#00ff9d', showMapButton: showMapButton !== false,
-      mapMaxAgeDays: Math.max(1/24, Math.min(365, parseFloat(mapMaxAgeDays)||30)),
-      publicMode: !!publicMode,
-      geocodeCountry: /^[a-z]{2}$/.test(geocodeCountry) ? geocodeCountry : 'si',
-      locale: /^[a-z]{2}-[A-Z]{2}$/.test(locale) ? locale : 'sl-SI',
-      hour12: !!hour12,
-      timezone: (typeof timezone === 'string' && validTz(timezone)) ? timezone : 'Europe/Ljubljana',
-      windyApiKey: typeof windyApiKey === 'string' ? windyApiKey.trim() : '',
-    });
-    addAuditLog(req.session?.username||'admin', 'site.settings', `publicMode=${!!publicMode}`);
+    // Merge onto the existing stored blob — only fields present in the request body
+    // are validated/overwritten, so a page that only edits e.g. the feature toggles
+    // doesn't clobber unrelated settings saved from another admin tab.
+    const next = {
+      siteName: b.siteName !== undefined ? (b.siteName || 'PagerMonitor') : cur.siteName,
+      siteDescription: b.siteDescription !== undefined ? (b.siteDescription || '') : cur.siteDescription,
+      newBadgeSeconds: b.newBadgeSeconds !== undefined ? Math.max(0, Math.min(300, parseInt(b.newBadgeSeconds,10)||0)) : cur.newBadgeSeconds,
+      mapDotColor: b.mapDotColor !== undefined ? (b.mapDotColor || '#00ff9d') : cur.mapDotColor,
+      showMapButton: b.showMapButton !== undefined ? (b.showMapButton !== false) : cur.showMapButton,
+      mapMaxAgeDays: b.mapMaxAgeDays !== undefined ? Math.max(1/24, Math.min(365, parseFloat(b.mapMaxAgeDays)||30)) : cur.mapMaxAgeDays,
+      publicMode: b.publicMode !== undefined ? !!b.publicMode : cur.publicMode,
+      geocodeCountry: b.geocodeCountry !== undefined ? (/^[a-z]{2}$/.test(b.geocodeCountry) ? b.geocodeCountry : 'si') : cur.geocodeCountry,
+      locale: b.locale !== undefined ? (/^[a-z]{2}-[A-Z]{2}$/.test(b.locale) ? b.locale : 'sl-SI') : cur.locale,
+      hour12: b.hour12 !== undefined ? !!b.hour12 : cur.hour12,
+      timezone: b.timezone !== undefined ? ((typeof b.timezone === 'string' && validTz(b.timezone)) ? b.timezone : 'Europe/Ljubljana') : cur.timezone,
+      windyApiKey: b.windyApiKey !== undefined ? (typeof b.windyApiKey === 'string' ? b.windyApiKey.trim() : '') : cur.windyApiKey,
+      enableTraffic: b.enableTraffic !== undefined ? (b.enableTraffic !== false) : (cur.enableTraffic !== false),
+      enableAircraft: b.enableAircraft !== undefined ? (b.enableAircraft !== false) : (cur.enableAircraft !== false),
+      enableArsoWeather: b.enableArsoWeather !== undefined ? (b.enableArsoWeather !== false) : (cur.enableArsoWeather !== false),
+    };
+    _ss('site_settings', next);
+    addAuditLog(req.session?.username||'admin', 'site.settings', `publicMode=${!!next.publicMode}`);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -503,6 +540,33 @@ router.delete('/voice-channels/:id', (req,res) => {
 router.get('/voice-channels/listeners', (_req, res) => {
   try { res.json(require('../services/audioRelay').getListenerCounts()); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Discord relays (org-scoped) — streams a voice channel live into a Discord voice
+// channel via a bot connection. reconcile() (lazy-required to dodge circular init) tells
+// discordRelay.js to pick up the change — connect/disconnect/rejoin as needed.
+router.get('/discord-relays', (req, res) => {
+  try { res.json(getDiscordRelays(req.session.orgId)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.put('/discord-relays', (req, res) => {
+  try {
+    const { description, voice_channel_id, bot_token, guild_id, discord_channel_id } = req.body;
+    if (!voice_channel_id || !bot_token || !guild_id || !discord_channel_id) {
+      return res.status(400).json({ error: 'voice_channel_id, bot_token, guild_id, and discord_channel_id are required' });
+    }
+    const { id } = upsertDiscordRelay(req.session.orgId, req.body);
+    require('../services/discordRelay').reconcile().catch(() => {});
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.delete('/discord-relays/:id', (req, res) => {
+  try {
+    const changes = deleteDiscordRelay(parseInt(req.params.id), req.session.orgId);
+    if (!changes) return res.status(404).json({ error: 'Relay not found, or not yours to delete' });
+    require('../services/discordRelay').reconcile().catch(() => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Dead air config (instance-wide) ────────────────────────────────────────────
@@ -716,10 +780,25 @@ router.get('/sdr-clients/configs', platformOnly, (_req, res) => {
 
 router.put('/sdr-clients/:id/config', platformOnly, (req, res) => {
   try {
-    const version = saveClientConfig(decodeURIComponent(req.params.id), req.body);
+    const clientId = decodeURIComponent(req.params.id);
+    const dongles = Array.isArray(req.body?.dongles) ? req.body.dongles : [req.body];
+    const conflicts = require('../services/audioRelay').findVoiceChannelConflicts(dongles, { type: 'remote', clientId });
+    if (conflicts.length > 0) {
+      return res.status(409).json({ error: describeChannelConflicts(conflicts), conflicts });
+    }
+    const version = saveClientConfig(clientId, req.body);
     res.json({ ok: true, version });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /admin/clients/logs — buffered history, merged across all clients unless ?clientId=
+router.get('/clients/logs', platformOnly, (req, res) => {
+  try {
+    const { getClientLogs, getAllClientLogs } = require('../services/audioRelay');
+    const clientId = req.query.clientId;
+    res.json(clientId ? getClientLogs(clientId) : getAllClientLogs());
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // POST /admin/sdr-clients/:id/command — queue a remote command (e.g. 'update')

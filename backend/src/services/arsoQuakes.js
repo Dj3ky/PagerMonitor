@@ -1,5 +1,6 @@
 'use strict';
 // ARSO seismology — recent earthquakes in and around Slovenia.
+const { getSetting } = require('./database');
 const logger = require('../utils/logger');
 
 const URL = 'https://potresi.arso.gov.si/sc/potresi/public';
@@ -17,6 +18,7 @@ let cache = { quakes: [], updatedAt: null };
 let timer = null;
 
 async function refresh() {
+  if (getSetting('site_settings', {}).enableArsoWeather === false) return;
   const res = await fetch(URL, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const raw = await res.json();

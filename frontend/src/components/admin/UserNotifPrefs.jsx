@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Save, RefreshCw, Mail, Smartphone } from 'lucide-react';
+import { Bell, Save, RefreshCw, Mail, Smartphone, Siren } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
@@ -21,6 +21,7 @@ const DEFAULT_PREFS = {
   enabled: false, mode: 'all', group_ids: [], capcodes: [], keywords: [],
   alias_color_from_group: false,
   push_enabled: false, push_mode: 'all', push_group_ids: [], push_capcodes: [], push_keywords: [],
+  alert_enabled: false, alert_mode: 'all', alert_group_ids: [], alert_capcodes: [], alert_keywords: [],
 };
 
 function FilterSection({ label, icon: Icon, accentVar, enabled, onToggle, prefs, onChange, groups, aliases, prefixKey }) {
@@ -214,6 +215,18 @@ function UserCard({ user, groups, aliases, onSave }) {
           aliases={aliases}
           prefixKey="push_"
         />
+        <FilterSection
+          label="Alert notifications (bypass silent — Android app only)"
+          icon={Siren}
+          accentVar="--accent-red"
+          enabled={prefs.alert_enabled}
+          onToggle={v => setPrefs(p => ({ ...p, alert_enabled: v }))}
+          prefs={prefs}
+          onChange={setPrefs}
+          groups={groups}
+          aliases={aliases}
+          prefixKey="alert_"
+        />
 
         <div style={{ marginTop: '1rem', paddingTop: '0.9rem', borderTop: '1px solid var(--border-soft)' }}>
           <div className="pm-section-title" style={{ marginBottom: '0.45rem' }}>Alias creation</div>
@@ -266,7 +279,8 @@ export default function UserNotifPrefs() {
         <button className="pm-btn" onClick={load}><RefreshCw size={12} /></button>
       </h2>
       <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginBottom: '1rem', lineHeight: 1.6 }}>
-        Set email address, notification settings, and alias creation preferences for each user.
+        Set email address, email notification filter, push notification filter, alert filter
+        (bypasses silent/Do Not Disturb on the Android app), and alias creation preferences for each user.
         Users can also update their own preferences from the profile icon in the header.
       </p>
 

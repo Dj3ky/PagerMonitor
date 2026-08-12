@@ -1,29 +1,38 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useAuth }      from './context/AuthContext.jsx';
+import { useSite }      from './context/SiteContext.jsx';
 import { useWebSocket, subscribeWsMessages } from './hooks/useWebSocket.js';
 import { fetchHistory, fetchSearch, fetchStatus, fetchRules, fetchGroups } from './utils/api.js';
 import LoginPage     from './components/LoginPage.jsx';
 import Header        from './components/Header.jsx';
+import BottomNav     from './components/BottomNav.jsx';
 import StatusBar     from './components/StatusBar.jsx';
 import MessageFeed   from './components/MessageFeed.jsx';
 import SearchPanel   from './components/SearchPanel.jsx';
 import FilterBar     from './components/FilterBar.jsx';
-import AdminPanel    from './components/admin/AdminPanel.jsx';
 import MapView       from './components/MapView.jsx';
 import ArchivePanel      from './components/ArchivePanel.jsx';
 import WeatherView       from './components/WeatherView.jsx';
-import AircraftView      from './components/AircraftView.jsx';
-import TrafficView       from './components/TrafficView.jsx';
 import PasswordResetPage from './components/PasswordResetPage.jsx';
 import JoinPage          from './components/JoinPage.jsx';
 import UserProfile       from './components/UserProfile.jsx';
 import ErrorBoundary     from './components/ErrorBoundary.jsx';
+
+// Admin tooling and the aircraft/traffic radars are large and only used by a
+// subset of sessions (admins, or sites with those features enabled) — split
+// them into their own chunks instead of bloating everyone's initial bundle.
+const AdminPanel   = lazy(() => import('./components/admin/AdminPanel.jsx'));
+const AircraftView = lazy(() => import('./components/AircraftView.jsx'));
+const TrafficView  = lazy(() => import('./components/TrafficView.jsx'));
+
 import { playAlertSound } from './components/admin/KeywordAlerts.jsx';
 
 // Register sound function globally for WebSocket hook
 window.__playAlertSound = playAlertSound;
 import { useBrowserNotifications } from './hooks/useBrowserNotifications.js';
 import { usePushSubscription }     from './hooks/usePushSubscription.js';
+import { useFcmPush }              from './hooks/useFcmPush.js';
 import { useLocationSharing }      from './hooks/useLocationSharing.js';
 
 const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || '';
@@ -31,6 +40,7 @@ const PAGE_OPTIONS = [20, 50, 100, 200];
 
 export default function App() {
   const { user, loading: authLoading, needsSetup, isPublic } = useAuth();
+  const { enableTraffic, enableAircraft } = useSite();
   const [showLogin, setShowLogin]       = useState(false);
   const [showProfile, setShowProfile]   = useState(false);
   const [resetToken]                    = useState(() => new URLSearchParams(window.location.search).get('reset'));
@@ -44,6 +54,7 @@ export default function App() {
   const [serverStatus, setServerStatus]     = useState(null);
   const [pollSdrStatus, setPollSdrStatus]   = useState(null);
   const [latestSha, setLatestSha]           = useState(null);
+  const [updateFlags, setUpdateFlags]       = useState({ server: false, client: false });
   const [view, setView] = useState(() => sessionStorage.getItem('pm_view') || 'feed');
   // Requested admin tab — set by the status-bar update link so AdminPanel can
   // switch tabs even when it is already mounted (view already === 'admin').
@@ -53,9 +64,19 @@ export default function App() {
     sessionStorage.setItem('pm_view', v);
     setView(v);
   };
+
+  // Bounce off a menu that got disabled while the user was on it (or is disabled on load).
+  useEffect(() => {
+    if ((view === 'aircraft' && !enableAircraft) || (view === 'traffic' && !enableTraffic)) {
+      handleSetView('feed');
+    }
+  }, [view, enableAircraft, enableTraffic]);
   const [soundEnabled, setSoundEnabled]     = useState(true);
   const browserNotif = useBrowserNotifications();
   const pushSub      = usePushSubscription();
+  useFcmPush();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isNative = Capacitor.isNativePlatform();
   const [paused, setPaused]                 = useState(false);
   const [newCount, setNewCount]             = useState(0);
   const [loadingMore, setLoadingMore]       = useState(false);
@@ -96,6 +117,12 @@ export default function App() {
     fetchGroups().then(r => Array.isArray(r) ? setGroups(r) : null).catch(console.warn);
   }, [user]);
 
+  // Pull-to-refresh (native only — see usePtrScroll) re-catches-up the feed the same way
+  // a WS reconnect does, without needing to actually drop the socket.
+  const refreshFeed = useCallback(() => (
+    fetchHistory(200).then(prependHistory).catch(console.warn)
+  ), [prependHistory]);
+
   useEffect(() => {
     if (!user) return;
     const poll = () => fetchStatus().then(s => {
@@ -120,6 +147,43 @@ export default function App() {
     const t = setInterval(check, 60 * 60 * 1000); // re-check every hour
     return () => clearInterval(t);
   }, [user]);
+
+  // This is a monorepo (client/, backend/, frontend/ all in one repo), so the server
+  // and every SDR client just report their own `git rev-parse HEAD` of the whole tree.
+  // Comparing that hash directly against latestSha above would flag "update available"
+  // for a Pi client even when the newest commit only touched backend/ or frontend/ (and
+  // vice versa for the server). Instead, diff each reported hash against latestSha via
+  // GitHub's compare API and only flag it if the changed files actually fall under the
+  // relevant directory. Results are cached per hash pair since hashes rarely change.
+  const compareCacheRef = useRef(new Map());
+  useEffect(() => {
+    if (!latestSha) return;
+    const serverHash    = serverStatus?.gitHash;
+    const clientHashes  = [...new Set((serverStatus?.sdrClients ?? []).map(c => c.gitHash).filter(Boolean))];
+
+    const touchesPath = async (fromHash, prefixes) => {
+      if (!fromHash || fromHash === latestSha) return false;
+      const cacheKey = `${fromHash}..${latestSha}`;
+      const cached = compareCacheRef.current.get(cacheKey);
+      if (cached) return cached.some(f => prefixes.some(p => f.startsWith(p)));
+      try {
+        const r = await fetch(`https://api.github.com/repos/Dj3ky/PagerMonitor/compare/${fromHash}...${latestSha}`);
+        if (!r.ok) return false;
+        const d = await r.json();
+        const files = (d.files || []).map(f => f.filename);
+        compareCacheRef.current.set(cacheKey, files);
+        return files.some(f => prefixes.some(p => f.startsWith(p)));
+      } catch { return false; }
+    };
+
+    let cancelled = false;
+    (async () => {
+      const serverRelevant = await touchesPath(serverHash, ['backend/', 'frontend/']);
+      const clientRelevant = (await Promise.all(clientHashes.map(h => touchesPath(h, ['client/'])))).some(Boolean);
+      if (!cancelled) setUpdateFlags({ server: serverRelevant, client: clientRelevant });
+    })();
+    return () => { cancelled = true; };
+  }, [latestSha, serverStatus?.gitHash, JSON.stringify((serverStatus?.sdrClients ?? []).map(c => c.gitHash))]);
 
   useEffect(() => {
     if (paused && messages.length > 0) setNewCount(n => n + 1);
@@ -233,12 +297,13 @@ export default function App() {
         view={view} setView={handleSetView}
         isGuest={isGuest}
         onGuestLogin={() => setShowLogin(true)}
-        onProfileOpen={() => setShowProfile(true)} />
+        onProfileOpen={() => setShowProfile(true)}
+        menuOpen={mobileMenuOpen} onMenuOpenChange={setMobileMenuOpen} />
       {showProfile && <UserProfile onClose={() => setShowProfile(false)} />}
 
       <StatusBar sdrStatus={effectiveSdrStatus} serverStatus={serverStatus}
         wsStatus={wsStatus} messageCount={messages.length}
-        latestSha={latestSha}
+        latestSha={latestSha} updateFlags={updateFlags}
         onNavigate={(tab) => { handleSetView('admin'); setRequestedAdminTab(tab); }} />
 
       {view === 'feed' && (
@@ -265,7 +330,8 @@ export default function App() {
               totalInDb={serverStatus?.stats?.total || 0}
               totalLoaded={messages.length}
               onDelete={removeMessage}
-              wsStatus={wsStatus} />
+              wsStatus={wsStatus}
+              onRefresh={refreshFeed} />
           </div>
           {/* MapView always mounted so geocoding/state persists across tab switches */}
           <div style={{ position:'absolute', inset:0, display: view === 'map' ? 'block' : 'none' }}>
@@ -282,12 +348,20 @@ export default function App() {
           <div style={{ position:'absolute', inset:0, display: view === 'weather' ? 'flex' : 'none', flexDirection:'column' }}>
             <WeatherView visible={view === 'weather'} locationSharing={locationSharing} />
           </div>
-          <div style={{ position:'absolute', inset:0, display: view === 'aircraft' ? 'flex' : 'none', flexDirection:'column' }}>
-            <AircraftView visible={view === 'aircraft'} />
-          </div>
-          <div style={{ position:'absolute', inset:0, display: view === 'traffic' ? 'flex' : 'none', flexDirection:'column' }}>
-            <TrafficView visible={view === 'traffic'} />
-          </div>
+          {enableAircraft && (
+            <div style={{ position:'absolute', inset:0, display: view === 'aircraft' ? 'flex' : 'none', flexDirection:'column' }}>
+              <Suspense fallback={null}>
+                <AircraftView visible={view === 'aircraft'} />
+              </Suspense>
+            </div>
+          )}
+          {enableTraffic && (
+            <div style={{ position:'absolute', inset:0, display: view === 'traffic' ? 'flex' : 'none', flexDirection:'column' }}>
+              <Suspense fallback={null}>
+                <TrafficView visible={view === 'traffic'} />
+              </Suspense>
+            </div>
+          )}
           <div style={{ position:'absolute', inset:0, display: view === 'search' ? 'flex' : 'none', flexDirection:'column' }}>
             <SearchPanel results={searchResults} searching={searching}
               highlightRules={highlightRules} groups={groups}
@@ -296,14 +370,21 @@ export default function App() {
               onClear={() => { setSearchResults(null); handleSetView('feed'); }} />
           </div>
           {view === 'admin' && (
-            <AdminPanel sdrStatus={effectiveSdrStatus} serverStatus={serverStatus}
-              onRulesChange={setHighlightRules} onGroupsChange={setGroups}
-              requestedTab={requestedAdminTab}
-              onTabHandled={() => setRequestedAdminTab(null)}
-              onResetMap={handleResetMap} />
+            <Suspense fallback={null}>
+              <AdminPanel sdrStatus={effectiveSdrStatus} serverStatus={serverStatus}
+                onRulesChange={setHighlightRules} onGroupsChange={setGroups}
+                requestedTab={requestedAdminTab}
+                onTabHandled={() => setRequestedAdminTab(null)}
+                onResetMap={handleResetMap} />
+            </Suspense>
           )}
         </ErrorBoundary>
       </main>
+
+      {isNative && (
+        <BottomNav view={view} setView={handleSetView}
+          menuOpen={mobileMenuOpen} onMenuOpenChange={setMobileMenuOpen} />
+      )}
 
       {/* Location sharing prompt — shown once on first open */}
       {locationSharing.showPrompt && !isGuest && (

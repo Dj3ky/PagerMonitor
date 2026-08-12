@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
-import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag } from 'lucide-react';
+import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag, Siren, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { useAuth } from '../context/AuthContext.jsx';
+
+const isNative = Capacitor.isNativePlatform();
+const AlertChannel = isNative ? registerPlugin('AlertChannel') : null;
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
@@ -34,6 +38,7 @@ export default function UserProfile({ onClose }) {
     enabled:false, mode:'all', group_ids:[], capcodes:[], keywords:[],
     alias_color_from_group:false,
     push_enabled:false, push_mode:'all', push_group_ids:[], push_capcodes:[], push_keywords:[],
+    alert_enabled:false, alert_mode:'all', alert_group_ids:[], alert_capcodes:[], alert_keywords:[],
   });
   const [groups, setGroups]   = useState([]);
   const [aliases, setAliases] = useState([]);
@@ -46,6 +51,7 @@ export default function UserProfile({ onClose }) {
   const [pushCount, setPushCount] = useState(null);   // number of subscribed devices
   const [testMsg, setTestMsg]     = useState(null);   // test push result
   const [testing, setTesting]     = useState(false);
+  const [dndGranted, setDndGranted] = useState(null); // null = unknown/not native yet
 
   const flashEmail = (t,m) => { setEmailMsg({type:t,text:m}); setTimeout(()=>setEmailMsg(null),3000); };
   const flashPw    = (t,m) => { setPwMsg({type:t,text:m});    setTimeout(()=>setPwMsg(null),3000); };
@@ -59,6 +65,16 @@ export default function UserProfile({ onClose }) {
     api('GET', '/admin/groups').then(d => setGroups(Array.isArray(d) ? d.filter(g => !g.parent_id) : [])).catch(() => {});
     api('GET', '/admin/aliases').then(d => setAliases(Array.isArray(d) ? d : [])).catch(() => {});
     api('GET', '/api/push/subscriptions/count').then(d => setPushCount(d.count ?? null)).catch(() => {});
+  }, []);
+
+  // Granting DND access happens in a system settings screen outside the app, so re-check
+  // whenever the app regains focus rather than only once on mount.
+  useEffect(() => {
+    if (!isNative) return;
+    const check = () => AlertChannel.checkDndAccess().then(r => setDndGranted(!!r.granted)).catch(() => {});
+    check();
+    document.addEventListener('visibilitychange', check);
+    return () => document.removeEventListener('visibilitychange', check);
   }, []);
 
   const saveEmail = async () => {
@@ -411,6 +427,143 @@ export default function UserProfile({ onClose }) {
 
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.75rem' }}>
+              <Save size={13}/> Save preferences
+            </button>
+          </div>
+
+          {/* Alert notification prefs — separate, opt-in tier that can bypass silent/Do
+              Not Disturb on the native Android app, so it's deliberately its own filter
+              rather than reusing the push filter above (e.g. every message vs just the
+              ones you'd want to be woken up for). */}
+          <div className="pm-card">
+            <div className="pm-section-title"><Siren size={13}/> Alert notification preferences</div>
+            <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
+              A separate, higher-priority tier that can break through silent mode/Do Not Disturb —
+              Android app only. Pick only what's urgent enough to wake you up; everything else still
+              reaches you through the regular push notifications above.
+            </p>
+
+            {isNative && (
+              <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.75rem',
+                padding:'0.4rem 0.6rem', borderRadius:'0.4rem', background:'var(--bg-0)',
+                border:'1px solid var(--border)', flexWrap:'wrap' }}>
+                {dndGranted
+                  ? <ShieldCheck size={12} style={{ color:'var(--accent-green)' }} />
+                  : <ShieldAlert size={12} style={{ color:'var(--accent-red)' }} />}
+                <span style={{ fontSize:'0.75rem', color:'var(--text-2)', flex:1 }}>
+                  {dndGranted === null ? 'Checking…'
+                    : dndGranted ? 'Do Not Disturb access granted — alerts can break through silent mode'
+                    : 'Do Not Disturb access not granted — alerts will use the regular volume/silent rules until you allow it'}
+                </span>
+                {dndGranted === false && (
+                  <button className="pm-btn" onClick={() => AlertChannel.requestDndAccess()}
+                    style={{ fontSize:'0.72rem', padding:'0.15rem 0.45rem' }}>
+                    Grant access
+                  </button>
+                )}
+              </div>
+            )}
+
+            <label style={{ display:'flex', alignItems:'center', gap:'0.5rem',
+              fontSize:'0.85rem', cursor:'pointer', marginBottom:'0.75rem' }}>
+              <input type="checkbox" checked={prefs.alert_enabled}
+                onChange={e => setPrefs(p => ({ ...p, alert_enabled: e.target.checked }))} />
+              Enable alert notifications
+            </label>
+
+            <div style={{ opacity: prefs.alert_enabled ? 1 : 0.45, transition:'opacity 0.2s' }}>
+              <label className="pm-label">Notify for</label>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem', marginBottom:'0.75rem' }}>
+                {MODES.map(m => (
+                  <button key={m.id} onClick={() => setPrefs(p => ({ ...p, alert_mode: m.id }))}
+                    title={m.desc}
+                    style={{ padding:'0.2rem 0.6rem', borderRadius:'0.75rem', fontSize:'0.75rem',
+                      cursor:'pointer', border:'1px solid',
+                      background: prefs.alert_mode === m.id ? 'color-mix(in srgb,var(--accent-red) 15%,transparent)' : 'var(--bg-3)',
+                      color: prefs.alert_mode === m.id ? 'var(--accent-red)' : 'var(--text-3)',
+                      borderColor: prefs.alert_mode === m.id ? 'color-mix(in srgb,var(--accent-red) 35%,transparent)' : 'var(--border)',
+                    }}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              {prefs.alert_mode === 'aliases' && (
+                <div style={{ marginBottom:'0.75rem' }}>
+                  <label className="pm-label">Select aliases</label>
+                  <div style={{ maxHeight:'160px', overflowY:'auto', border:'1px solid var(--border)',
+                    borderRadius:'0.4rem', padding:'0.35rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
+                    {aliases.map(a => (
+                      <label key={a.capcode} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
+                        fontSize:'0.75rem', cursor:'pointer', padding:'0.15rem 0.4rem',
+                        borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)',
+                        whiteSpace:'nowrap' }}>
+                        <input type="checkbox"
+                          checked={(prefs.alert_capcodes || []).includes(a.capcode)}
+                          onChange={e => {
+                            const caps = e.target.checked
+                              ? [...(prefs.alert_capcodes || []), a.capcode]
+                              : (prefs.alert_capcodes || []).filter(x => x !== a.capcode);
+                            setPrefs(p => ({ ...p, alert_capcodes: caps }));
+                          }} />
+                        <span style={{ color: a.color || 'var(--accent-green)' }}>{a.name}</span>
+                        <span style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.68rem' }}>{a.capcode}</span>
+                      </label>
+                    ))}
+                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No aliases defined</span>}
+                  </div>
+                </div>
+              )}
+
+              {prefs.alert_mode === 'groups' && (
+                <div style={{ marginBottom:'0.75rem' }}>
+                  <label className="pm-label">Select groups</label>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem' }}>
+                    {groups.map(g => (
+                      <label key={g.id} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
+                        fontSize:'0.78rem', cursor:'pointer', padding:'0.15rem 0.4rem',
+                        borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)' }}>
+                        <input type="checkbox"
+                          checked={(prefs.alert_group_ids || []).includes(g.id)}
+                          onChange={e => {
+                            const ids = e.target.checked
+                              ? [...(prefs.alert_group_ids || []), g.id]
+                              : (prefs.alert_group_ids || []).filter(x => x !== g.id);
+                            setPrefs(p => ({ ...p, alert_group_ids: ids }));
+                          }} />
+                        <span style={{ color: g.color }}>{g.name}</span>
+                      </label>
+                    ))}
+                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No groups defined</span>}
+                  </div>
+                </div>
+              )}
+
+              {prefs.alert_mode === 'capcodes' && (
+                <div style={{ marginBottom:'0.75rem' }}>
+                  <label className="pm-label">Capcodes (one per line)</label>
+                  <textarea className="pm-input" rows={3}
+                    value={(prefs.alert_capcodes || []).join('\n')}
+                    onChange={e => setListField('alert_capcodes', e.target.value)}
+                    placeholder="1234567&#10;2345678"
+                    style={{ resize:'vertical', fontFamily:'monospace', fontSize:'0.8rem' }} />
+                </div>
+              )}
+
+              {prefs.alert_mode === 'keywords' && (
+                <div style={{ marginBottom:'0.75rem' }}>
+                  <label className="pm-label">Keywords (one per line)</label>
+                  <textarea className="pm-input" rows={3}
+                    value={(prefs.alert_keywords || []).join('\n')}
+                    onChange={e => setListField('alert_keywords', e.target.value)}
+                    placeholder="požar&#10;nujna&#10;urgent"
+                    style={{ resize:'vertical', fontFamily:'monospace', fontSize:'0.8rem' }} />
+                </div>
+              )}
+            </div>
+
+            <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
+              style={{ marginTop:'0.25rem' }}>
               <Save size={13}/> Save preferences
             </button>
           </div>

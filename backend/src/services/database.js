@@ -335,7 +335,34 @@ function _migrate() {
       freq        TEXT    NOT NULL,
       mode        TEXT    NOT NULL DEFAULT 'nfm',
       squelch     TEXT    NOT NULL DEFAULT '',
+      tau         TEXT    NOT NULL DEFAULT '',
       sort_order  INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  const voiceChannelColumns = db.prepare("PRAGMA table_info(voice_channels)").all().map(c => c.name);
+  if (!voiceChannelColumns.includes('tau')) {
+    // NFM de-emphasis (microseconds) — blank means "use rtl_airband's own built-in default
+    // (200us)" rather than us imposing a different one; only emitted into the generated
+    // config when a channel has an explicit value set (see buildAirbandConfig).
+    db.exec("ALTER TABLE voice_channels ADD COLUMN tau TEXT NOT NULL DEFAULT ''");
+    logger.info('Migration: added tau to voice_channels');
+  }
+
+  // Discord voice relays — streams one voice_channels entry live into a Discord voice
+  // channel via a bot connection. Org-scoped like voice_channels itself. Multiple rows can
+  // share the same bot_token (one bot, multiple guilds) or use distinct tokens (needed if
+  // relaying more than one channel into voice channels within the *same* Discord guild,
+  // since a single bot user can only occupy one voice channel per guild at a time).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS discord_relays (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id              INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+      description         TEXT    NOT NULL DEFAULT '',
+      voice_channel_id    INTEGER NOT NULL REFERENCES voice_channels(id) ON DELETE CASCADE,
+      bot_token           TEXT    NOT NULL,
+      guild_id            TEXT    NOT NULL,
+      discord_channel_id  TEXT    NOT NULL,
+      enabled             INTEGER NOT NULL DEFAULT 1
     )
   `);
 
@@ -364,7 +391,12 @@ function _migrate() {
       push_mode        TEXT    NOT NULL DEFAULT 'all',
       push_group_ids   TEXT    NOT NULL DEFAULT '[]',
       push_capcodes    TEXT    NOT NULL DEFAULT '[]',
-      push_keywords    TEXT    NOT NULL DEFAULT '[]'
+      push_keywords    TEXT    NOT NULL DEFAULT '[]',
+      alert_enabled    INTEGER NOT NULL DEFAULT 0,
+      alert_mode       TEXT    NOT NULL DEFAULT 'all',
+      alert_group_ids  TEXT    NOT NULL DEFAULT '[]',
+      alert_capcodes   TEXT    NOT NULL DEFAULT '[]',
+      alert_keywords   TEXT    NOT NULL DEFAULT '[]'
     )
   `);
 
@@ -380,6 +412,14 @@ function _migrate() {
     db.exec('ALTER TABLE user_notif_prefs ADD COLUMN push_capcodes  TEXT    NOT NULL DEFAULT \'[]\'');
     db.exec('ALTER TABLE user_notif_prefs ADD COLUMN push_keywords  TEXT    NOT NULL DEFAULT \'[]\'');
     logger.info('Migration: added push columns to user_notif_prefs');
+  }
+  if (!prefCols.includes('alert_enabled')) {
+    db.exec('ALTER TABLE user_notif_prefs ADD COLUMN alert_enabled   INTEGER NOT NULL DEFAULT 0');
+    db.exec('ALTER TABLE user_notif_prefs ADD COLUMN alert_mode      TEXT    NOT NULL DEFAULT \'all\'');
+    db.exec('ALTER TABLE user_notif_prefs ADD COLUMN alert_group_ids TEXT    NOT NULL DEFAULT \'[]\'');
+    db.exec('ALTER TABLE user_notif_prefs ADD COLUMN alert_capcodes  TEXT    NOT NULL DEFAULT \'[]\'');
+    db.exec('ALTER TABLE user_notif_prefs ADD COLUMN alert_keywords  TEXT    NOT NULL DEFAULT \'[]\'');
+    logger.info('Migration: added alert columns to user_notif_prefs');
   }
 
   const msgColumns = db.prepare("PRAGMA table_info(messages)").all().map(c => c.name);
@@ -446,6 +486,19 @@ function _migrate() {
       created_at TEXT    NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+  `);
+
+  // FCM tokens (native Android app background notifications — see services/fcmPush.js.
+  // Separate from push_subscriptions because FCM tokens have no p256dh/auth keypair;
+  // delivery still shares the same user_notif_prefs.push_* filtering as web push.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fcm_tokens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      token      TEXT    UNIQUE NOT NULL,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_fcm_user ON fcm_tokens(user_id);
   `);
 
   // Strip leading zeros from numeric alias capcodes so they match decoder output.
@@ -791,19 +844,25 @@ function getUserNotifPrefs(userId) {
     enabled: false, mode: 'all', group_ids: [], capcodes: [], keywords: [],
     alias_color_from_group: false,
     push_enabled: false, push_mode: 'all', push_group_ids: [], push_capcodes: [], push_keywords: [],
+    alert_enabled: false, alert_mode: 'all', alert_group_ids: [], alert_capcodes: [], alert_keywords: [],
   };
   return {
-    enabled:        !!row.enabled,
-    mode:           row.mode,
-    group_ids:      JSON.parse(row.group_ids      || '[]'),
-    capcodes:       JSON.parse(row.capcodes       || '[]').map(normCapcode),
-    keywords:       JSON.parse(row.keywords       || '[]'),
+    enabled:         !!row.enabled,
+    mode:            row.mode,
+    group_ids:       JSON.parse(row.group_ids       || '[]'),
+    capcodes:        JSON.parse(row.capcodes        || '[]').map(normCapcode),
+    keywords:        JSON.parse(row.keywords        || '[]'),
     alias_color_from_group: !!row.alias_color_from_group,
-    push_enabled:   !!row.push_enabled,
-    push_mode:      row.push_mode || 'all',
-    push_group_ids: JSON.parse(row.push_group_ids || '[]'),
-    push_capcodes:  JSON.parse(row.push_capcodes  || '[]').map(normCapcode),
-    push_keywords:  JSON.parse(row.push_keywords  || '[]'),
+    push_enabled:    !!row.push_enabled,
+    push_mode:       row.push_mode || 'all',
+    push_group_ids:  JSON.parse(row.push_group_ids  || '[]'),
+    push_capcodes:   JSON.parse(row.push_capcodes   || '[]').map(normCapcode),
+    push_keywords:   JSON.parse(row.push_keywords   || '[]'),
+    alert_enabled:   !!row.alert_enabled,
+    alert_mode:      row.alert_mode || 'all',
+    alert_group_ids: JSON.parse(row.alert_group_ids || '[]'),
+    alert_capcodes:  JSON.parse(row.alert_capcodes  || '[]').map(normCapcode),
+    alert_keywords:  JSON.parse(row.alert_keywords  || '[]'),
   };
 }
 
@@ -811,25 +870,33 @@ function setUserNotifPrefs(userId, prefs) {
   getDb().prepare(`
     INSERT INTO user_notif_prefs
       (user_id, enabled, mode, group_ids, capcodes, keywords, alias_color_from_group,
-       push_enabled, push_mode, push_group_ids, push_capcodes, push_keywords)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       push_enabled, push_mode, push_group_ids, push_capcodes, push_keywords,
+       alert_enabled, alert_mode, alert_group_ids, alert_capcodes, alert_keywords)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       enabled=excluded.enabled, mode=excluded.mode,
       group_ids=excluded.group_ids, capcodes=excluded.capcodes, keywords=excluded.keywords,
       alias_color_from_group=excluded.alias_color_from_group,
       push_enabled=excluded.push_enabled, push_mode=excluded.push_mode,
       push_group_ids=excluded.push_group_ids, push_capcodes=excluded.push_capcodes,
-      push_keywords=excluded.push_keywords
+      push_keywords=excluded.push_keywords,
+      alert_enabled=excluded.alert_enabled, alert_mode=excluded.alert_mode,
+      alert_group_ids=excluded.alert_group_ids, alert_capcodes=excluded.alert_capcodes,
+      alert_keywords=excluded.alert_keywords
   `).run(userId,
     prefs.enabled ? 1 : 0, prefs.mode || 'all',
-    JSON.stringify(prefs.group_ids      || []),
-    JSON.stringify((prefs.capcodes      || []).map(normCapcode)),
-    JSON.stringify(prefs.keywords       || []),
+    JSON.stringify(prefs.group_ids       || []),
+    JSON.stringify((prefs.capcodes       || []).map(normCapcode)),
+    JSON.stringify(prefs.keywords        || []),
     prefs.alias_color_from_group ? 1 : 0,
     prefs.push_enabled ? 1 : 0, prefs.push_mode || 'all',
-    JSON.stringify(prefs.push_group_ids || []),
-    JSON.stringify((prefs.push_capcodes || []).map(normCapcode)),
-    JSON.stringify(prefs.push_keywords  || []),
+    JSON.stringify(prefs.push_group_ids  || []),
+    JSON.stringify((prefs.push_capcodes  || []).map(normCapcode)),
+    JSON.stringify(prefs.push_keywords   || []),
+    prefs.alert_enabled ? 1 : 0, prefs.alert_mode || 'all',
+    JSON.stringify(prefs.alert_group_ids || []),
+    JSON.stringify((prefs.alert_capcodes || []).map(normCapcode)),
+    JSON.stringify(prefs.alert_keywords  || []),
   );
 }
 
@@ -884,12 +951,12 @@ function getVoiceChannels(orgId) {
 }
 function upsertVoiceChannel(orgId, ch) {
   if (ch.id) {
-    const changes = getDb().prepare('UPDATE voice_channels SET description=?,freq=?,mode=?,squelch=?,sort_order=? WHERE id=? AND org_id=?')
-      .run(ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.sort_order || 0, ch.id, orgId).changes;
+    const changes = getDb().prepare('UPDATE voice_channels SET description=?,freq=?,mode=?,squelch=?,tau=?,sort_order=? WHERE id=? AND org_id=?')
+      .run(ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.tau || '', ch.sort_order || 0, ch.id, orgId).changes;
     return { id: ch.id, changes };
   }
-  const id = getDb().prepare('INSERT INTO voice_channels (org_id,description,freq,mode,squelch,sort_order) VALUES (?,?,?,?,?,?)')
-    .run(orgId, ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.sort_order || 0).lastInsertRowid;
+  const id = getDb().prepare('INSERT INTO voice_channels (org_id,description,freq,mode,squelch,tau,sort_order) VALUES (?,?,?,?,?,?,?)')
+    .run(orgId, ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.tau || '', ch.sort_order || 0).lastInsertRowid;
   return { id, changes: 1 };
 }
 function deleteVoiceChannel(id, orgId) { return getDb().prepare('DELETE FROM voice_channels WHERE id=? AND org_id=?').run(id, orgId).changes; }
@@ -897,6 +964,30 @@ function deleteVoiceChannel(id, orgId) { return getDb().prepare('DELETE FROM voi
 // stores raw channel ids, so generating a dongle's rtl_airband config needs the row regardless
 // of which org owns it.
 function getVoiceChannelById(id) { return getDb().prepare('SELECT * FROM voice_channels WHERE id=?').get(id); }
+
+// ── Discord relays (org-scoped) ─────────────────────────────────────────────────
+function getDiscordRelays(orgId) {
+  if (orgId == null) return getDb().prepare('SELECT * FROM discord_relays ORDER BY id ASC').all();
+  return getDb().prepare('SELECT * FROM discord_relays WHERE org_id=? ORDER BY id ASC').all(orgId);
+}
+function upsertDiscordRelay(orgId, r) {
+  const enabled = r.enabled ? 1 : 0;
+  if (r.id) {
+    const changes = getDb().prepare(`
+      UPDATE discord_relays SET description=?,voice_channel_id=?,bot_token=?,guild_id=?,discord_channel_id=?,enabled=?
+      WHERE id=? AND org_id=?
+    `).run(r.description || '', r.voice_channel_id, r.bot_token, r.guild_id, r.discord_channel_id, enabled, r.id, orgId).changes;
+    return { id: r.id, changes };
+  }
+  const id = getDb().prepare(`
+    INSERT INTO discord_relays (org_id,description,voice_channel_id,bot_token,guild_id,discord_channel_id,enabled)
+    VALUES (?,?,?,?,?,?,?)
+  `).run(orgId, r.description || '', r.voice_channel_id, r.bot_token, r.guild_id, r.discord_channel_id, enabled).lastInsertRowid;
+  return { id, changes: 1 };
+}
+function deleteDiscordRelay(id, orgId) { return getDb().prepare('DELETE FROM discord_relays WHERE id=? AND org_id=?').run(id, orgId).changes; }
+// Unscoped — discordRelay.js manages connections instance-wide, regardless of which org owns each row.
+function getAllDiscordRelays() { return getDb().prepare('SELECT * FROM discord_relays').all(); }
 
 // ── Webhooks ──────────────────────────────────────────────────────────────────
 function getWebhooks(orgId) { return getDb().prepare('SELECT * FROM webhooks WHERE org_id=? ORDER BY id').all(orgId); }
@@ -1046,6 +1137,7 @@ module.exports = {
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,
   getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
   getVoiceChannels, upsertVoiceChannel, deleteVoiceChannel, getVoiceChannelById,
+  getDiscordRelays, upsertDiscordRelay, deleteDiscordRelay, getAllDiscordRelays,
   getWebhooks, upsertWebhook, deleteWebhook,
   addAuditLog, getAuditLog,
   getStats,

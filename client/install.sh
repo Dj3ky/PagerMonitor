@@ -10,11 +10,25 @@ echo "  PagerMonitor Client Installer"
 echo "  User: $USER  Node: $NODE"
 echo "═══════════════════════════════════════"
 
+# Fresh Raspberry Pi OS images often run unattended-upgrades/apt-daily in the background
+# right after first boot, holding the dpkg lock for a few minutes — retry instead of
+# failing outright (confirmed in the field: "Could not get lock /var/lib/dpkg/lock-frontend",
+# worked fine on a bare manual re-run once that background process finished).
+apt_retry() {
+  local tries=0
+  until "$@"; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 20 ]; then echo "  ✗ apt-get still failing after multiple retries — giving up"; return 1; fi
+    echo "  ⏳ apt-get busy (dpkg lock held by another process?) — retrying in 10s… (attempt $tries)"
+    sleep 10
+  done
+}
+
 # ── multimon-ng: auto-install/upgrade to latest GitHub release ────────────────
 _mmon_build() {
   local tag="$1"
   echo "  ► Building multimon-ng ${tag} from source…"
-  sudo apt-get install -y --no-install-recommends cmake build-essential libpulse-dev libx11-dev
+  apt_retry sudo apt-get install -y --no-install-recommends cmake build-essential libpulse-dev libx11-dev
   local tmp; tmp=$(mktemp -d)
   curl -sL "https://github.com/EliasOenal/multimon-ng/archive/refs/tags/${tag}.tar.gz" \
     | tar xz -C "$tmp"
@@ -48,7 +62,7 @@ check_multimon_ng() {
     echo "  ⚠ Cannot reach GitHub"
     if [ -z "$installed" ]; then
       echo "  → Falling back to: sudo apt-get install multimon-ng"
-      sudo apt-get install -y multimon-ng
+      apt_retry sudo apt-get install -y multimon-ng
     else
       echo "  ✓ Using installed version $installed"
     fi
@@ -78,10 +92,51 @@ check_multimon_ng() {
 # marker file lets us tell a build from before this was added apart from one
 # that actually has NFM, and force exactly one rebuild for the former.
 AIRBAND_NFM_MARK="/usr/local/bin/.pagermonitor-airband-nfm-ok"
+
+# ── librtlsdr: RTL-SDR Blog's fork ─────────────────────────────────────────────
+# RTL-SDR Blog-branded dongles (confirmed on both V3 and V4 during testing) need this
+# fork instead of stock Debian librtlsdr for correct gain tables/tuner detection — stock
+# librtlsdr can misbehave with these dongles, especially under rtl_airband's more demanding
+# real-time multi-channel operation (a client that works fine in single/rtl_fm mode but
+# fails specifically in multi/airband mode is a symptom of this).
+LIBRTLSDR_BLOG_MARK="/usr/local/bin/.pagermonitor-librtlsdr-blog-ok"
+_librtlsdr_blog_install() {
+  echo "  ► Installing RTL-SDR Blog's librtlsdr fork (replaces stock librtlsdr)…"
+  apt_retry sudo apt-get remove -y librtlsdr0 librtlsdr-dev rtl-sdr 2>/dev/null || true
+  apt_retry sudo apt-get install -y --no-install-recommends cmake build-essential git libusb-1.0-0-dev pkg-config
+  local tmp; tmp=$(mktemp -d)
+  git clone --depth 1 https://github.com/rtlsdrblog/rtl-sdr-blog.git "$tmp/src"
+  (
+    cd "$tmp/src" && mkdir build && cd build \
+      && cmake ../ -DINSTALL_UDEV_RULES=ON -DDETACH_KERNEL_DRIVER=ON \
+      && make -j"$(nproc)" \
+      && sudo make install
+  )
+  sudo cp "$tmp/src/rtl-sdr.rules" /etc/udev/rules.d/ 2>/dev/null || true
+  sudo ldconfig
+  sudo udevadm control --reload-rules && sudo udevadm trigger
+  sudo touch "$LIBRTLSDR_BLOG_MARK"
+  rm -rf "$tmp"
+  # rtl_airband links against librtlsdr at build time — force it to rebuild against the
+  # fork instead of whatever it was previously linked against.
+  sudo rm -f "$AIRBAND_NFM_MARK"
+  echo "  ✓ RTL-SDR Blog librtlsdr installed — rtl_airband will rebuild against it"
+}
+
+check_librtlsdr_blog() {
+  echo ""
+  echo "► Checking RTL-SDR Blog librtlsdr fork…"
+  if [ -f "$LIBRTLSDR_BLOG_MARK" ]; then
+    echo "  ✓ Already installed — delete $LIBRTLSDR_BLOG_MARK to force a reinstall"
+    return
+  fi
+  _librtlsdr_blog_install
+}
+
 _airband_build() {
   local ref="$1"
   echo "  ► Building rtl_airband (${ref}) from source…"
-  sudo apt-get install -y --no-install-recommends \
+  apt_retry sudo apt-get install -y --no-install-recommends \
     cmake build-essential pkg-config git \
     libconfig++-dev libfftw3-dev librtlsdr-dev libshout3-dev libmp3lame-dev
   local tmp; tmp=$(mktemp -d)
@@ -125,6 +180,9 @@ done
 # multimon-ng: auto-install/upgrade from GitHub
 check_multimon_ng
 
+# librtlsdr: RTL-SDR Blog's fork, needed before building rtl_airband against it
+check_librtlsdr_blog
+
 # rtl_airband: only needed for multi/airband mode dongles
 check_rtl_airband
 
@@ -142,7 +200,9 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 cd "$DIR" && npm install --omit=dev
 
 # .env
-[ ! -f "$DIR/.env" ] && cp "$DIR/.env.example" "$DIR/.env" && echo "  ✓ Created .env — edit it now!"
+# -s (not -f): treats a zero-byte .env the same as a missing one, so a stray empty file
+# from an earlier interrupted run doesn't get stuck there forever unnoticed.
+[ ! -s "$DIR/.env" ] && cp "$DIR/.env.example" "$DIR/.env" && echo "  ✓ Created .env — edit it now!"
 
 # systemd service
 sudo tee /etc/systemd/system/pagermonitor-client.service > /dev/null << SVCEOF

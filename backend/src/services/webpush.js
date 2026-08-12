@@ -73,27 +73,35 @@ async function sendPushPerUser(msg, orgId) {
   await Promise.allSettled(eligible.map(sub => _send(sub, payload)));
 }
 
-function _matchesPushPrefs(msg, sub) {
-  // No prefs row means the user never configured prefs — default to send all
-  if (sub.push_enabled === null || sub.push_enabled === undefined) return true;
-  if (!sub.push_enabled) return false;
-  const mode = sub.push_mode || 'all';
+// Shared by push (prefix 'push_') and the alert tier (prefix 'alert_' — see fcmPush.js).
+// defaultWhenUnset differs deliberately: push defaults to "send everything" when a user
+// has never touched their prefs (the historical baseline behaviour), but the alert tier
+// is opt-in — nobody should start getting DND-bypassing notifications just because they
+// never visited a settings page, so an unconfigured user matches nothing there.
+function _matchesPrefs(msg, sub, prefix, defaultWhenUnset) {
+  const enabled = sub[`${prefix}enabled`];
+  if (enabled === null || enabled === undefined) return defaultWhenUnset;
+  if (!enabled) return false;
+  const mode = sub[`${prefix}mode`] || 'all';
   if (mode === 'all') return true;
   if (mode === 'groups') {
-    const ids = JSON.parse(sub.push_group_ids || '[]').map(Number);
+    const ids = JSON.parse(sub[`${prefix}group_ids`] || '[]').map(Number);
     return msg.group_id != null && ids.includes(Number(msg.group_id));
   }
   if (mode === 'aliases' || mode === 'capcodes') {
-    const caps = JSON.parse(sub.push_capcodes || '[]').map(normCapcode);
+    const caps = JSON.parse(sub[`${prefix}capcodes`] || '[]').map(normCapcode);
     return caps.includes(normCapcode(String(msg.capcode)));
   }
   if (mode === 'keywords') {
-    const kws  = JSON.parse(sub.push_keywords || '[]');
+    const kws  = JSON.parse(sub[`${prefix}keywords`] || '[]');
     const text = (msg.message || '').toLowerCase();
     return kws.some(kw => kw && text.includes(kw.toLowerCase()));
   }
   return true;
 }
+
+function _matchesPushPrefs(msg, sub)  { return _matchesPrefs(msg, sub, 'push_', true); }
+function _matchesAlertPrefs(msg, sub) { return _matchesPrefs(msg, sub, 'alert_', false); }
 
 async function _send(sub, payload) {
   try {
@@ -111,4 +119,4 @@ async function _send(sub, payload) {
   }
 }
 
-module.exports = { initWebPush, getPublicKey, saveSubscription, removeSubscription, sendPushPerUser };
+module.exports = { initWebPush, getPublicKey, saveSubscription, removeSubscription, sendPushPerUser, _matchesPushPrefs, _matchesAlertPrefs };

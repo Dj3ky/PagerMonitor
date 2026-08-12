@@ -36,8 +36,12 @@ try {
  *
  * If DONGLES is not set, falls back to single-dongle mode using the legacy env vars.
  */
-function buildDongleConfigs() {
-  const global = {
+// Shared base fields (freq/gain/protocols/...) sourced from the Pi's local .env — used both
+// as the starting point for every DONGLES-array entry at boot, and as what a dongle newly
+// added via the server's Admin UI inherits for any field it doesn't explicitly set (mirrors
+// how a blank field in the old flat per-client config always meant "use the Pi's .env value").
+function buildGlobalDongleDefaults() {
+  return {
     freq:           process.env.RTL_FM_FREQ                || '173.250M',
     modulation:     process.env.RTL_FM_MODULATION          || 'fm',
     sampleRate:     process.env.RTL_FM_SAMPLE_RATE         || '22050',
@@ -56,6 +60,10 @@ function buildDongleConfigs() {
     pocsagSpecial:  process.env.MULTIMON_POCSAG_SPECIAL    || '0',
     charset:        process.env.MULTIMON_POCSAG_CHARSET    || '',
   };
+}
+
+function buildDongleConfigs() {
+  const global = buildGlobalDongleDefaults();
 
   if (process.env.DONGLES) {
     try {
@@ -77,9 +85,71 @@ function buildDongleConfigs() {
   return [{ ...global, device: process.env.RTL_FM_DEVICE_INDEX || '0' }];
 }
 
+// ── RTL-SDR hardware enumeration (serial-based device identification) ─────────
+// Mirrors backend/src/services/rtlDevices.js. rtl_test's "Found N device(s):" header is
+// printed from USB descriptor reads alone, before it tries to claim any device — safe to
+// run even while other dongles on this Pi are actively streaming. The out-of-range device
+// index makes it fail fast trying to open THAT device afterward, never touching a real one.
+const RTL_ENUM_DEVICE_INDEX = 999;
+const RTL_ENUM_TIMEOUT_MS   = 3000;
+const RTL_DEVICE_LINE_RE    = /^\s*(\d+):\s*(.+?),\s*(.+?),\s*SN:\s*(\S+)/;
+
+function parseDeviceList(output) {
+  const list = [];
+  for (const line of output.split('\n')) {
+    const m = RTL_DEVICE_LINE_RE.exec(line);
+    if (m) list.push({ index: Number(m[1]), vendor: m[2].trim(), product: m[3].trim(), serial: m[4].trim() });
+  }
+  return list;
+}
+
+function listAttachedDongles() {
+  return new Promise(resolve => {
+    let output = '';
+    let done = false;
+    let proc;
+    try {
+      proc = spawn('rtl_test', ['-d', String(RTL_ENUM_DEVICE_INDEX)]);
+    } catch (e) {
+      log('warn', `rtl_test spawn failed: ${e.message}`);
+      resolve([]);
+      return;
+    }
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { proc.kill('SIGKILL'); } catch (_) {}
+      resolve(parseDeviceList(output));
+    };
+
+    const timer = setTimeout(finish, RTL_ENUM_TIMEOUT_MS);
+    const onData = d => { output += d.toString(); };
+    proc.stdout.on('data', onData);
+    proc.stderr.on('data', onData);
+    proc.on('exit', finish);
+    proc.on('error', e => { log('warn', `rtl_test error: ${e.message}`); finish(); });
+  });
+}
+
+async function resolveDeviceIndex(serial) {
+  if (!serial) return null;
+  const list  = await listAttachedDongles();
+  const match = list.find(d => d.serial === serial);
+  return match ? match.index : null;
+}
+
 // ── Logging ───────────────────────────────────────────────────────────────────
 function log(level, msg) {
-  console.log(`[${new Date().toISOString()}] [${level.toUpperCase()}] ${msg}`);
+  const ts = new Date().toISOString();
+  console.log(`[${ts}] [${level.toUpperCase()}] ${msg}`);
+  // Remote log viewing (Admin -> Client Logs) — piggybacks on the audio-relay connection
+  // so the server can buffer/tail this client's logs without SSH/port forwarding. Sent
+  // unconditionally once connected — the server decides whether anyone's watching.
+  if (audioWs && audioWs.readyState === WebSocket.OPEN) {
+    try { audioWs.send(JSON.stringify({ type: 'log', level, msg, ts })); } catch (_) {}
+  }
 }
 
 // ── CLI arg builders ──────────────────────────────────────────────────────────
@@ -189,6 +259,45 @@ let audioWsReconnectTimer = null;
 let audioWsAttempts = 0;
 const voiceChannelForwarding = new Map(); // channelId -> boolean
 
+// ── "Is someone talking" activity — runs for every voice channel regardless of whether
+// its audio is currently being forwarded, so the app can show activity on channels nobody's
+// listening to yet without streaming their full audio. Debounced locally (only sent to the
+// server on an actual on/off transition) to keep this genuinely lightweight bandwidth-wise —
+// same threshold/hang-time reasoning as the server's own local-dongle version.
+const ACTIVITY_RMS_THRESHOLD = 0.02;
+const ACTIVITY_HANG_MS = 800;
+const channelActivityState = new Map();      // channelId -> boolean
+const channelActivityHangTimers = new Map(); // channelId -> Timeout
+
+function computeRms(buf) {
+  const n = buf.length >> 2;
+  if (n === 0) return 0;
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) { const v = buf.readFloatLE(i * 4); sumSq += v * v; }
+  return Math.sqrt(sumSq / n);
+}
+
+function sendActivity(channelId, active) {
+  if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
+  try { audioWs.send(JSON.stringify({ type: 'activity', channelId: Number(channelId), active })); } catch (_) {}
+}
+
+function reportChannelActivity(channelId, isLoud) {
+  const id = Number(channelId);
+  if (isLoud) {
+    clearTimeout(channelActivityHangTimers.get(id));
+    channelActivityHangTimers.delete(id);
+    if (!channelActivityState.get(id)) { channelActivityState.set(id, true); sendActivity(id, true); }
+  } else if (channelActivityState.get(id) && !channelActivityHangTimers.has(id)) {
+    const t = setTimeout(() => {
+      channelActivityHangTimers.delete(id);
+      channelActivityState.set(id, false);
+      sendActivity(id, false);
+    }, ACTIVITY_HANG_MS);
+    channelActivityHangTimers.set(id, t);
+  }
+}
+
 function connectAudioWs() {
   if (!CLIENT_KEY) return; // server rejects unauthenticated connections anyway
   if (audioWs && (audioWs.readyState === WebSocket.OPEN || audioWs.readyState === WebSocket.CONNECTING)) return;
@@ -226,15 +335,18 @@ function scheduleAudioWsReconnect() {
 // error" on line 1 when this was first written as TOML — see server-side sdr.js's
 // identical note). Exact field names/types are still best-effort.
 function buildAirbandConfig(cfg, voiceChannels, udpPort) {
+  const pocsagEnabled = cfg.pocsagEnabled !== false;
   const pocsagHz = parseFreqHz(cfg.freq);
   const voiceHz  = voiceChannels.map(c => parseFreqHz(c.freq));
-  const allHz    = [pocsagHz, ...voiceHz];
+  const allHz    = pocsagEnabled ? [pocsagHz, ...voiceHz] : voiceHz;
 
   // A frequency string missing its k/M/G suffix (e.g. "173.4875" instead of "173.4875M")
   // parses as a near-zero Hz value and silently wrecks the center-frequency math below —
   // catch it loudly here instead of producing a nonsense capture window.
-  const tooLow = [{ label: 'POCSAG', hz: pocsagHz }, ...voiceChannels.map((c, i) => ({ label: c.description || `voice channel #${i}`, hz: voiceHz[i] }))]
-    .filter(x => x.hz < 1_000_000);
+  const tooLow = [
+    ...(pocsagEnabled ? [{ label: 'POCSAG', hz: pocsagHz }] : []),
+    ...voiceChannels.map((c, i) => ({ label: c.description || `voice channel #${i}`, hz: voiceHz[i] })),
+  ].filter(x => x.hz < 1_000_000);
   if (tooLow.length) {
     log('warn', `airband dongle ${cfg.device}: suspiciously low frequency (missing M suffix?) for: ${tooLow.map(x => `${x.label}=${x.hz}Hz`).join(', ')}`);
   }
@@ -252,6 +364,14 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
     log('warn', `airband dongle ${cfg.device}: channel spread (${span}Hz) is close to or exceeds capture bandwidth (${sampleRate}Hz) — some channels may not decode`);
   }
   const centerHz = Math.round((minHz + maxHz) / 2);
+
+  // fft_size was previously a fixed 512 regardless of sample_rate, so each channel's
+  // effective bandwidth (sample_rate / fft_size) swung wildly — only 2kHz/channel at our
+  // 1.024Msps floor, confirmed too narrow in the field: POCSAG failed to decode (clipped
+  // FSK deviation) on a config where a voice channel on the very same capture worked fine,
+  // exactly matching rtl_airband's own documented low-sample-rate/default-FFT-size gotcha.
+  // Target ~4kHz/channel instead, scaling with whatever sample rate gets picked above.
+  const fftSize = Math.min(8192, Math.max(256, Math.pow(2, Math.round(Math.log2(sampleRate / 4000)))));
   const gainRaw = String(cfg.gain || '40');
   const gainLit = gainRaw.includes('.') ? gainRaw : `${gainRaw}.0`; // libconfig gain is a float field
 
@@ -270,10 +390,13 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
   const voiceBlocks = voiceChannels.map(c => {
     const hz = parseFreqHz(c.freq);
     const squelchLine = c.squelch ? `\n            squelch_threshold = ${c.squelch};` : '';
+    // Blank means "use rtl_airband's own built-in default (200us)" — we don't impose a
+    // different one unless the channel has an explicit value set.
+    const tauLine = c.tau ? `\n            tau = ${c.tau};` : '';
     const port = udpPortForVoiceChannel(c.id);
     return `        {
             freq = ${hz};
-            modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}
+            modulation = "${c.mode === 'am' ? 'am' : 'nfm'}";${squelchLine}${tauLine}
             outputs:
             (
                 { type = "udp_stream"; dest_address = "127.0.0.1"; dest_port = ${port}; continuous = true; }
@@ -281,11 +404,11 @@ function buildAirbandConfig(cfg, voiceChannels, udpPort) {
         }`;
   });
 
-  const allChannels = [pocsagChannel, ...voiceBlocks].join(',\n');
+  const allChannels = (pocsagEnabled ? [pocsagChannel, ...voiceBlocks] : voiceBlocks).join(',\n');
 
   return `general:
 {
-    fft_size = 512;
+    fft_size = ${fftSize};
 };
 
 devices:
@@ -309,20 +432,25 @@ ${allChannels}
 
 function spawnAudioSource(cfg, label) {
   if (cfg.mode === 'airband') {
+    const pocsagEnabled = cfg.pocsagEnabled !== false;
     const udpPort = udpPortForDongle(cfg.device);
     const voiceChannels = Array.isArray(cfg.voiceChannels) ? cfg.voiceChannels : [];
     const configText = buildAirbandConfig(cfg, voiceChannels, udpPort);
     const configPath = path.join(os.tmpdir(), `pagermonitor-airband-${cfg.device}.conf`);
     fs.writeFileSync(configPath, configText);
-    log('info', `${label} rtl_airband -c ${configPath} (POCSAG + ${voiceChannels.length} voice channel(s))`);
+    log('info', `${label} rtl_airband -c ${configPath} (${pocsagEnabled ? 'POCSAG + ' : ''}${voiceChannels.length} voice channel(s))`);
 
     // Bind before spawning so we're ready to receive the moment rtl_airband starts sending.
-    const dataStream = new PassThrough();
-    const resample = createFloatToInt16Resampler(AIRBAND_UDP_SAMPLE_RATE, MULTIMON_SAMPLE_RATE);
-    const socket = dgram.createSocket('udp4');
-    socket.on('message', msg => dataStream.write(resample(msg)));
-    socket.on('error', err => log('warn', `${label} UDP socket error: ${err.message}`));
-    socket.bind(udpPort, '127.0.0.1');
+    // POCSAG leg is entirely skipped when disabled — voice-only dongle, no multimon-ng feed.
+    let dataStream = null, socket = null;
+    if (pocsagEnabled) {
+      dataStream = new PassThrough();
+      const resample = createFloatToInt16Resampler(AIRBAND_UDP_SAMPLE_RATE, MULTIMON_SAMPLE_RATE);
+      socket = dgram.createSocket('udp4');
+      socket.on('message', msg => dataStream.write(resample(msg)));
+      socket.on('error', err => log('warn', `${label} UDP socket error: ${err.message}`));
+      socket.bind(udpPort, '127.0.0.1');
+    }
 
     // Voice channels: one loopback socket per channel. Always receiving locally (cheap,
     // rtl_airband produces it regardless), but only actually forwarded over the WS relay
@@ -330,6 +458,7 @@ function spawnAudioSource(cfg, label) {
     const voiceSockets = voiceChannels.map(c => {
       const vSocket = dgram.createSocket('udp4');
       vSocket.on('message', msg => {
+        reportChannelActivity(c.id, computeRms(msg) > ACTIVITY_RMS_THRESHOLD);
         if (!voiceChannelForwarding.get(Number(c.id))) return;
         if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
         const header = Buffer.alloc(4);
@@ -427,14 +556,70 @@ function sendToServer(msg, cfg) {
 let globalConfigVersion = null;
 let globalOverrideCfg   = null; // remote config overlay (applies to all dongles)
 
+// Stable identity for a dongle config — serial when set (survives reboots/replugs),
+// else its legacy device index (defaulting to '0' when absent, matching the single-dongle
+// fallback in buildDongleConfigs() — a saved config that never explicitly set `device`,
+// e.g. an old flat single-dongle config with blank fields stripped before storage, must
+// still resolve to the SAME key as the locally-booted single-dongle pipeline it's meant to
+// override, or reconcileDongles would wrongly treat it as a brand new dongle). Used both to
+// key the `pipelines` Map and to match server-pushed per-dongle config against its pipeline.
+function dongleKey(cfg) {
+  return cfg.serial ? `serial:${cfg.serial}` : `device:${cfg.device ?? '0'}`;
+}
+
+// Reconciles the live `pipelines` Map against a server-pushed `dongles[]` array —
+// starts pipelines for newly-added dongles, stops+removes ones no longer listed, and
+// applies config to everything that still matches. Mirrors how the server's own local
+// dongles are already fully config-driven (services/sdr.js), just diffed instead of
+// torn down and rebuilt wholesale each time.
+function reconcileDongles(pipelines, serverDongles) {
+  const incomingKeys = new Set(serverDongles.map(dongleKey));
+
+  for (const [key, p] of pipelines) {
+    if (!incomingKeys.has(key)) {
+      log('info', `Dongle ${key} removed from remote config — stopping`);
+      pipelines.delete(key);
+      p.stop().catch(() => {});
+    }
+  }
+
+  for (const d of serverDongles) {
+    const key = dongleKey(d);
+    const existing = pipelines.get(key);
+    if (existing) {
+      existing.applyRemoteConfig(d);
+    } else {
+      log('info', `New dongle ${key} added via remote config — starting`);
+      // No local pipeline ever existed for this one — unlike applyRemoteConfig (which
+      // merges over an already-running pipeline's env-derived baseCfg), there's nothing to
+      // merge over here, so any field the admin left unset would otherwise come through as
+      // literally undefined (crashing buildMmonArgs' cfg.protocols.split, etc). Seed it from
+      // the same global .env defaults every other dongle on this Pi inherits from.
+      const merged = { ...buildGlobalDongleDefaults(), device: String(pipelines.size), ...d, device: String(d.device ?? pipelines.size) };
+      const p = createPipeline(merged, pipelines.size);
+      pipelines.set(key, p);
+      p.start();
+    }
+  }
+}
+
 async function pollConfig(pipelines) {
   try {
-    const freqs      = pipelines.map(p => p.getCfg().freq).join(':');
-    const protocols  = [...new Set(pipelines.map(p => p.getCfg().protocols))].join(' ');
-    const sdrRunning = pipelines.every(p => p.isRunning());
-    // Report the full running config of the primary dongle so the server UI can
-    // show .env values as grey placeholders for fields that have no DB override.
-    const mainCfg  = pipelines[0].getCfg();
+    const list = [...pipelines.values()];
+    if (list.length === 0) return;
+    const freqs      = list.map(p => p.getCfg().freq).join(':');
+    const protocols  = [...new Set(list.map(p => p.getCfg().protocols))].join(' ');
+    const sdrRunning = list.every(p => p.isRunning());
+    // Per-dongle breakdown so the status bar can show one dot per dongle on this client,
+    // same as it already does for the server's own local dongles — the flat freq/protocols/
+    // sdrRunning above collapse multiple dongles into one summary and can't drive that.
+    const dongleStatuses = list.map(p => {
+      const c = p.getCfg();
+      return { device: c.device, serial: c.serial || null, label: c.label || null, mode: c.mode || 'single', freq: c.freq, protocols: c.protocols, running: p.isRunning() };
+    });
+    // Report the full running config of the primary (first-added) dongle so the server UI
+    // can show .env values as grey placeholders for fields that have no DB override.
+    const mainCfg  = list[0].getCfg();
     const liveCfg  = {
       freq: mainCfg.freq, modulation: mainCfg.modulation,
       sampleRate: mainCfg.sampleRate, gain: mainCfg.gain,
@@ -447,7 +632,12 @@ async function pollConfig(pipelines) {
       pocsagSpecial: mainCfg.pocsagSpecial, charset: mainCfg.charset,
     };
     const hashParam = CLIENT_GIT_HASH ? `&gitHash=${CLIENT_GIT_HASH}` : '';
-    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}&sdrRunning=${sdrRunning}&cfg=${encodeURIComponent(JSON.stringify(liveCfg))}${hashParam}`);
+    // Cheap to re-enumerate every poll cycle (60s) — lets the admin UI show newly-plugged
+    // hardware without waiting on anything beyond the next regular poll.
+    const detected = await listAttachedDongles();
+    const detectedParam = detected.length ? `&detectedDongles=${encodeURIComponent(JSON.stringify(detected))}` : '';
+    const dongleStatusesParam = `&dongleStatuses=${encodeURIComponent(JSON.stringify(dongleStatuses))}`;
+    const r = await httpRequest('GET', `/client/config?freq=${encodeURIComponent(freqs)}&protocols=${encodeURIComponent(protocols)}&sdrRunning=${sdrRunning}&cfg=${encodeURIComponent(JSON.stringify(liveCfg))}${hashParam}${detectedParam}${dongleStatusesParam}`);
     if (r.status !== 200 || !r.body) return;
 
     // Handle remote command (one-shot — server clears it after delivery)
@@ -460,20 +650,17 @@ async function pollConfig(pipelines) {
     globalOverrideCfg   = config;
     globalConfigVersion = version;
 
-    // A `dongles` array targets specific pipelines by device index (used for airband
-    // mode/voiceChannels — server resolves voiceChannelIds into full channel data before
-    // sending, see routes/client.js). Anything else is the older flat override applied
-    // identically to every pipeline.
+    // A `dongles` array is the full desired dongle set for this client (server resolves
+    // airband voiceChannelIds into full channel data before sending, see routes/client.js)
+    // — reconciled against the live pipeline Map so dongles can be added/removed from the
+    // UI without a full restart. Anything else is the older flat override applied
+    // identically to every existing pipeline.
     if (Array.isArray(config.dongles)) {
-      log('info', `Remote config updated (v${version}) — applying per-dongle overrides`);
-      for (const d of config.dongles) {
-        const p = pipelines.find(p => p.getCfg().device === String(d.device));
-        if (p) p.applyRemoteConfig(d);
-        else log('warn', `Remote config references device ${d.device} — no matching local pipeline, ignoring`);
-      }
+      log('info', `Remote config updated (v${version}) — reconciling dongle set`);
+      reconcileDongles(pipelines, config.dongles);
     } else {
       log('info', `Remote config updated (v${version}) — applying to all dongles`);
-      for (const p of pipelines) p.applyRemoteConfig(config);
+      for (const p of pipelines.values()) p.applyRemoteConfig(config);
     }
   } catch (e) {
     log('debug', `Config poll failed: ${e.message}`);
@@ -588,36 +775,62 @@ function createPipeline(baseCfg, index) {
     await sleep(3000);
     if (stopping || myGen !== generation) return;
 
-    const mmonArgs = buildMmonArgs(cfg);
     const sourceName = cfg.mode === 'airband' ? 'rtl_airband' : 'rtl_fm';
     log('info', `${label} ${sourceName} -d ${cfg.device} -f ${cfg.freq} → multimon-ng ${cfg.protocols}`);
 
+    // Re-resolve the serial into a live device index right before every spawn — this fires
+    // on every restart (watchdog- or config-triggered), so it naturally catches USB
+    // reordering across replugs without needing a separate periodic re-scan.
+    let spawnCfg = cfg;
+    if (cfg.serial) {
+      const idx = await resolveDeviceIndex(cfg.serial);
+      if (stopping || myGen !== generation) return;
+      if (idx === null) {
+        log('warn', `${label} serial ${cfg.serial} not currently detected — falling back to configured device=${cfg.device ?? 0}`);
+      } else {
+        spawnCfg = { ...cfg, device: String(idx) };
+      }
+    }
+
     try {
-      const source = spawnAudioSource(cfg, label);
+      const source = spawnAudioSource(spawnCfg, label);
       rtlProc    = source.proc;
       dataStream = source.dataStream;
       udpSocket  = source.socket || null;
       voiceUdpSockets = source.voiceSockets || [];
-      mmonProc = spawn('multimon-ng', mmonArgs, { stdio: ['pipe',   'pipe', 'pipe'] });
 
-      const tap = new PassThrough();
-      let lastRtlMs = Date.now();
-      tap.on('data', () => {
-        lastRtlMs = Date.now();
+      // Liveness/watchdog fed by whichever streams this dongle actually has — the POCSAG
+      // leg (when present) and every voice channel (rtl_airband's "continuous = true"
+      // output means voice sockets emit steadily regardless of squelch), so this stays
+      // reliable even for a voice-only dongle with no POCSAG leg at all.
+      let lastDataMs = Date.now();
+      const markAlive = () => {
+        lastDataMs = Date.now();
         // Only reset backoff once real data actually flows — resetting on spawn alone (as
         // this used to do) meant a process that fails immediately after every spawn (e.g.
         // "device busy") retried at a flat 5s forever instead of backing off, which can
         // itself starve the OS of the time it needs to actually release a stuck USB handle.
         if (!pipelineRunning) { pipelineRunning = true; consecutiveFails = 0; }
-      });
-      tap.on('error', () => {});
-      dataStream.pipe(tap);
-      tap.pipe(mmonProc.stdin);
-      dataStream.on('error', () => {});
-      mmonProc.stdin.on('error',  () => {});
+      };
+      voiceUdpSockets.forEach(vSocket => vSocket.on('message', markAlive));
+
+      // No POCSAG leg (voice-only airband dongle) → no multimon-ng process at all.
+      const mmonArgs = dataStream ? buildMmonArgs(cfg) : null;
+      mmonProc = dataStream ? spawn('multimon-ng', mmonArgs, { stdio: ['pipe', 'pipe', 'pipe'] }) : null;
+
+      if (dataStream && mmonProc) {
+        const tap = new PassThrough();
+        tap.on('data', markAlive);
+        tap.on('error', () => {});
+        dataStream.pipe(tap);
+        tap.pipe(mmonProc.stdin);
+        dataStream.on('error', () => {});
+        mmonProc.stdin.on('error',  () => {});
+      }
+
       watchdogTimer = setInterval(() => {
         if (stopping || myGen !== generation) { clearInterval(watchdogTimer); watchdogTimer = null; return; }
-        if (Date.now() - lastRtlMs > 20000) {
+        if (Date.now() - lastDataMs > 20000) {
           clearInterval(watchdogTimer); watchdogTimer = null;
           log('warn', `${label} ${sourceName} watchdog: no audio data for 20s — restarting`);
           if (!stopping) scheduleRestart();
@@ -627,12 +840,12 @@ function createPipeline(baseCfg, index) {
       rtlProc.stderr.on('data', d =>
         d.toString().split('\n').forEach(l => { if (l.trim()) log('debug', `${label} ${sourceName}: ${l.trim()}`); })
       );
-      mmonProc.stderr.on('data', d =>
+      if (mmonProc) mmonProc.stderr.on('data', d =>
         d.toString().split('\n').forEach(l => { if (l.trim()) log('debug', `${label} mmon: ${l.trim()}`); })
       );
 
       let lineBuffer = '';
-      mmonProc.stdout.on('data', chunk => {
+      if (mmonProc) mmonProc.stdout.on('data', chunk => {
         let text = chunk.toString('utf8');
         if (text.includes('\uFFFD')) text = iconv.decode(chunk, 'ISO-8859-2');
         lineBuffer += text;
@@ -656,9 +869,9 @@ function createPipeline(baseCfg, index) {
         if (!stopping) scheduleRestart();
       };
       rtlProc.on('exit',  onExit(sourceName));
-      mmonProc.on('exit', onExit('multimon-ng'));
+      if (mmonProc) mmonProc.on('exit', onExit('multimon-ng'));
       rtlProc.on('error',  e => { if (myGen !== generation) return; log('error', `${label} ${sourceName} error: ${e.message}`);  pipelineRunning = false; if (!stopping) scheduleRestart(); });
-      mmonProc.on('error', e => { if (myGen !== generation) return; log('error', `${label} mmon error: ${e.message}`);     pipelineRunning = false; if (!stopping) scheduleRestart(); });
+      if (mmonProc) mmonProc.on('error', e => { if (myGen !== generation) return; log('error', `${label} mmon error: ${e.message}`);     pipelineRunning = false; if (!stopping) scheduleRestart(); });
 
       log('info', `${label} Pipeline spawned — waiting for audio data`);
     } catch (e) {
@@ -709,9 +922,13 @@ log('info', `Server: ${SERVER_URL}`);
 log('info', `Dongles: ${dongleConfigs.length}`);
 dongleConfigs.forEach((c, i) => log('info', `  [${i}] device=${c.device} freq=${c.freq} protocols=${c.protocols}`));
 
-// Create and start a pipeline per dongle
-const pipelines = dongleConfigs.map((cfg, i) => createPipeline(cfg, i));
-pipelines.forEach(p => p.start());
+// Create and start a pipeline per dongle. Keyed by serial (or device index as a legacy
+// fallback) so server-pushed config can add/remove dongles later via reconcileDongles()
+// without needing a full client restart — mirrors the server's own local dongles, which
+// are already fully config-driven.
+const pipelines = new Map();
+for (const cfg of dongleConfigs) pipelines.set(dongleKey(cfg), createPipeline(cfg, pipelines.size));
+for (const p of pipelines.values()) p.start();
 
 // Voice-channel audio relay — persistent, independent of any specific dongle's lifecycle
 connectAudioWs();
@@ -733,7 +950,7 @@ const shutdown = () => {
   clearInterval(configTimer);
   clearTimeout(audioWsReconnectTimer);
   try { audioWs?.close(); } catch (_) {}
-  const stopAll = Promise.all(pipelines.map(p => p.stop()));
+  const stopAll = Promise.all([...pipelines.values()].map(p => p.stop()));
   const stopped = Promise.race([stopAll, new Promise(r => setTimeout(r, 4500))]);
   stopped.finally(() => {
     // Notify server we're offline so it doesn't wait for the threshold to expire

@@ -24,6 +24,7 @@ export const fetchSearch   = (q, limit = 100) => req('GET', `/api/search?q=${enc
 export const fetchStatus   = () => req('GET', '/api/status');
 export const fetchAliases    = () => req('GET', '/api/aliases');
 export const fetchVoiceChannels = () => req('GET', '/api/voice-channels');
+export const fetchActiveVoiceChannels = () => req('GET', '/api/voice-channels/active');
 export const fetchFeedFilter = () => req('GET', '/api/feed-filter');
 export const fetchGroups   = () => req('GET', '/api/groups');
 export const fetchRules    = () => req('GET', '/api/rules');
@@ -37,6 +38,8 @@ export const adminFetchSystem       = () => A('GET', '/admin/system');
 export const adminFetchSdrStatus    = () => A('GET', '/admin/sdr/status');
 export const adminFetchSdrConfig    = () => A('GET', '/admin/sdr/config');
 export const adminFetchSdrLogs      = () => A('GET', '/admin/sdr/logs');
+export const adminFetchClientLogs   = (clientId) => A('GET', `/admin/clients/logs${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`);
+export const adminFetchSdrClients   = () => A('GET', '/admin/sdr-clients');
 export const adminFetchDbStats      = () => A('GET', '/admin/db/stats');
 export const adminFetchNotifConfig  = () => A('GET', '/admin/notifications/config');
 export const adminFetchNotifFilter  = () => A('GET', '/admin/notifications/filter');

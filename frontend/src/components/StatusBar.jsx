@@ -1,6 +1,62 @@
 import { useRef, useLayoutEffect, useState, useEffect } from 'react';
-import { Activity, Wifi, WifiOff, Clock, HardDrive, RefreshCw, GitCommit } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Activity, Wifi, WifiOff, Clock, HardDrive, RefreshCw, GitCommit, AlertTriangle } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
+
+const isNative = Capacitor.isNativePlatform();
+
+// Native gets no ticker at all — the header's own connection dot already covers
+// "is this live," and a permanent scrolling ops-detail bar (memory, restarts, git
+// hashes) is desktop-dashboard density, not phone-glance density. The one thing
+// still worth surfacing unprompted is an actual problem — dead air, SDR down, a
+// dropped connection — so this renders nothing when everything's fine.
+function computeProblem(sdrStatus, serverStatus, wsStatus) {
+  if (wsStatus === 'closed' || wsStatus === 'error') {
+    return { color: 'var(--accent-red)', label: 'Disconnected — reconnecting…' };
+  }
+  if (sdrStatus?.deadAir === 'alert') {
+    const sources = sdrStatus.deadAirSources || [];
+    return { color: 'var(--accent-red)', label: `Dead air${sources.length ? `: ${sources.map(s => s.id).join(', ')}` : ''}` };
+  }
+  const sdrDisabled = serverStatus?.sdrDisabled ?? false;
+  if (sdrDisabled) {
+    const clients = serverStatus?.sdrClients ?? [];
+    if (clients.length) {
+      const allActive = clients.every(c => c.online && c.sdrRunning !== false);
+      const anyOnline = clients.some(c => c.online);
+      if (!allActive) {
+        return { color: anyOnline ? 'var(--accent-amber)' : 'var(--accent-red)', label: anyOnline ? 'SDR partially offline' : 'SDR offline' };
+      }
+    }
+  } else if (sdrStatus?.dongleStatuses?.length > 1) {
+    const allOn = sdrStatus.dongleStatuses.every(d => d.running);
+    if (!allOn) {
+      const someOn = sdrStatus.dongleStatuses.some(d => d.running);
+      return { color: someOn ? 'var(--accent-amber)' : 'var(--accent-red)', label: someOn ? 'SDR partially offline' : 'SDR offline' };
+    }
+  } else if (sdrStatus && !sdrStatus.running) {
+    return { color: 'var(--accent-red)', label: 'SDR offline' };
+  }
+  if (sdrStatus?.error) {
+    return { color: 'var(--accent-red)', label: sdrStatus.error };
+  }
+  return null;
+}
+
+function NativeProblemBar({ sdrStatus, serverStatus, wsStatus, onNavigate }) {
+  const problem = computeProblem(sdrStatus, serverStatus, wsStatus);
+  if (!problem) return null;
+  return (
+    <button onClick={() => onNavigate?.('sdrclients')} style={{
+      display: 'flex', alignItems: 'center', gap: '0.4rem', width: '100%', flexShrink: 0,
+      padding: '0.45rem 0.75rem', border: 'none', borderBottom: '1px solid var(--border)',
+      background: `color-mix(in srgb, ${problem.color} 12%, var(--bg-1))`,
+      color: problem.color, fontSize: '0.8rem', fontWeight: 600, textAlign: 'left', cursor: 'pointer',
+    }}>
+      <AlertTriangle size={14} /> {problem.label}
+    </button>
+  );
+}
 
 function fmtSilent(sec) {
   if (sec < 60)        return `${sec}s ago`;
@@ -30,7 +86,7 @@ function SdrDot({ on, title }) {
   );
 }
 
-function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, onNavigate }) {
+function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, updateFlags, onNavigate }) {
   const { locale, hour12 } = useSite();
   const sdrRunning  = sdrStatus?.running ?? false;
   const sdrDisabled = serverStatus?.sdrDisabled ?? false;
@@ -58,6 +114,34 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
           const combinedTip = clientTips.join('\n');
           return (<>
             {clients.map((c, i) => {
+              const name    = c.displayName || c.id;
+              const dongles = Array.isArray(c.dongleStatuses) ? c.dongleStatuses : [];
+              // Multiple dongles on this client → one dot each, same as the local-dongle
+              // branch below. Falls back to a single client-level dot when the client hasn't
+              // reported per-dongle status yet (older client build, or genuinely one dongle).
+              if (dongles.length > 1) {
+                return dongles.map((d, j) => {
+                  const dOk     = c.online && d.running;
+                  const dotBg   = dOk ? 'var(--accent-green)' : c.online ? 'var(--accent-amber)' : 'var(--accent-red)';
+                  const dotGlow = dOk ? 'var(--glow-green)'   : c.online ? 'var(--glow-amber)'   : 'var(--glow-red)';
+                  const dLabel  = d.label ? ` (${d.label})` : '';
+                  const tip = !c.online
+                    ? `${name} · Dongle ${d.device}${dLabel} · OFFLINE · ${fmtSilent(c.silentSec)}`
+                    : dOk
+                      ? `${name} · Dongle ${d.device}${dLabel} · ${d.freq}${d.protocols ? ` · ${d.protocols}` : ''} · ACTIVE`
+                      : `${name} · Dongle ${d.device}${dLabel} · not running`;
+                  return (
+                    <span key={`${i}-${j}`} title={tip} style={{ display:'inline-flex', alignItems:'center' }}>
+                      <span style={{
+                        width:'7px', height:'7px', borderRadius:'50%',
+                        background: dotBg, boxShadow: dotGlow,
+                        animation:  c.online ? 'blink 2s ease-in-out infinite' : 'none',
+                        flexShrink: 0,
+                      }}/>
+                    </span>
+                  );
+                });
+              }
               const sdrOk   = c.online && c.sdrRunning !== false;
               const dotBg   = sdrOk ? 'var(--accent-green)' : c.online ? 'var(--accent-amber)' : 'var(--accent-red)';
               const dotGlow = sdrOk ? 'var(--glow-green)'   : c.online ? 'var(--glow-amber)'   : 'var(--glow-red)';
@@ -176,13 +260,14 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
       {/* ── Update availability badges (only shown when an update exists) ── */}
       {(() => {
         if (!latestSha) return null;
-        const serverHash  = serverStatus?.gitHash;
-        const sdrClients  = serverStatus?.sdrClients;
+        const serverHash = serverStatus?.gitHash;
 
-        const serverUpdate = serverHash && latestSha !== serverHash;
-        // Any online client that has reported a hash and it differs from latest
-        const clientUpdate = Array.isArray(sdrClients) &&
-          sdrClients.some(c => c.gitHash && latestSha !== c.gitHash);
+        // updateFlags is path-aware: it only flags "server" when the diff between
+        // serverHash and latestSha touches backend/frontend, and only flags "client"
+        // when some client's diff touches client/ — see App.jsx for why a plain hash
+        // mismatch isn't enough in this monorepo.
+        const serverUpdate = updateFlags?.server ?? false;
+        const clientUpdate = updateFlags?.client ?? false;
 
         if (!serverUpdate && !clientUpdate) return null;
 
@@ -222,7 +307,7 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
 //    the computed matrix (actual rendered position, not the keyframe offset)
 // 3. We convert that pixel offset back to a negative animation-delay
 // 4. The animation continues seamlessly from where it was
-function MobileTicker({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, onNavigate }) {
+function MobileTicker({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, updateFlags, onNavigate }) {
   const wrapRef  = useRef(null);
   const startRef = useRef(null); // when animation effectively started (ms)
 
@@ -260,11 +345,11 @@ function MobileTicker({ sdrStatus, serverStatus, wsStatus, messageCount, latestS
       <div ref={wrapRef} className="ticker-wrap">
         <span className="ticker-copy">
           <StatusItems sdrStatus={sdrStatus} serverStatus={serverStatus}
-            wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} onNavigate={onNavigate} />
+            wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} updateFlags={updateFlags} onNavigate={onNavigate} />
         </span>
         <span className="ticker-copy">
           <StatusItems sdrStatus={sdrStatus} serverStatus={serverStatus}
-            wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} onNavigate={onNavigate} />
+            wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} updateFlags={updateFlags} onNavigate={onNavigate} />
         </span>
       </div>
     </div>
@@ -288,7 +373,11 @@ function LiveClock() {
   );
 }
 
-export default function StatusBar({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, onNavigate }) {
+export default function StatusBar({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, updateFlags, onNavigate }) {
+  if (isNative) {
+    return <NativeProblemBar sdrStatus={sdrStatus} serverStatus={serverStatus} wsStatus={wsStatus} onNavigate={onNavigate} />;
+  }
+
   return (
     <>
       {/* Desktop — static flex row */}
@@ -299,13 +388,13 @@ export default function StatusBar({ sdrStatus, serverStatus, wsStatus, messageCo
         fontFamily:'monospace', fontSize:'0.75rem', color:'var(--text-3)',
       }}>
         <StatusItems sdrStatus={sdrStatus} serverStatus={serverStatus}
-          wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} onNavigate={onNavigate} />
+          wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} updateFlags={updateFlags} onNavigate={onNavigate} />
         <LiveClock />
       </div>
 
       {/* Mobile — scrolling ticker (hidden on desktop via CSS) */}
       <MobileTicker sdrStatus={sdrStatus} serverStatus={serverStatus}
-        wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} onNavigate={onNavigate} />
+        wsStatus={wsStatus} messageCount={messageCount} latestSha={latestSha} updateFlags={updateFlags} onNavigate={onNavigate} />
 
       <style>{`
         @keyframes tickerMove {

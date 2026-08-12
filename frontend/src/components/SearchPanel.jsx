@@ -3,7 +3,7 @@ import MessageRow from './MessageRow.jsx';
 import { usePtrScroll } from '../hooks/usePtrScroll.js';
 
 export default function SearchPanel({ results, searching, onClear, highlightRules = [], groups = [], onFilter, onMapClick, onDelete }) {
-  const scrollRef = usePtrScroll();
+  const { ref: scrollRef } = usePtrScroll();
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',

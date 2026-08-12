@@ -77,6 +77,7 @@ let cache = { aircraft: KNOWN.map(emptyAircraft), updatedAt: null };
 let timer = null;
 
 async function refresh() {
+  if (getSetting('site_settings', {}).enableAircraft === false) return;
   const res = await fetchStates(getCredentials());
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const raw = await res.json();

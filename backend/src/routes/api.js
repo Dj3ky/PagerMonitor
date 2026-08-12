@@ -14,6 +14,7 @@ const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
 const { getPublicKey, saveSubscription, removeSubscription } = require('../services/webpush');
+const { saveToken: saveFcmToken, removeToken: removeFcmToken, sendTest: sendFcmTest } = require('../services/fcmPush');
 const { getFeedFilter, passesFeedFilter, getDongleConfigs } = require('../services/config');
 const { getAllClientConfigs } = require('../services/clientTracker');
 
@@ -65,6 +66,7 @@ router.get('/status', requireAuth, (_req, res) => {
       sdrClients = require('../services/clientTracker').getClients().map(c => ({
         id: c.id, displayName: c.displayName || null, online: c.online, freq: c.freq, protocols: c.protocols, silentSec: c.silentSec,
         sdrRunning: c.sdrRunning, gitHash: c.gitHash || null,
+        dongleStatuses: Array.isArray(c.dongleStatuses) ? c.dongleStatuses : [],
       }));
     } catch (_) { sdrClients = []; }
   }
@@ -111,6 +113,14 @@ router.get('/voice-channels', requireAuth, (req, res) => {
     .filter(ch => linked.has(Number(ch.id)))
     .map(ch => ({ ...ch, mount: `ch${ch.id}` }));
   res.json(rows);
+});
+
+// { channelId: true } for channels currently known to have activity — lets a freshly
+// loaded page show correct state immediately; live updates after that come over the WS
+// as 'channel_activity' messages.
+router.get('/voice-channels/active', requireAuth, (_req, res) => {
+  try { res.json(require('../services/audioRelay').getActiveChannels()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.put('/aliases/:capcode', requireEditor, (req, res) => {
   const { name, color, notes, group_id } = req.body;
@@ -360,6 +370,26 @@ router.delete('/push/subscribe', requireAuth, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Native Android app (Capacitor/FCM) — separate registration from the web-push
+// subscribe above, since FCM tokens have no p256dh/auth keypair.
+router.post('/push/fcm-subscribe', requireAuth, (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'token required' });
+    saveFcmToken(req.session.userId, token);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/push/fcm-subscribe', requireAuth, (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'token required' });
+    removeFcmToken(token);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Count of push subscriptions for the current user (so the UI can show "2 devices subscribed")
 router.get('/push/subscriptions/count', requireAuth, (req, res) => {
   try {
@@ -371,18 +401,19 @@ router.get('/push/subscriptions/count', requireAuth, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Send a test push only to the current user's subscribed devices
+// Send a test push only to the current user's subscribed devices (web push + native FCM)
 router.post('/push/test', requireAuth, async (req, res) => {
   try {
     const { getDb }  = require('../services/database');
     const webpush    = (() => { try { return require('web-push'); } catch { return null; } })();
-    if (!webpush) return res.status(503).json({ error: 'web-push not installed' });
 
-    const subs = getDb()
+    let sent = await sendFcmTest(req.session.userId);
+
+    const subs = webpush ? getDb()
       .prepare('SELECT * FROM push_subscriptions WHERE user_id = ?')
-      .all(req.session.userId);
+      .all(req.session.userId) : [];
 
-    if (!subs.length) return res.json({ ok: true, sent: 0 });
+    if (!subs.length) return res.json({ ok: true, sent });
 
     const payload = JSON.stringify({
       title: '📟 PagerMonitor',
@@ -391,7 +422,6 @@ router.post('/push/test', requireAuth, async (req, res) => {
       data:  {},
     });
 
-    let sent = 0;
     await Promise.allSettled(subs.map(async sub => {
       try {
         await webpush.sendNotification(

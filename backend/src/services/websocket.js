@@ -14,12 +14,12 @@ function resolveConnectionOrg(token) {
   const { getSetting } = require('./database');
   if (token) {
     const s = validateSession(token);
-    if (s) return { orgId: s.orgId, isPlatformAdmin: !!s.isPlatformAdmin };
+    if (s) return { orgId: s.orgId, isPlatformAdmin: !!s.isPlatformAdmin, username: s.username || null };
   }
   // No (valid) token — allow only if the instance is in public mode, mirroring the
   // req.publicAccess GET-only exception in services/auth.js's requireAuth.
   const publicMode = !!getSetting('site_settings', {}).publicMode;
-  if (publicMode) return { orgId: getPublicOrgId(), isPlatformAdmin: false };
+  if (publicMode) return { orgId: getPublicOrgId(), isPlatformAdmin: false, username: null };
   return null;
 }
 
@@ -46,6 +46,7 @@ function initWebSocket(server) {
     }
     ws.orgId = conn.orgId;
     ws.isPlatformAdmin = conn.isPlatformAdmin;
+    ws.username = conn.username;
 
     clientCount++;
     const ip = req.socket.remoteAddress;
@@ -69,6 +70,12 @@ function initWebSocket(server) {
       const audioRelay = require('./audioRelay');
       if (msg.type === 'listen_start') audioRelay.handleBrowserListen(ws, msg.channelId);
       else if (msg.type === 'listen_stop') audioRelay.handleBrowserUnlisten(ws, msg.channelId);
+      // Remote client log viewing is instance infrastructure — same access level as the
+      // SDR Clients admin page itself (platform admin only), not a regular per-org action.
+      else if (msg.type === 'watch_client_logs' && ws.isPlatformAdmin) audioRelay.handleBrowserWatchClientLogs(ws, msg.clientId);
+      else if (msg.type === 'unwatch_client_logs') audioRelay.handleBrowserUnwatchClientLogs(ws, msg.clientId);
+      else if (msg.type === 'watch_all_client_logs' && ws.isPlatformAdmin) audioRelay.handleBrowserWatchAllClientLogs(ws);
+      else if (msg.type === 'unwatch_all_client_logs') audioRelay.handleBrowserUnwatchAllClientLogs(ws);
     });
 
     // Send welcome + current SDR status so the UI is correct immediately

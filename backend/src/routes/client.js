@@ -7,6 +7,7 @@
 'use strict';
 
 const { version } = require('../../package.json');
+const crypto  = require('crypto');
 const express = require('express');
 const router  = express.Router();
 
@@ -145,6 +146,10 @@ router.get('/config', requireClientKey, (req, res) => {
 
   let liveConfig = null;
   try { if (req.query.cfg) liveConfig = JSON.parse(req.query.cfg); } catch (_) {}
+  let detectedDongles = null;
+  try { if (req.query.detectedDongles) detectedDongles = JSON.parse(req.query.detectedDongles); } catch (_) {}
+  let dongleStatuses = null;
+  try { if (req.query.dongleStatuses) dongleStatuses = JSON.parse(req.query.dongleStatuses); } catch (_) {}
 
   recordClientPing(clientId, req.ip, {
     freq:       req.query.freq       || null,
@@ -152,6 +157,8 @@ router.get('/config', requireClientKey, (req, res) => {
     sdrRunning: req.query.sdrRunning === 'true' ? true : req.query.sdrRunning === 'false' ? false : null,
     gitHash:    req.query.gitHash    || null,
     liveConfig,
+    dongleStatuses,
+    detectedDongles,
   });
 
   const cfg     = getClientConfig(clientId);
@@ -177,6 +184,14 @@ router.get('/config', requireClientKey, (req, res) => {
       voiceChannels: (Array.isArray(cfg.config.voiceChannelIds) ? cfg.config.voiceChannelIds : []).map(getVoiceChannelById).filter(Boolean),
     };
   }
+
+  // The stored version hash only reflects the raw client_configs row (dongle assignment:
+  // mode/device/voiceChannelIds) — it never changes just because a *referenced* voice
+  // channel's own fields (squelch, tau, freq, ...) get edited elsewhere in Admin -> Voice
+  // Channels. Recompute from the fully-resolved config (with voiceChannels expanded above)
+  // so the client's version === globalConfigVersion check actually notices those changes
+  // instead of silently never restarting to pick them up.
+  cfg.version = crypto.createHash('sha256').update(JSON.stringify(cfg.config)).digest('hex').slice(0, 8);
 
   res.json({ ...cfg, command: command || null });
 });

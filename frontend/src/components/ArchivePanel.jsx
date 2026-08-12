@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { usePtrScroll } from '../hooks/usePtrScroll.js';
 import { Archive, Search, X, RefreshCw, Download } from 'lucide-react';
 import MessageRow from './MessageRow.jsx';
@@ -16,7 +16,6 @@ function fmtDate(ts, locale) {
 
 export default function ArchivePanel({ highlightRules = [], groups = [] }) {
   const { locale } = useSite();
-  const scrollRef  = usePtrScroll();
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState([]);
   const [stats, setStats]     = useState(null);
@@ -56,6 +55,23 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
     } catch (_) {}
     finally { setLoading(false); }
   };
+
+  // Pull-to-refresh (native only) — re-runs whatever's currently on screen (an active
+  // search or the default recent view) rather than resetting it.
+  const refresh = useCallback(async () => {
+    try {
+      const url = searched && query.trim()
+        ? `${BASE}/api/archive?q=${encodeURIComponent(query)}&limit=200`
+        : `${BASE}/api/archive?limit=50`;
+      const [statsData, d] = await Promise.all([
+        fetch(`${BASE}/api/archive/stats`, { headers: authHeaders() }).then(r => r.json()).catch(() => null),
+        fetch(url, { headers: authHeaders() }).then(r => r.json()),
+      ]);
+      if (statsData && statsData.total != null) setStats(statsData);
+      if (Array.isArray(d)) setResults(d);
+    } catch (_) {}
+  }, [query, searched]);
+  const { ref: scrollRef, pull, refreshing } = usePtrScroll(refresh);
 
   const downloadCsv = async () => {
     const url = query.trim()
@@ -123,6 +139,19 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
 
       {/* Results */}
       <div ref={scrollRef} style={{ flex:1, overflowY:'auto' }}>
+        {(pull > 0 || refreshing) && (
+          <div style={{ height: refreshing ? 40 : pull, overflow:'hidden',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            transition: refreshing ? 'height 0.15s' : 'none' }}>
+            <span style={{
+              width:18, height:18, borderRadius:'50%',
+              border:'2px solid var(--accent-blue)', borderTopColor:'transparent',
+              opacity: refreshing ? 1 : Math.min(pull / 64, 1),
+              transform: refreshing ? undefined : `rotate(${pull * 3}deg)`,
+              animation: refreshing ? 'spin 0.6s linear infinite' : 'none',
+            }} />
+          </div>
+        )}
         {results.length === 0 && !loading && (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center',
             justifyContent:'center', height:'100%', color:'var(--text-3)', gap:'0.5rem' }}>
