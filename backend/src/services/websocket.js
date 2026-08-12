@@ -74,6 +74,8 @@ function initWebSocket(server) {
       // SDR Clients admin page itself (platform admin only), not a regular per-org action.
       else if (msg.type === 'watch_client_logs' && ws.isPlatformAdmin) audioRelay.handleBrowserWatchClientLogs(ws, msg.clientId);
       else if (msg.type === 'unwatch_client_logs') audioRelay.handleBrowserUnwatchClientLogs(ws, msg.clientId);
+      else if (msg.type === 'watch_all_client_logs' && ws.isPlatformAdmin) audioRelay.handleBrowserWatchAllClientLogs(ws);
+      else if (msg.type === 'unwatch_all_client_logs') audioRelay.handleBrowserUnwatchAllClientLogs(ws);
     });
 
     // Send welcome + current SDR status so the UI is correct immediately

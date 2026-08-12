@@ -29,7 +29,9 @@ const listeners            = new Map(); // channelId -> Set<browserWs>
 const internalSubscribers  = new Map(); // channelId -> Set<callback(payload)> — e.g. discordRelay.js
 const forwardingActive     = new Map(); // channelId -> boolean (have we told the remote client to stream?)
 const logWatchers          = new Map(); // clientId -> Set<browserWs> — admins viewing that client's live logs
-const logStreamActive      = new Map(); // clientId -> boolean (have we told the client to stream its logs?)
+const allLogWatchers       = new Set(); // browserWs set — admins viewing the merged "all clients" log page
+const clientLogBuffers     = new Map(); // clientId -> ring buffer of { ts, level, msg } — survives no watcher being open
+const MAX_CLIENT_LOG_LINES = 300; // mirrors sdr.js's local-mode MAX_LOG_LINES
 const channelActivity      = new Map(); // channelId -> boolean (currently-known "is someone talking" state)
 const channelActivityHang  = new Map(); // channelId -> timer (debounce before flipping active -> inactive)
 
@@ -211,41 +213,65 @@ function setRemoteForwarding(channelId, wantOn) {
 }
 
 // ── Remote live-log viewing — reuses this same connection so no new port/protocol is
-// needed: admins watch a specific client's own log() output in near-real-time without
-// SSH, over the exact same outbound-only connection already used for audio. ────────────
-function setLogStreaming(clientId, wantOn) {
-  const cur = logStreamActive.get(clientId) || false;
-  if (cur === wantOn) return;
-  logStreamActive.set(clientId, wantOn);
-  sendControl(clientId, { type: 'log_stream', on: wantOn });
-}
-
+// needed: admins watch a client's own log() output in near-real-time without SSH, over
+// the exact same outbound-only connection already used for audio. Remote clients stream
+// their log() calls unconditionally once connected (see client/src/index.js) — buffered
+// here per client regardless of whether anyone's currently watching, so the merged
+// "Client Logs" admin page can show history from before it was opened, the same way
+// local SDR mode's log buffer works (sdr.js). ─────────────────────────────────────────
 function handleBrowserWatchClientLogs(ws, clientId) {
   if (!clientId) return;
   let set = logWatchers.get(clientId);
   if (!set) { set = new Set(); logWatchers.set(clientId, set); }
-  const wasEmpty = set.size === 0;
   set.add(ws);
   (ws._watchingClientLogs || (ws._watchingClientLogs = new Set())).add(clientId);
-  if (wasEmpty) setLogStreaming(clientId, true);
 }
 
 function handleBrowserUnwatchClientLogs(ws, clientId) {
   const set = logWatchers.get(clientId);
   if (set) {
     set.delete(ws);
-    if (set.size === 0) { logWatchers.delete(clientId); setLogStreaming(clientId, false); }
+    if (set.size === 0) logWatchers.delete(clientId);
   }
   ws._watchingClientLogs?.delete(clientId);
 }
 
+function handleBrowserWatchAllClientLogs(ws) {
+  allLogWatchers.add(ws);
+  ws._watchingAllClientLogs = true;
+}
+
+function handleBrowserUnwatchAllClientLogs(ws) {
+  allLogWatchers.delete(ws);
+  ws._watchingAllClientLogs = false;
+}
+
 function relayClientLog(clientId, level, msg, ts) {
-  const set = logWatchers.get(clientId);
-  if (!set || set.size === 0) return;
+  let buf = clientLogBuffers.get(clientId);
+  if (!buf) { buf = []; clientLogBuffers.set(clientId, buf); }
+  buf.push({ ts, level, msg });
+  if (buf.length > MAX_CLIENT_LOG_LINES) buf.shift();
+
+  const watchers = logWatchers.get(clientId);
+  if ((!watchers || watchers.size === 0) && allLogWatchers.size === 0) return;
   const data = JSON.stringify({ type: 'client_log', clientId, level, msg, ts });
-  for (const ws of set) {
-    if (ws.readyState === WebSocket.OPEN) { try { ws.send(data); } catch (_) {} }
+  if (watchers) for (const ws of watchers) { if (ws.readyState === WebSocket.OPEN) { try { ws.send(data); } catch (_) {} } }
+  for (const ws of allLogWatchers) { if (ws.readyState === WebSocket.OPEN) { try { ws.send(data); } catch (_) {} } }
+}
+
+/** Buffered history for one client, oldest first. */
+function getClientLogs(clientId) {
+  return [...(clientLogBuffers.get(clientId) || [])];
+}
+
+/** Buffered history across every client, tagged with clientId, sorted oldest first. */
+function getAllClientLogs() {
+  const merged = [];
+  for (const [clientId, buf] of clientLogBuffers) {
+    for (const entry of buf) merged.push({ clientId, ...entry });
   }
+  merged.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  return merged;
 }
 
 // ── Browser-side listen/unlisten (called from websocket.js's /ws handler) ─────────────
@@ -274,6 +300,7 @@ function handleBrowserUnlisten(ws, channelId) {
 function handleBrowserDisconnect(ws) {
   if (ws._listeningChannels) for (const id of ws._listeningChannels) handleBrowserUnlisten(ws, id);
   if (ws._watchingClientLogs) for (const id of [...ws._watchingClientLogs]) handleBrowserUnwatchClientLogs(ws, id);
+  if (ws._watchingAllClientLogs) handleBrowserUnwatchAllClientLogs(ws);
 }
 
 // ── Internal (non-WS) subscribers, e.g. discordRelay.js ────────────────────────────────
@@ -320,9 +347,6 @@ function initAudioSourceWs(server) {
     clientSockets.set(clientId, ws);
     logger.info(`Audio-source client connected: ${clientId}`);
     reconcileClientChannels(clientId);
-    // Re-arm log streaming too if an admin is still watching this client's logs from
-    // before it disconnected (mirrors reconcileClientChannels' reasoning below).
-    if ((logWatchers.get(clientId)?.size || 0) > 0) setLogStreaming(clientId, true);
 
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
@@ -334,7 +358,7 @@ function initAudioSourceWs(server) {
         return;
       }
       // Only real, expected text message from a client right now: its own log lines,
-      // while an admin has log streaming turned on for it (see setLogStreaming above).
+      // which it streams unconditionally once connected (see client/src/index.js).
       let msg;
       try { msg = JSON.parse(data); } catch (_) { return; }
       if (msg.type === 'log') relayClientLog(clientId, msg.level, msg.msg, msg.ts);
@@ -346,7 +370,6 @@ function initAudioSourceWs(server) {
     ws.on('close', () => {
       if (clientSockets.get(clientId) === ws) clientSockets.delete(clientId);
       logger.info(`Audio-source client disconnected: ${clientId}`);
-      logStreamActive.set(clientId, false); // re-arm on reconnect rather than assume it's still streaming
       // Any channel that was actively forwarding for this client needs re-arming on
       // reconnect — clear our "already told it to start" bookkeeping so the next
       // listener (or the same one still connected) re-triggers a fresh start signal.
@@ -412,6 +435,10 @@ module.exports = {
   handleBrowserDisconnect,
   handleBrowserWatchClientLogs,
   handleBrowserUnwatchClientLogs,
+  handleBrowserWatchAllClientLogs,
+  handleBrowserUnwatchAllClientLogs,
+  getClientLogs,
+  getAllClientLogs,
   subscribeChannel,
   reconcileClientChannels,
   findVoiceChannelConflicts,

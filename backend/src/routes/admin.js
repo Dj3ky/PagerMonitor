@@ -792,6 +792,15 @@ router.put('/sdr-clients/:id/config', platformOnly, (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /admin/clients/logs — buffered history, merged across all clients unless ?clientId=
+router.get('/clients/logs', platformOnly, (req, res) => {
+  try {
+    const { getClientLogs, getAllClientLogs } = require('../services/audioRelay');
+    const clientId = req.query.clientId;
+    res.json(clientId ? getClientLogs(clientId) : getAllClientLogs());
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /admin/sdr-clients/:id/command — queue a remote command (e.g. 'update')
 router.post('/sdr-clients/:id/command', platformOnly, (req, res) => {
   try {

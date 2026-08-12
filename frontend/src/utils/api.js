@@ -38,6 +38,8 @@ export const adminFetchSystem       = () => A('GET', '/admin/system');
 export const adminFetchSdrStatus    = () => A('GET', '/admin/sdr/status');
 export const adminFetchSdrConfig    = () => A('GET', '/admin/sdr/config');
 export const adminFetchSdrLogs      = () => A('GET', '/admin/sdr/logs');
+export const adminFetchClientLogs   = (clientId) => A('GET', `/admin/clients/logs${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`);
+export const adminFetchSdrClients   = () => A('GET', '/admin/sdr-clients');
 export const adminFetchDbStats      = () => A('GET', '/admin/db/stats');
 export const adminFetchNotifConfig  = () => A('GET', '/admin/notifications/config');
 export const adminFetchNotifFilter  = () => A('GET', '/admin/notifications/filter');

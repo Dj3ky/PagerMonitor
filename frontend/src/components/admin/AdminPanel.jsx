@@ -20,6 +20,7 @@ import SiteSettings   from './SiteSettings.jsx';
 import OptionalFeatures from './OptionalFeatures.jsx';
 import ClientSettings from './ClientSettings.jsx';
 import SdrClients     from './SdrClients.jsx';
+import ClientLogs     from './ClientLogs.jsx';
 import KeywordAlerts  from './KeywordAlerts.jsx';
 import DeadAirConfig  from './DeadAirConfig.jsx';
 import Webhooks       from './Webhooks.jsx';
@@ -47,6 +48,7 @@ const TABS = [
   { id:'sdr',         label:'SDR Control',    icon:<Cpu size={14}/>,        sdrOnly: true,    platformOnly: true },
   { id:'logs',        label:'Live Logs',      icon:<Terminal size={14}/>,   sdrOnly: true,    platformOnly: true },
   { id:'sdrclients',  label:'SDR Clients',    icon:<Activity size={14}/>,   serverOnly: true, platformOnly: true },
+  { id:'clientlogs',  label:'Client Logs',    icon:<Terminal size={14}/>,   serverOnly: true, platformOnly: true },
   { id:'client',      label:'Client Key',     icon:<Wifi size={14}/>,       serverOnly: true, platformOnly: true },
   { id:'deadair',     label:'Dead Air',       icon:<Radio size={14}/>,      platformOnly: true },
   { id:'voicechannels', label:'Voice Channels', icon:<Radio size={14}/> },
@@ -117,6 +119,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'optionalfeatures': return <OptionalFeatures />;
     case 'client':      return <ClientSettings />;
     case 'sdrclients':  return <SdrClients />;
+    case 'clientlogs':  return <ClientLogs />;
     case 'users':          return <UsersPanel />;
     case 'userlocations':  return <UserLocations />;
     case 'backup':         return <BackupRestore />;
