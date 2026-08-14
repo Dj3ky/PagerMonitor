@@ -751,6 +751,7 @@ function createPipeline(baseCfg, index) {
   let consecutiveFails = 0;
   let generation = 0;
   let watchdogTimer   = null;
+  let ioPollTimer     = null;
   let pipelineRunning = false;
   const label = `[dongle-${cfg.device}]`;
 
@@ -777,6 +778,7 @@ function createPipeline(baseCfg, index) {
   async function kill() {
     pipelineRunning = false;
     clearInterval(watchdogTimer); watchdogTimer = null;
+    clearInterval(ioPollTimer);   ioPollTimer   = null;
     try { dataStream?.unpipe(); dataStream?.destroy(); } catch (_) {}
     try { udpSocket?.close(); } catch (_) {}
     try { voiceUdpSockets.forEach(s => s.close()); } catch (_) {}
@@ -841,17 +843,56 @@ function createPipeline(baseCfg, index) {
       voiceUdpSockets.forEach(vSocket => vSocket.on('message', markAlive));
 
       // No POCSAG leg (voice-only airband dongle) → no multimon-ng process at all.
-      const mmonArgs = dataStream ? buildMmonArgs(cfg) : null;
-      mmonProc = dataStream ? spawn('multimon-ng', mmonArgs, { stdio: ['pipe', 'pipe', 'pipe'] }) : null;
+      const mmonArgs  = dataStream ? buildMmonArgs(cfg) : null;
+      const isAirband = cfg.mode === 'airband';
+
+      // Plain rtl_fm mode: hand multimon-ng rtl_fm's stdout fd directly as its own stdin,
+      // giving them a real OS-level pipe with zero Node involvement in the byte stream.
+      // Confirmed in the field: routing that audio through a JS .pipe() hop (as below, still
+      // needed for airband) — even just one, with nothing else competing for the event loop —
+      // was enough scheduling jitter to desync multimon-ng's POCSAG512 bit timing on longer
+      // alpha messages (e.g. ones containing a postal address) that an equivalent raw shell
+      // `rtl_fm | multimon-ng` pipe on the same hardware/settings decoded cleanly every time;
+      // short messages were unaffected. rtl_airband's leg can't use this trick — its
+      // dataStream is a PassThrough fed by a hand-rolled UDP resampler, not a real pipe fd.
+      mmonProc = dataStream
+        ? spawn('multimon-ng', mmonArgs, { stdio: [isAirband ? 'pipe' : dataStream, 'pipe', 'pipe'] })
+        : null;
 
       if (dataStream && mmonProc) {
-        const tap = new PassThrough();
-        tap.on('data', markAlive);
-        tap.on('error', () => {});
-        dataStream.pipe(tap);
-        tap.pipe(mmonProc.stdin);
         dataStream.on('error', () => {});
-        mmonProc.stdin.on('error',  () => {});
+        if (isAirband) {
+          const tap = new PassThrough();
+          tap.on('data', markAlive);
+          tap.on('error', () => {});
+          dataStream.pipe(tap);
+          tap.pipe(mmonProc.stdin);
+          mmonProc.stdin.on('error', () => {});
+        } else {
+          // dataStream's fd now belongs to multimon-ng's stdin — nothing left for Node to
+          // read 'data' events from, so the liveness watchdog polls rtl_fm's own read-byte
+          // counter instead (/proc/<pid>/io's rchar). A read failure (e.g. /proc unavailable
+          // on this platform) is treated as "can't tell", not "stalled", so it can't spin up
+          // a false restart loop — it just keeps the pipeline marked alive.
+          let lastBytesRead = null, ioUnavailableWarned = false;
+          ioPollTimer = setInterval(() => {
+            if (stopping || myGen !== generation) return;
+            let bytesRead = null;
+            try {
+              const m = /rchar:\s*(\d+)/.exec(fs.readFileSync(`/proc/${rtlProc.pid}/io`, 'utf8'));
+              bytesRead = m ? parseInt(m[1], 10) : null;
+            } catch (_) {}
+            if (bytesRead === null) {
+              if (!ioUnavailableWarned) {
+                ioUnavailableWarned = true;
+                log('warn', `${label} Cannot read /proc/<pid>/io — audio-flow watchdog disabled for this pipeline`);
+              }
+              markAlive();
+              return;
+            }
+            if (bytesRead !== lastBytesRead) { lastBytesRead = bytesRead; markAlive(); }
+          }, 2000);
+        }
       }
 
       watchdogTimer = setInterval(() => {
