@@ -441,29 +441,47 @@ router.post('/push/test', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Gate for Slovenia-only integrations (ARSO/SMOK/OpenSky bbox/NAP) ───────────
+// These services already stop polling their external APIs once geocodeCountry
+// isn't 'si', or once their own enable toggle is off (both checked inside each
+// refresh()) — but their in-memory caches keep whatever was last fetched. This
+// stops that stale data from being reachable via the API directly, regardless
+// of what the frontend nav shows. toggleKey is the matching site_settings flag
+// (enableArsoWeather / enableAircraft / enableTraffic) for the routes below.
+function requireEnabled(toggleKey) {
+  return (_req, res, next) => {
+    const { getSetting } = require('../services/database');
+    const s = getSetting('site_settings', {});
+    if (s.geocodeCountry !== 'si' || s[toggleKey] === false) {
+      return res.status(404).json({ error: 'Not available for this deployment' });
+    }
+    next();
+  };
+}
+
 // ── ARSO weather (Slovenia) ───────────────────────────────────────────────────
 const arsoWeather = require('../services/arsoWeather');
-router.get('/weather/arso/current',  requireAuth, (_req, res) => res.json(arsoWeather.getCurrent()));
-router.get('/weather/arso/forecast', requireAuth, (_req, res) => res.json(arsoWeather.getForecast()));
-router.get('/weather/arso/warnings', requireAuth, (_req, res) => res.json(arsoWeather.getWarnings()));
+router.get('/weather/arso/current',  requireAuth, requireEnabled('enableArsoWeather'), (_req, res) => res.json(arsoWeather.getCurrent()));
+router.get('/weather/arso/forecast', requireAuth, requireEnabled('enableArsoWeather'), (_req, res) => res.json(arsoWeather.getForecast()));
+router.get('/weather/arso/warnings', requireAuth, requireEnabled('enableArsoWeather'), (_req, res) => res.json(arsoWeather.getWarnings()));
 
 // ── SMOK water levels (Slovenia) ──────────────────────────────────────────────
 const smokWater = require('../services/smokWater');
-router.get('/weather/smok/stations', requireAuth, (_req, res) => res.json(smokWater.getStations()));
+router.get('/weather/smok/stations', requireAuth, requireEnabled('enableArsoWeather'), (_req, res) => res.json(smokWater.getStations()));
 
 // ── ARSO earthquakes (Slovenia) ────────────────────────────────────────────────
 const arsoQuakes = require('../services/arsoQuakes');
-router.get('/weather/arso/quakes', requireAuth, (_req, res) => res.json(arsoQuakes.getQuakes()));
+router.get('/weather/arso/quakes', requireAuth, requireEnabled('enableArsoWeather'), (_req, res) => res.json(arsoQuakes.getQuakes()));
 
 // ── Firefighting aircraft tracking (OpenSky) ────────────────────────────────────
 const openskyAircraft = require('../services/openskyAircraft');
-router.get('/aircraft', requireAuth, (_req, res) => res.json(openskyAircraft.getAircraft()));
+router.get('/aircraft', requireAuth, requireEnabled('enableAircraft'), (_req, res) => res.json(openskyAircraft.getAircraft()));
 
 // ── Traffic data (NAP / b2b.nap.si) ─────────────────────────────────────────────
 const napTraffic = require('../services/napTraffic');
-router.get('/traffic/cameras', requireAuth, (_req, res) => res.json(napTraffic.getCamerasResponse()));
-router.get('/traffic/roadworks', requireAuth, (_req, res) => res.json(napTraffic.getRoadworksResponse()));
-router.get('/traffic/events', requireAuth, (_req, res) => res.json(napTraffic.getEventsResponse()));
-router.get('/traffic/vms', requireAuth, (_req, res) => res.json(napTraffic.getVmsResponse()));
+router.get('/traffic/cameras', requireAuth, requireEnabled('enableTraffic'), (_req, res) => res.json(napTraffic.getCamerasResponse()));
+router.get('/traffic/roadworks', requireAuth, requireEnabled('enableTraffic'), (_req, res) => res.json(napTraffic.getRoadworksResponse()));
+router.get('/traffic/events', requireAuth, requireEnabled('enableTraffic'), (_req, res) => res.json(napTraffic.getEventsResponse()));
+router.get('/traffic/vms', requireAuth, requireEnabled('enableTraffic'), (_req, res) => res.json(napTraffic.getVmsResponse()));
 
 module.exports = router;
