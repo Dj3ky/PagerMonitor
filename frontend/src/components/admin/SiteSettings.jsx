@@ -5,9 +5,10 @@ import { useSite } from '../../context/SiteContext.jsx';
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const getToken = () => localStorage.getItem('pm_token') || '';
 
-const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si', locale: 'sl-SI', hour12: false, timezone: 'Europe/Ljubljana', windyApiKey: '' };
+const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: '', locale: '', hour12: false, timezone: '', windyApiKey: '' };
 
 const TIMEZONES = [
+  { value: '', label: '— Not set (use server default) —' },
   { value: 'Europe/Ljubljana',  label: 'Europe/Ljubljana (CET/CEST)' },
   { value: 'Europe/Zagreb',     label: 'Europe/Zagreb (CET/CEST)' },
   { value: 'Europe/Belgrade',   label: 'Europe/Belgrade (CET/CEST)' },
@@ -36,6 +37,7 @@ const TIMEZONES = [
 ];
 
 const LOCALES = [
+  { value: '', label: '— Not set (use browser default) —' },
   { value: 'sl-SI', label: 'sl-SI — Slovenian' },
   { value: 'en-US', label: 'en-US — English (US)' },
   { value: 'en-GB', label: 'en-GB — English (UK)' },
@@ -343,7 +345,7 @@ export default function SiteSettings({ onResetMap }) {
           </select>
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
             Controls how dates and times are formatted across the app.
-            Preview: {new Date().toLocaleString(locale, { hour12, day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }).replace(/\s/g, ' ').trim()}
+            Preview: {new Date().toLocaleString(locale || undefined, { hour12, day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }).replace(/\s/g, ' ').trim()}
           </div>
         </div>
 
@@ -357,7 +359,7 @@ export default function SiteSettings({ onResetMap }) {
           </select>
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
             Timezone used when formatting times in email and push notifications.
-            Current time: {new Date().toLocaleTimeString(locale, { timeZone: timezone, hour12, hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+            Current time: {new Date().toLocaleTimeString(locale || undefined, { timeZone: timezone || undefined, hour12, hour:'2-digit', minute:'2-digit', second:'2-digit' })}
           </div>
         </div>
 
@@ -373,7 +375,7 @@ export default function SiteSettings({ onResetMap }) {
             ))}
           </div>
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
-            Preview: {new Date().toLocaleTimeString(locale, { hour12, hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+            Preview: {new Date().toLocaleTimeString(locale || undefined, { hour12, hour:'2-digit', minute:'2-digit', second:'2-digit' })}
           </div>
         </div>
 
@@ -427,7 +429,7 @@ export default function SiteSettings({ onResetMap }) {
               placeholder="si" maxLength={2}
               style={{ width:'60px', textAlign:'center', fontFamily:'monospace', textTransform:'lowercase' }} />
             <span style={{ fontSize:'0.8rem', color:'var(--text-2)' }}>
-              {geocodeCountry === 'si' ? 'Slovenia' : geocodeCountry === 'de' ? 'Germany' : geocodeCountry === 'at' ? 'Austria' : geocodeCountry === 'hr' ? 'Croatia' : geocodeCountry === 'it' ? 'Italy' : geocodeCountry === 'gb' ? 'United Kingdom' : geocodeCountry === 'us' ? 'United States' : geocodeCountry === 'fr' ? 'France' : geocodeCountry === 'nz' ? 'New Zealand' : geocodeCountry === 'au' ? 'Australia' : geocodeCountry === 'ca' ? 'Canada' : geocodeCountry.toUpperCase()}
+              {geocodeCountry === '' ? 'Not set' : geocodeCountry === 'si' ? 'Slovenia' : geocodeCountry === 'de' ? 'Germany' : geocodeCountry === 'at' ? 'Austria' : geocodeCountry === 'hr' ? 'Croatia' : geocodeCountry === 'it' ? 'Italy' : geocodeCountry === 'gb' ? 'United Kingdom' : geocodeCountry === 'us' ? 'United States' : geocodeCountry === 'fr' ? 'France' : geocodeCountry === 'nz' ? 'New Zealand' : geocodeCountry === 'au' ? 'Australia' : geocodeCountry === 'ca' ? 'Canada' : geocodeCountry.toUpperCase()}
             </span>
           </div>
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>

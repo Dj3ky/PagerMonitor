@@ -3,7 +3,9 @@
 const { getSetting } = require('../services/database');
 
 function formatTs(ts) {
-  const tz = (getSetting('site_settings', {}).timezone) || 'Europe/Ljubljana';
+  // undefined (not a hardcoded zone) lets Intl fall back to the host's own timezone
+  // when the admin hasn't configured one.
+  const tz = (getSetting('site_settings', {}).timezone) || undefined;
   const d = new Date(ts);
   if (isNaN(d)) return ts || '';
   const parts = new Intl.DateTimeFormat('en-GB', {

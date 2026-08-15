@@ -30,7 +30,7 @@ const FEATURES = [
 ];
 
 export default function OptionalFeatures() {
-  const { update: updateSite } = useSite();
+  const { update: updateSite, geocodeCountry } = useSite();
   const [cfg, setCfg]       = useState({ enableTraffic: true, enableAircraft: true, enableArsoWeather: true });
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,6 +70,17 @@ export default function OptionalFeatures() {
         everyone on this instance and stops the background fetch that feeds it — nothing keeps
         running or polling external APIs in the background once turned off.
       </p>
+
+      {geocodeCountry !== 'si' && (
+        <div style={{ padding:'0.6rem 0.8rem', borderRadius:'0.4rem', fontSize:'0.78rem',
+          color:'var(--accent-orange, #d29922)', lineHeight:1.5, marginBottom:'0.75rem',
+          background:'color-mix(in srgb, var(--accent-orange, #d29922) 10%, transparent)',
+          border:'1px solid color-mix(in srgb, var(--accent-orange, #d29922) 30%, transparent)' }}>
+          All three features below are Slovenia-specific data sources and stay inactive regardless
+          of these toggles until <strong>Geocoding country code</strong> (Site Settings → Map) is set
+          to <code>si</code>. Currently set to {geocodeCountry ? <code>{geocodeCountry}</code> : 'not set'}.
+        </div>
+      )}
 
       <div className="pm-card">
         <Flash msg={msg} />

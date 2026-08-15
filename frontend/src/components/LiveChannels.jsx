@@ -114,9 +114,14 @@ export default function LiveChannels() {
   // switching or stopping as activity changes. Manual play/stop (see userAction below)
   // turns this off immediately, so a human's choice is never overridden — only this
   // effect drives playback while the toggle is on.
+  //
+  // Native only: this JS-driven version is skipped entirely — LiveAudioService.kt makes
+  // the same decision natively instead, because this effect stops running once Chrome
+  // freezes a backgrounded WebView's JS, which would otherwise mean auto-listen just goes
+  // silent whenever the app isn't in the foreground. See startAuto() below.
   const AUTO_SWITCH_GRACE_MS = 3500; // stay put briefly after "quiet" — radio chatter often has a few-second pause mid-conversation, not the end of it
   useEffect(() => {
-    if (!autoListen) {
+    if (!autoListen || isNative) {
       clearTimeout(autoGraceTimerRef.current);
       autoGraceTimerRef.current = null;
       return;
@@ -153,6 +158,34 @@ export default function LiveChannels() {
     if (next) play(next);
   }, [autoListen, activeChannels, playingId, channels]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Native equivalent of the effect above: instead of deciding which channel to play here
+  // in JS, just tell LiveAudioService whether auto-listen is on at all and let it make (and
+  // keep making) that decision itself — see that file's class doc for why. The playingId
+  // guard on the stop branch avoids racing a manual channel tap: userAction() below turns
+  // autoListen off and calls play() in the same synchronous handler, so by the time this
+  // effect re-runs, playingId is already the new channel — don't undo that start (the
+  // redundant start() it fires in that case is a harmless no-op re-issue of the same channel).
+  useEffect(() => {
+    if (!isNative) return;
+    if (autoListen && channels.length > 0) {
+      LiveAudio.startAuto({
+        wsUrl: nativeWsUrl(),
+        restBase: BACKEND_URL,
+        token: localStorage.getItem('pm_token') || '',
+        channelsJson: JSON.stringify(channels.map(c => ({ id: c.id, description: c.description || 'Live channel' }))),
+      }).catch(() => {});
+    } else if (!autoListen) {
+      if (playingId != null) {
+        // Something was already playing via auto-listen — pin to it (stop future
+        // auto-switching) instead of cutting audio off just because the toggle flipped.
+        const ch = channels.find(c => c.id === playingId);
+        LiveAudio.start({ wsUrl: nativeWsUrl(), channelId: playingId, description: ch?.description || 'Live channel' }).catch(() => {});
+      } else {
+        LiveAudio.stop().catch(() => {});
+      }
+    }
+  }, [autoListen, channels, playingId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const userAction = (fn) => { if (autoListen) setAutoListen(false); fn(); };
 
   useEffect(() => () => { clearTimeout(autoGraceTimerRef.current); stop(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -162,9 +195,13 @@ export default function LiveChannels() {
   useEffect(() => {
     if (!isNative) return;
     let handle;
-    LiveAudio.addListener('statusChange', ({ status: s }) => {
+    LiveAudio.addListener('statusChange', ({ status: s, channelId: cid }) => {
       setStatus(s === 'stopped' ? null : s);
+      // In auto-watch mode the native side picks the channel on its own (see
+      // LiveAudioService.kt), without JS ever calling play() — without this, playingId
+      // would stay null and the UI wouldn't show which channel it switched to.
       if (s === 'stopped') setPlayingId(null);
+      else if (cid != null && cid >= 0) setPlayingId(cid);
     }).then(h => { handle = h; });
 
     // The service may already be running from before this component existed — e.g. the

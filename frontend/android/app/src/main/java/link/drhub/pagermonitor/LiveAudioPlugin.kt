@@ -13,9 +13,10 @@ import com.getcapacitor.annotation.CapacitorPlugin
 class LiveAudioPlugin : Plugin() {
 
     override fun load() {
-        LiveAudioService.statusListener = { status, message ->
+        LiveAudioService.statusListener = { status, message, channelId ->
             val data = JSObject()
             data.put("status", status)
+            data.put("channelId", channelId)
             if (message != null) data.put("message", message)
             notifyListeners("statusChange", data)
         }
@@ -34,6 +35,31 @@ class LiveAudioPlugin : Plugin() {
             putExtra(LiveAudioService.EXTRA_WS_URL, wsUrl)
             putExtra(LiveAudioService.EXTRA_CHANNEL_ID, channelId)
             putExtra(LiveAudioService.EXTRA_DESCRIPTION, call.getString("description") ?: "Live channel")
+        }
+        context.startForegroundService(intent)
+        call.resolve()
+    }
+
+    // Hands the auto-listen "which channel (if any) should be playing" decision to the
+    // native service, so it keeps working once the WebView's JS is frozen in the
+    // background — see LiveAudioService's class doc.
+    @PluginMethod
+    fun startAuto(call: PluginCall) {
+        val wsUrl = call.getString("wsUrl")
+        val restBase = call.getString("restBase")
+        val token = call.getString("token")
+        val channelsJson = call.getString("channelsJson")
+        if (wsUrl == null || restBase == null || token == null || channelsJson == null) {
+            call.reject("wsUrl, restBase, token, and channelsJson are required")
+            return
+        }
+        val intent = Intent(context, LiveAudioService::class.java).apply {
+            action = LiveAudioService.ACTION_AUTO_WATCH
+            putExtra(LiveAudioService.EXTRA_WS_URL, wsUrl)
+            putExtra(LiveAudioService.EXTRA_REST_BASE, restBase)
+            putExtra(LiveAudioService.EXTRA_TOKEN, token)
+            putExtra(LiveAudioService.EXTRA_CHANNELS_JSON, channelsJson)
+            putExtra(LiveAudioService.EXTRA_DESCRIPTION, "Auto-listen — waiting for activity")
         }
         context.startForegroundService(intent)
         call.resolve()

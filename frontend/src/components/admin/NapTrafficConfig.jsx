@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Camera, Save, Eye, EyeOff } from 'lucide-react';
+import { useSite } from '../../context/SiteContext.jsx';
 
 const BASE     = import.meta.env.VITE_BACKEND_URL || '';
 const getToken = () => localStorage.getItem('pm_token') || '';
@@ -20,6 +21,7 @@ async function saveConfig(cfg) {
 }
 
 export default function NapTrafficConfig() {
+  const { geocodeCountry } = useSite();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus]     = useState(null);
@@ -62,6 +64,17 @@ export default function NapTrafficConfig() {
         Enter the B2B account credentials issued by NAP below — the same account will also
         cover traffic info feeds as they're added.
       </p>
+
+      {geocodeCountry !== 'si' && (
+        <div style={{ padding:'0.6rem 0.8rem', borderRadius:'0.4rem', fontSize:'0.78rem',
+          color:'var(--accent-orange, #d29922)', lineHeight:1.5, marginBottom:'0.75rem',
+          background:'color-mix(in srgb, var(--accent-orange, #d29922) 10%, transparent)',
+          border:'1px solid color-mix(in srgb, var(--accent-orange, #d29922) 30%, transparent)' }}>
+          NAP is Slovenia's national traffic data point — this stays inactive until
+          <strong> Geocoding country code</strong> (Site Settings → Map) is set to <code>si</code>.
+          Currently set to {geocodeCountry ? <code>{geocodeCountry}</code> : 'not set'}.
+        </div>
+      )}
 
       {msg && (
         <div style={{ padding:'0.45rem 0.75rem', borderRadius:'0.4rem', fontSize:'0.78rem',

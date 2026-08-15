@@ -77,7 +77,7 @@ router.post('/message', requireClientKey, (req, res) => {
       clientColor        = row?.color || null;
     } catch (_) {}
 
-    const geocodeCountry = (getSetting('site_settings', {}).geocodeCountry || 'si');
+    const geocodeCountry = (getSetting('site_settings', {}).geocodeCountry || '');
     // Soft geographic anchor for this capcode's reporting unit, derived from its
     // alias name — see utils/aliasPlace.js and services/sdr.js (same logic, this
     // is the ingest path for remote SDR clients instead of the local dongle).

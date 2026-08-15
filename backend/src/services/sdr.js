@@ -663,7 +663,7 @@ function handleLine(line, sourceId = 'sdr') {
   }
 
   const timestamp = new Date().toISOString();
-  const geocodeCountry = (getSetting('site_settings', {}).geocodeCountry || 'si');
+  const geocodeCountry = (getSetting('site_settings', {}).geocodeCountry || '');
   // Soft geographic anchor for this capcode's reporting unit, derived from its
   // alias name — used to disambiguate settlement name clashes and as a fallback
   // settlement when the message text names none. See utils/aliasPlace.js.

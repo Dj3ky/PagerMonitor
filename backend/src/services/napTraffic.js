@@ -57,7 +57,12 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 const cache  = Object.fromEntries([...Object.keys(FEEDS), 'vms'].map(k => [k, { data: EMPTY_FC, updatedAt: null }]));
 const timers = Object.fromEntries([...Object.keys(FEEDS), 'vmsTable', 'vmsStatus'].map(k => [k, null]));
 
-function trafficEnabled() { return getSetting('site_settings', {}).enableTraffic !== false; }
+// Feed URLs above are hardcoded to Slovenia's DARS/DRSI network — pointless for
+// any other deployment, regardless of the enable toggle.
+function trafficEnabled() {
+  const s = getSetting('site_settings', {});
+  return s.enableTraffic !== false && s.geocodeCountry === 'si';
+}
 
 async function refresh(key) {
   if (!trafficEnabled()) return;

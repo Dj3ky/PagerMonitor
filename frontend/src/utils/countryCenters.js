@@ -36,7 +36,9 @@ export const COUNTRY_CENTER = {
   nz: { lat: -40.90, lon: 174.89, zoom: 5 },
 };
 
-export const FALLBACK_CENTER = { lat: 46.12, lon: 14.80, zoom: 9 };
+// Used when geocodeCountry is unset/unrecognized — a neutral world view rather
+// than assuming any particular country (previously defaulted to Slovenia).
+export const FALLBACK_CENTER = { lat: 20, lon: 10, zoom: 2 };
 
 export function getCountryCenter(geocodeCountry) {
   return COUNTRY_CENTER[geocodeCountry] || FALLBACK_CENTER;

@@ -19,7 +19,10 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
   const debounceRef             = useRef(null);
   const { theme, toggle: toggleTheme } = useTheme();
   const { user, logout }        = useAuth();
-  const { siteName, enableTraffic, enableAircraft } = useSite();
+  const { siteName, enableTraffic, enableAircraft, geocodeCountry } = useSite();
+  // Both hardcoded to Slovenian data sources — same gate ARSO weather uses.
+  const showAircraft = enableAircraft && geocodeCountry === 'si';
+  const showTraffic  = enableTraffic  && geocodeCountry === 'si';
 
   // Dynamic search — fires 350ms after user stops typing
   useEffect(() => {
@@ -106,10 +109,10 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             <NavBtn active={view==='map'}     onClick={() => nav('map')}     icon={<Map size={13}/>}     label="Map" />
             <NavBtn active={view==='archive'} onClick={() => nav('archive')} icon={<Archive size={13}/>} label="Archive" />
             <NavBtn active={view==='weather'} onClick={() => nav('weather')} icon={<CloudRain size={13}/>} label="Weather" />
-            {enableAircraft && (
+            {showAircraft && (
               <NavBtn active={view==='aircraft'} onClick={() => nav('aircraft')} icon={<Plane size={13}/>} label="Aircraft" />
             )}
-            {enableTraffic && (
+            {showTraffic && (
               <NavBtn active={view==='traffic'} onClick={() => nav('traffic')} icon={<Camera size={13}/>} label="Traffic" />
             )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
@@ -233,10 +236,10 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
                 <MenuRow icon={<CloudRain size={16}/>} label="Weather" active={view==='weather'} onClick={() => nav('weather')} />
               </>
             )}
-            {enableAircraft && (
+            {showAircraft && (
               <MenuRow icon={<Plane size={16}/>} label="Aircraft" active={view==='aircraft'} onClick={() => nav('aircraft')} />
             )}
-            {enableTraffic && (
+            {showTraffic && (
               <MenuRow icon={<Camera size={16}/>} label="Traffic" active={view==='traffic'} onClick={() => nav('traffic')} />
             )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (

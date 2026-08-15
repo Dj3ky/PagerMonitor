@@ -40,7 +40,12 @@ const PAGE_OPTIONS = [20, 50, 100, 200];
 
 export default function App() {
   const { user, loading: authLoading, needsSetup, isPublic } = useAuth();
-  const { enableTraffic, enableAircraft } = useSite();
+  const { enableTraffic, enableAircraft, geocodeCountry } = useSite();
+  // Both features are hardcoded to Slovenian data sources (DARS/DRSI traffic,
+  // Slovenia-bounding-box aircraft) — pointless outside a Slovenian deployment,
+  // regardless of the enable toggle. Same gate ARSO weather already uses.
+  const showAircraft = enableAircraft && geocodeCountry === 'si';
+  const showTraffic  = enableTraffic  && geocodeCountry === 'si';
   const [showLogin, setShowLogin]       = useState(false);
   const [showProfile, setShowProfile]   = useState(false);
   const [resetToken]                    = useState(() => new URLSearchParams(window.location.search).get('reset'));
@@ -67,10 +72,10 @@ export default function App() {
 
   // Bounce off a menu that got disabled while the user was on it (or is disabled on load).
   useEffect(() => {
-    if ((view === 'aircraft' && !enableAircraft) || (view === 'traffic' && !enableTraffic)) {
+    if ((view === 'aircraft' && !showAircraft) || (view === 'traffic' && !showTraffic)) {
       handleSetView('feed');
     }
-  }, [view, enableAircraft, enableTraffic]);
+  }, [view, showAircraft, showTraffic]);
   const [soundEnabled, setSoundEnabled]     = useState(true);
   const browserNotif = useBrowserNotifications();
   const pushSub      = usePushSubscription();
@@ -348,14 +353,14 @@ export default function App() {
           <div style={{ position:'absolute', inset:0, display: view === 'weather' ? 'flex' : 'none', flexDirection:'column' }}>
             <WeatherView visible={view === 'weather'} locationSharing={locationSharing} />
           </div>
-          {enableAircraft && (
+          {showAircraft && (
             <div style={{ position:'absolute', inset:0, display: view === 'aircraft' ? 'flex' : 'none', flexDirection:'column' }}>
               <Suspense fallback={null}>
                 <AircraftView visible={view === 'aircraft'} />
               </Suspense>
             </div>
           )}
-          {enableTraffic && (
+          {showTraffic && (
             <div style={{ position:'absolute', inset:0, display: view === 'traffic' ? 'flex' : 'none', flexDirection:'column' }}>
               <Suspense fallback={null}>
                 <TrafficView visible={view === 'traffic'} />

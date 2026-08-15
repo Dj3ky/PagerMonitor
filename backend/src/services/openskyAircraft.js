@@ -77,7 +77,10 @@ let cache = { aircraft: KNOWN.map(emptyAircraft), updatedAt: null };
 let timer = null;
 
 async function refresh() {
-  if (getSetting('site_settings', {}).enableAircraft === false) return;
+  const s = getSetting('site_settings', {});
+  // Bounding box above is hardcoded to Slovenia — pointless (and wasted OpenSky
+  // credits) for any other deployment, regardless of the enable toggle.
+  if (s.enableAircraft === false || s.geocodeCountry !== 'si') return;
   const res = await fetchStates(getCredentials());
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const raw = await res.json();

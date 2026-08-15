@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 
-const DEFAULT = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: 'si', locale: 'sl-SI', hour12: false, windyApiKey: '', enableTraffic: true, enableAircraft: true, enableArsoWeather: true };
+// geocodeCountry/locale blank by default (unconfigured) — see admin.js's
+// SITE_SETTINGS_DEFAULTS for why this can't default to Slovenia anymore.
+const DEFAULT = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: '', locale: '', hour12: false, windyApiKey: '', enableTraffic: true, enableAircraft: true, enableArsoWeather: true };
 const BASE    = import.meta.env.VITE_BACKEND_URL || '';
 
 const SiteContext = createContext({ ...DEFAULT, settingsLoaded: false, update: () => {} });
@@ -47,7 +49,10 @@ export function SiteProvider({ children }) {
   };
 
   return (
-    <SiteContext.Provider value={{ ...settings, settingsLoaded, update }}>
+    // locale is normalized to undefined (not '') here so every consumer's
+    // toLocale*String(locale, ...) call falls back to the browser's own locale
+    // instead of throwing on an empty-string BCP-47 tag.
+    <SiteContext.Provider value={{ ...settings, locale: settings.locale || undefined, settingsLoaded, update }}>
       {children}
     </SiteContext.Provider>
   );

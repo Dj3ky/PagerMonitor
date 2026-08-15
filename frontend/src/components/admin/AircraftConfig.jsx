@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plane, Save, Eye, EyeOff } from 'lucide-react';
+import { useSite } from '../../context/SiteContext.jsx';
 
 const BASE     = import.meta.env.VITE_BACKEND_URL || '';
 const getToken = () => localStorage.getItem('pm_token') || '';
@@ -20,6 +21,7 @@ async function saveConfig(cfg) {
 }
 
 export default function AircraftConfig() {
+  const { geocodeCountry } = useSite();
   const [clientId, setClientId]         = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [show, setShow]       = useState(false);
@@ -61,6 +63,17 @@ export default function AircraftConfig() {
         then create an API client on your Account page to get a Client ID and Secret below
         (Standard tier: 4000 credits/day, polls every 1 min).
       </p>
+
+      {geocodeCountry !== 'si' && (
+        <div style={{ padding:'0.6rem 0.8rem', borderRadius:'0.4rem', fontSize:'0.78rem',
+          color:'var(--accent-orange, #d29922)', lineHeight:1.5, marginBottom:'0.75rem',
+          background:'color-mix(in srgb, var(--accent-orange, #d29922) 10%, transparent)',
+          border:'1px solid color-mix(in srgb, var(--accent-orange, #d29922) 30%, transparent)' }}>
+          This tracks a Slovenia-specific bounding box and stays inactive until <strong>Geocoding
+          country code</strong> (Site Settings → Map) is set to <code>si</code>. Currently set to{' '}
+          {geocodeCountry ? <code>{geocodeCountry}</code> : 'not set'}.
+        </div>
+      )}
 
       {msg && (
         <div style={{ padding:'0.45rem 0.75rem', borderRadius:'0.4rem', fontSize:'0.78rem',

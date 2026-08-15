@@ -33,7 +33,7 @@ function Flash({ msg }) {
 }
 
 export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplete, onLocationResolved, visible, resetKey, locationSharing }) {
-  const { mapDotColor = '#00ff9d', mapMaxAgeDays = 30, geocodeCountry = 'si', locale, hour12 } = useSite();
+  const { mapDotColor = '#00ff9d', mapMaxAgeDays = 30, geocodeCountry = '', locale, hour12 } = useSite();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 

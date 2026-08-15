@@ -27,7 +27,7 @@ const ARCHIVE_PATH = process.env.ARCHIVE_PATH ||
   path.join(path.dirname(path.resolve(DB_PATH)), 'archive.db');
 
 function localTs() {
-  const tz = (getSetting('site_settings', {}).timezone) || 'Europe/Ljubljana';
+  const tz = (getSetting('site_settings', {}).timezone) || undefined;
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',

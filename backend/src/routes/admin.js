@@ -195,7 +195,7 @@ router.post('/messages/:id/regeocode', platformOnly, async (req, res) => {
     const row = getDb().prepare('SELECT message, capcode FROM messages WHERE id = ?').get(id);
     if (!row) return res.status(404).json({ ok: false, reason: 'Message not found' });
 
-    const cc = (_gs('site_settings', {}).geocodeCountry || 'si');
+    const cc = (_gs('site_settings', {}).geocodeCountry || '');
     const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
     // Same soft geographic anchor as the live ingest pipeline (see services/sdr.js)
     // — without this, ambiguous settlement names default to whichever same-named
@@ -419,7 +419,11 @@ router.get('/user-locations', adminOnly, (req, res) => {
 });
 
 // ── Site settings (instance-wide) ──────────────────────────────────────────────
-const SITE_SETTINGS_DEFAULTS = { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'si', locale:'sl-SI', timezone:'Europe/Ljubljana', windyApiKey:'', enableTraffic:true, enableAircraft:true, enableArsoWeather:true };
+// geocodeCountry/locale/timezone default to blank (unconfigured) rather than
+// Slovenia — this repo is public and self-hosted by deployments worldwide, and a
+// silent Slovenia default meant every fresh install silently activated
+// Slovenia-only integrations (ARSO, NAP traffic, OpenSky aircraft bounding box).
+const SITE_SETTINGS_DEFAULTS = { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'', locale:'', timezone:'', windyApiKey:'', enableTraffic:true, enableAircraft:true, enableArsoWeather:true };
 
 router.get('/site-settings', platformOnly, (_req, res) => {
   try { res.json(_gs('site_settings', SITE_SETTINGS_DEFAULTS)); }
@@ -441,10 +445,12 @@ router.put('/site-settings', platformOnly, (req, res) => {
       showMapButton: b.showMapButton !== undefined ? (b.showMapButton !== false) : cur.showMapButton,
       mapMaxAgeDays: b.mapMaxAgeDays !== undefined ? Math.max(1/24, Math.min(365, parseFloat(b.mapMaxAgeDays)||30)) : cur.mapMaxAgeDays,
       publicMode: b.publicMode !== undefined ? !!b.publicMode : cur.publicMode,
-      geocodeCountry: b.geocodeCountry !== undefined ? (/^[a-z]{2}$/.test(b.geocodeCountry) ? b.geocodeCountry : 'si') : cur.geocodeCountry,
-      locale: b.locale !== undefined ? (/^[a-z]{2}-[A-Z]{2}$/.test(b.locale) ? b.locale : 'sl-SI') : cur.locale,
+      // Empty string is a valid explicit "clear it back to unconfigured" — only
+      // reject genuinely invalid non-empty input by falling back to the current value.
+      geocodeCountry: b.geocodeCountry !== undefined ? (b.geocodeCountry === '' || /^[a-z]{2}$/.test(b.geocodeCountry) ? b.geocodeCountry : cur.geocodeCountry) : cur.geocodeCountry,
+      locale: b.locale !== undefined ? (b.locale === '' || /^[a-z]{2}-[A-Z]{2}$/.test(b.locale) ? b.locale : cur.locale) : cur.locale,
       hour12: b.hour12 !== undefined ? !!b.hour12 : cur.hour12,
-      timezone: b.timezone !== undefined ? ((typeof b.timezone === 'string' && validTz(b.timezone)) ? b.timezone : 'Europe/Ljubljana') : cur.timezone,
+      timezone: b.timezone !== undefined ? (b.timezone === '' || (typeof b.timezone === 'string' && validTz(b.timezone)) ? b.timezone : cur.timezone) : cur.timezone,
       windyApiKey: b.windyApiKey !== undefined ? (typeof b.windyApiKey === 'string' ? b.windyApiKey.trim() : '') : cur.windyApiKey,
       enableTraffic: b.enableTraffic !== undefined ? (b.enableTraffic !== false) : (cur.enableTraffic !== false),
       enableAircraft: b.enableAircraft !== undefined ? (b.enableAircraft !== false) : (cur.enableAircraft !== false),
