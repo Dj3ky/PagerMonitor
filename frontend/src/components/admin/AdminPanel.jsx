@@ -82,10 +82,10 @@ const TABS = [
 
   { group: 'Site' },
   { id:'site',        label:'Site Settings',  icon:<Settings2 size={14}/>,  platformOnly: true },
-  { id:'optionalfeatures', label:'Optional Features', icon:<SlidersHorizontal size={14}/>, platformOnly: true },
+  { id:'optionalfeatures', label:'Optional Features', icon:<SlidersHorizontal size={14}/>, platformOnly: true, country: 'si' },
   { id:'aigeocode',   label:'AI Geocode',     icon:<Brain size={14}/>,      platformOnly: true },
-  { id:'aircraft',    label:'Aircraft Tracking', icon:<Plane size={14}/>,  platformOnly: true, feature: 'enableAircraft' },
-  { id:'traffic',     label:'Traffic Data (NAP)', icon:<Camera size={14}/>, platformOnly: true, feature: 'enableTraffic' },
+  { id:'aircraft',    label:'Aircraft Tracking', icon:<Plane size={14}/>,  platformOnly: true, feature: 'enableAircraft', country: 'si' },
+  { id:'traffic',     label:'Traffic Data (NAP)', icon:<Camera size={14}/>, platformOnly: true, feature: 'enableTraffic', country: 'si' },
   { id:'users',       label:'Users',          icon:<Users size={14}/> },
   { id:'userlocations', label:'User Locations', icon:<MapPin size={14}/> },
 
@@ -150,6 +150,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
     if (t.serverOnly && !sdrDisabled) return false;
     if (t.platformOnly && !isPlatformAdmin) return false;
     if (t.feature && site[t.feature] === false) return false;
+    if (t.country && site.geocodeCountry !== t.country) return false;
     if (isEditor && !EDITOR_TABS.has(t.id)) return false;
     return true;
   }).filter((t, i, arr) => {
@@ -175,7 +176,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
       setTab(newTab);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sdrDisabled, site.enableTraffic, site.enableAircraft]);
+  }, [sdrDisabled, site.enableTraffic, site.enableAircraft, site.geocodeCountry]);
 
   const handleSetTab = (t) => {
     sessionStorage.setItem('pm_admin_tab', t);

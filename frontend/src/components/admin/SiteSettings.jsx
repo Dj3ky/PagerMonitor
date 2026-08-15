@@ -434,6 +434,10 @@ export default function SiteSettings({ onResetMap }) {
           </div>
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
             2-letter ISO country code used when geocoding addresses from message text (e.g. <code>si</code>, <code>de</code>, <code>hr</code>, <code>at</code>).
+            {geocodeCountry !== 'si' && (
+              <> Setting this to <code>si</code> also unlocks additional Slovenia-specific
+              integrations (Optional Features, Aircraft Tracking, Traffic Data).</>
+            )}
           </div>
         </div>
 
