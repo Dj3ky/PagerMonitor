@@ -18,7 +18,7 @@ let cache = { quakes: [], updatedAt: null };
 let timer = null;
 
 async function refresh() {
-  if (getSetting('site_settings', {}).enableArsoWeather === false) return;
+  if (getSetting('site_settings', {}).enableArsoWeather !== true) return;
   const res = await fetch(URL, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const raw = await res.json();

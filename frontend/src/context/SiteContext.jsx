@@ -2,7 +2,8 @@ import { createContext, useContext, useState, useEffect } from 'react';
 
 // geocodeCountry/locale blank by default (unconfigured) — see admin.js's
 // SITE_SETTINGS_DEFAULTS for why this can't default to Slovenia anymore.
-const DEFAULT = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: '', locale: '', hour12: false, windyApiKey: '', enableTraffic: true, enableAircraft: true, enableArsoWeather: true };
+// Optional-feature toggles default off (opt-in), on top of the geocodeCountry gate.
+const DEFAULT = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: '', locale: '', hour12: false, windyApiKey: '', enableTraffic: false, enableAircraft: false, enableArsoWeather: false, enableInterventions: false };
 const BASE    = import.meta.env.VITE_BACKEND_URL || '';
 
 const SiteContext = createContext({ ...DEFAULT, settingsLoaded: false, update: () => {} });
@@ -28,9 +29,10 @@ export function SiteProvider({ children }) {
           locale:          /^[a-z]{2}-[A-Z]{2}$/.test(d.locale) ? d.locale : DEFAULT.locale,
           hour12:          !!d.hour12,
           windyApiKey:     typeof d.windyApiKey === 'string' ? d.windyApiKey : '',
-          enableTraffic:      d.enableTraffic      !== false,
-          enableAircraft:     d.enableAircraft     !== false,
-          enableArsoWeather:  d.enableArsoWeather  !== false,
+          enableTraffic:      d.enableTraffic      === true,
+          enableAircraft:     d.enableAircraft     === true,
+          enableArsoWeather:  d.enableArsoWeather  === true,
+          enableInterventions: d.enableInterventions === true,
         };
         setSettings(s);
         document.title = s.siteName;

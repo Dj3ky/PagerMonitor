@@ -423,7 +423,9 @@ router.get('/user-locations', adminOnly, (req, res) => {
 // Slovenia — this repo is public and self-hosted by deployments worldwide, and a
 // silent Slovenia default meant every fresh install silently activated
 // Slovenia-only integrations (ARSO, NAP traffic, OpenSky aircraft bounding box).
-const SITE_SETTINGS_DEFAULTS = { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'', locale:'', timezone:'', windyApiKey:'', enableTraffic:true, enableAircraft:true, enableArsoWeather:true };
+// Same reasoning applies to the optional-feature toggles themselves — all default
+// off now, opt-in rather than opt-out, on top of the geocodeCountry gate.
+const SITE_SETTINGS_DEFAULTS = { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'', locale:'', timezone:'', windyApiKey:'', enableTraffic:false, enableAircraft:false, enableArsoWeather:false, enableInterventions:false };
 
 router.get('/site-settings', platformOnly, (_req, res) => {
   try { res.json(_gs('site_settings', SITE_SETTINGS_DEFAULTS)); }
@@ -452,9 +454,12 @@ router.put('/site-settings', platformOnly, (req, res) => {
       hour12: b.hour12 !== undefined ? !!b.hour12 : cur.hour12,
       timezone: b.timezone !== undefined ? (b.timezone === '' || (typeof b.timezone === 'string' && validTz(b.timezone)) ? b.timezone : cur.timezone) : cur.timezone,
       windyApiKey: b.windyApiKey !== undefined ? (typeof b.windyApiKey === 'string' ? b.windyApiKey.trim() : '') : cur.windyApiKey,
-      enableTraffic: b.enableTraffic !== undefined ? (b.enableTraffic !== false) : (cur.enableTraffic !== false),
-      enableAircraft: b.enableAircraft !== undefined ? (b.enableAircraft !== false) : (cur.enableAircraft !== false),
-      enableArsoWeather: b.enableArsoWeather !== undefined ? (b.enableArsoWeather !== false) : (cur.enableArsoWeather !== false),
+      // Opt-in (=== true), not opt-out — these default off until an admin turns
+      // them on explicitly, on top of the geocodeCountry gate.
+      enableTraffic: b.enableTraffic !== undefined ? (b.enableTraffic === true) : (cur.enableTraffic === true),
+      enableAircraft: b.enableAircraft !== undefined ? (b.enableAircraft === true) : (cur.enableAircraft === true),
+      enableArsoWeather: b.enableArsoWeather !== undefined ? (b.enableArsoWeather === true) : (cur.enableArsoWeather === true),
+      enableInterventions: b.enableInterventions !== undefined ? (b.enableInterventions === true) : (cur.enableInterventions === true),
     };
     _ss('site_settings', next);
     addAuditLog(req.session?.username||'admin', 'site.settings', `publicMode=${!!next.publicMode}`);

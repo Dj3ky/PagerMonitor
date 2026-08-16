@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { SlidersHorizontal, Save, Camera, Plane, CloudRain } from 'lucide-react';
+import { SlidersHorizontal, Save, Camera, Plane, CloudRain, Siren } from 'lucide-react';
 import { useSite } from '../../context/SiteContext.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
@@ -27,11 +27,14 @@ const FEATURES = [
     desc: 'Live wildfire aircraft tracking (OpenSky). Hides the Aircraft menu and stops polling the OpenSky API.' },
   { key: 'enableArsoWeather', icon: <CloudRain size={15}/>, label: 'ARSO Weather',
     desc: 'Slovenia-specific ARSO station data, SMOK river/water levels, and ARSO seismology (earthquakes). Removes the ARSO, Water & Quakes layers from the Weather menu and stops polling all three feeds. The base Windy weather map stays available.' },
+  { key: 'enableInterventions', icon: <Siren size={15}/>, label: 'SPIN',
+    desc: 'Live SPIN public-safety intervention feed for Slovenia (fires, traffic accidents, technical assistance, and more), with a searchable archive. Hides the SPIN menu and stops the background feed.' },
 ];
 
 export default function OptionalFeatures() {
   const { update: updateSite, geocodeCountry } = useSite();
-  const [cfg, setCfg]       = useState({ enableTraffic: true, enableAircraft: true, enableArsoWeather: true });
+  // All off by default — opt-in, not opt-out.
+  const [cfg, setCfg]       = useState({ enableTraffic: false, enableAircraft: false, enableArsoWeather: false, enableInterventions: false });
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg]       = useState(null);
@@ -39,9 +42,10 @@ export default function OptionalFeatures() {
   useEffect(() => {
     api('GET', '/admin/site-settings')
       .then(d => setCfg({
-        enableTraffic:     d.enableTraffic     !== false,
-        enableAircraft:    d.enableAircraft    !== false,
-        enableArsoWeather: d.enableArsoWeather !== false,
+        enableTraffic:     d.enableTraffic     === true,
+        enableAircraft:    d.enableAircraft    === true,
+        enableArsoWeather: d.enableArsoWeather === true,
+        enableInterventions: d.enableInterventions === true,
       }))
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -76,7 +80,7 @@ export default function OptionalFeatures() {
           color:'var(--accent-orange, #d29922)', lineHeight:1.5, marginBottom:'0.75rem',
           background:'color-mix(in srgb, var(--accent-orange, #d29922) 10%, transparent)',
           border:'1px solid color-mix(in srgb, var(--accent-orange, #d29922) 30%, transparent)' }}>
-          All three features below are Slovenia-specific data sources and stay inactive regardless
+          All four features below are Slovenia-specific data sources and stay inactive regardless
           of these toggles until <strong>Geocoding country code</strong> (Site Settings → Map) is set
           to <code>si</code>. Currently set to {geocodeCountry ? <code>{geocodeCountry}</code> : 'not set'}.
         </div>

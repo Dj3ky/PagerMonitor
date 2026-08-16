@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { Radio, Search, Volume2, VolumeX, Settings, Rss, Sun, Moon, LogOut, User, Menu, X, Bell, BellOff, Map, Archive, CloudRain, Plane, Camera } from 'lucide-react';
+import { Radio, Search, Volume2, VolumeX, Settings, Rss, Sun, Moon, LogOut, User, Menu, X, Bell, BellOff, Map, Archive, CloudRain, Plane, Camera, Siren } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useAuth }  from '../context/AuthContext.jsx';
 import { useSite }  from '../context/SiteContext.jsx';
@@ -19,10 +19,11 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
   const debounceRef             = useRef(null);
   const { theme, toggle: toggleTheme } = useTheme();
   const { user, logout }        = useAuth();
-  const { siteName, enableTraffic, enableAircraft, geocodeCountry } = useSite();
-  // Both hardcoded to Slovenian data sources — same gate ARSO weather uses.
-  const showAircraft = enableAircraft && geocodeCountry === 'si';
-  const showTraffic  = enableTraffic  && geocodeCountry === 'si';
+  const { siteName, enableTraffic, enableAircraft, enableInterventions, geocodeCountry } = useSite();
+  // All three hardcoded to Slovenian data sources — same gate ARSO weather uses.
+  const showAircraft      = enableAircraft      && geocodeCountry === 'si';
+  const showTraffic       = enableTraffic       && geocodeCountry === 'si';
+  const showInterventions = enableInterventions && geocodeCountry === 'si';
 
   // Dynamic search — fires 350ms after user stops typing
   useEffect(() => {
@@ -114,6 +115,9 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             )}
             {showTraffic && (
               <NavBtn active={view==='traffic'} onClick={() => nav('traffic')} icon={<Camera size={13}/>} label="Traffic" />
+            )}
+            {showInterventions && (
+              <NavBtn active={view==='interventions'} onClick={() => nav('interventions')} icon={<Siren size={13}/>} label="SPIN" />
             )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
               <NavBtn active={view==='admin'} onClick={() => nav('admin')} icon={<Settings size={13}/>} label="Settings" />
@@ -241,6 +245,9 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             )}
             {showTraffic && (
               <MenuRow icon={<Camera size={16}/>} label="Traffic" active={view==='traffic'} onClick={() => nav('traffic')} />
+            )}
+            {showInterventions && (
+              <MenuRow icon={<Siren size={16}/>} label="SPIN" active={view==='interventions'} onClick={() => nav('interventions')} />
             )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
               <MenuRow icon={<Settings size={16}/>} label="Settings" active={view==='admin'} onClick={() => nav('admin')} />

@@ -22,9 +22,10 @@ import ErrorBoundary     from './components/ErrorBoundary.jsx';
 // Admin tooling and the aircraft/traffic radars are large and only used by a
 // subset of sessions (admins, or sites with those features enabled) — split
 // them into their own chunks instead of bloating everyone's initial bundle.
-const AdminPanel   = lazy(() => import('./components/admin/AdminPanel.jsx'));
-const AircraftView = lazy(() => import('./components/AircraftView.jsx'));
-const TrafficView  = lazy(() => import('./components/TrafficView.jsx'));
+const AdminPanel        = lazy(() => import('./components/admin/AdminPanel.jsx'));
+const AircraftView      = lazy(() => import('./components/AircraftView.jsx'));
+const TrafficView       = lazy(() => import('./components/TrafficView.jsx'));
+const InterventionsView = lazy(() => import('./components/InterventionsView.jsx'));
 
 import { playAlertSound } from './components/admin/KeywordAlerts.jsx';
 
@@ -40,12 +41,14 @@ const PAGE_OPTIONS = [20, 50, 100, 200];
 
 export default function App() {
   const { user, loading: authLoading, needsSetup, isPublic } = useAuth();
-  const { enableTraffic, enableAircraft, geocodeCountry } = useSite();
-  // Both features are hardcoded to Slovenian data sources (DARS/DRSI traffic,
-  // Slovenia-bounding-box aircraft) — pointless outside a Slovenian deployment,
-  // regardless of the enable toggle. Same gate ARSO weather already uses.
-  const showAircraft = enableAircraft && geocodeCountry === 'si';
-  const showTraffic  = enableTraffic  && geocodeCountry === 'si';
+  const { enableTraffic, enableAircraft, enableInterventions, geocodeCountry } = useSite();
+  // All three features are hardcoded to Slovenian data sources (DARS/DRSI
+  // traffic, Slovenia-bounding-box aircraft, SOS112 interventions) — pointless
+  // outside a Slovenian deployment, regardless of the enable toggle. Same gate
+  // ARSO weather already uses.
+  const showAircraft      = enableAircraft      && geocodeCountry === 'si';
+  const showTraffic       = enableTraffic       && geocodeCountry === 'si';
+  const showInterventions = enableInterventions && geocodeCountry === 'si';
   const [showLogin, setShowLogin]       = useState(false);
   const [showProfile, setShowProfile]   = useState(false);
   const [resetToken]                    = useState(() => new URLSearchParams(window.location.search).get('reset'));
@@ -72,10 +75,11 @@ export default function App() {
 
   // Bounce off a menu that got disabled while the user was on it (or is disabled on load).
   useEffect(() => {
-    if ((view === 'aircraft' && !showAircraft) || (view === 'traffic' && !showTraffic)) {
+    if ((view === 'aircraft' && !showAircraft) || (view === 'traffic' && !showTraffic) ||
+        (view === 'interventions' && !showInterventions)) {
       handleSetView('feed');
     }
-  }, [view, showAircraft, showTraffic]);
+  }, [view, showAircraft, showTraffic, showInterventions]);
   const [soundEnabled, setSoundEnabled]     = useState(true);
   const browserNotif = useBrowserNotifications();
   const pushSub      = usePushSubscription();
@@ -364,6 +368,13 @@ export default function App() {
             <div style={{ position:'absolute', inset:0, display: view === 'traffic' ? 'flex' : 'none', flexDirection:'column' }}>
               <Suspense fallback={null}>
                 <TrafficView visible={view === 'traffic'} />
+              </Suspense>
+            </div>
+          )}
+          {showInterventions && (
+            <div style={{ position:'absolute', inset:0, display: view === 'interventions' ? 'flex' : 'none', flexDirection:'column' }}>
+              <Suspense fallback={null}>
+                <InterventionsView visible={view === 'interventions'} />
               </Suspense>
             </div>
           )}

@@ -61,7 +61,7 @@ const timers = Object.fromEntries([...Object.keys(FEEDS), 'vmsTable', 'vmsStatus
 // any other deployment, regardless of the enable toggle.
 function trafficEnabled() {
   const s = getSetting('site_settings', {});
-  return s.enableTraffic !== false && s.geocodeCountry === 'si';
+  return s.enableTraffic === true && s.geocodeCountry === 'si';
 }
 
 async function refresh(key) {

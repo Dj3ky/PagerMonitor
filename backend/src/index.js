@@ -16,6 +16,7 @@ const smokWater                 = require('./services/smokWater');
 const arsoQuakes                = require('./services/arsoQuakes');
 const openskyAircraft           = require('./services/openskyAircraft');
 const napTraffic                = require('./services/napTraffic');
+const interventions              = require('./services/interventions');
 const { loadSdrConfigIntoEnv } = require('./services/config');
 const { ensureDefaultAdmin, initSessions } = require('./services/auth');
 const { initWebPush } = require('./services/webpush');
@@ -66,7 +67,7 @@ async function main() {
   app.get('/api/site-settings', (_req, res) => {
     const { getSetting } = require('./services/database');
     try {
-      const s = getSetting('site_settings', { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, publicMode: false, enableTraffic: true, enableAircraft: true, enableArsoWeather: true });
+      const s = getSetting('site_settings', { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, publicMode: false, enableTraffic: false, enableAircraft: false, enableArsoWeather: false, enableInterventions: false });
       res.json(s);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -185,6 +186,7 @@ async function main() {
   arsoQuakes.start();
   openskyAircraft.start();
   napTraffic.start();
+  interventions.start();
 
   const shutdown = sig => {
     logger.info(`${sig} received`);
@@ -194,6 +196,7 @@ async function main() {
     arsoQuakes.stop();
     openskyAircraft.stop();
     napTraffic.stop();
+    interventions.stop();
     closeWebSocket();
     server.close(() => process.exit(0));
     setTimeout(() => { logger.warn('Forced exit after 5s'); process.exit(0); }, 5000).unref();

@@ -652,4 +652,56 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
   return null;
 }
 
-module.exports = { parseLocation, geocodeAddress };
+// ── Reverse geocoding (coordinates → address) ───────────────────────────────────
+// Used by external feeds that hand us coordinates directly rather than
+// free text to parse. Mirrors the forward dispatcher above: HERE when configured
+// (confidence-tagged via resultType/houseNumberType), Nominatim otherwise — routed
+// through the same _enqueue queue so combined forward+reverse Nominatim traffic
+// still respects the 1 req/s usage policy.
+async function _hereReverse(lat, lng) {
+  try {
+    const { getConfig } = require('./aiGeocode');
+    const { hereKey } = getConfig();
+    if (!hereKey) return null;
+    const url = `https://revgeocode.search.hereapi.com/v1/revgeocode?at=${lat},${lng}&limit=1&apiKey=${hereKey}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const item = (await r.json())?.items?.[0];
+    if (!item?.address?.label) return null;
+    return {
+      address: item.address.label,
+      confidence: item.houseNumberType === 'PA' ? 'houseNumber' : (item.resultType || null),
+    };
+  } catch { return null; }
+}
+
+async function _nominatimReverse(lat, lng) {
+  return _enqueue(async () => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18`;
+      const r = await fetch(url, {
+        headers: { 'Accept-Language': 'sl,en', 'User-Agent': 'PagerMonitor/2.2' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return null;
+      const data = await r.json();
+      if (!data?.display_name) return null;
+      return { address: data.display_name, confidence: data.address?.house_number ? 'houseNumber' : null };
+    } catch { return null; }
+  });
+}
+
+async function reverseGeocode(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  try {
+    const { getConfig } = require('./aiGeocode');
+    const cfg = getConfig();
+    if (cfg.geocoder === 'here' && cfg.hereKey) {
+      const result = await _hereReverse(lat, lng);
+      if (result) return result;
+    }
+  } catch { /* fall through */ }
+  return _nominatimReverse(lat, lng);
+}
+
+module.exports = { parseLocation, geocodeAddress, reverseGeocode };

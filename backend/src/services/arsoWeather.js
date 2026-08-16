@@ -306,7 +306,7 @@ async function refreshWarnings() {
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 async function refreshAll(seedHistory = false) {
-  if (getSetting('site_settings', {}).enableArsoWeather === false) return;
+  if (getSetting('site_settings', {}).enableArsoWeather !== true) return;
   const results = await Promise.allSettled([refreshCurrent(seedHistory), refreshForecast(), refreshWarnings()]);
   results.forEach((r, i) => {
     if (r.status === 'rejected') logger.warn(`ARSO weather refresh (${['current','forecast','warnings'][i]}): ${r.reason?.message}`);

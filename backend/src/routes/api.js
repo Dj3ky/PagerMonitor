@@ -441,18 +441,19 @@ router.post('/push/test', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Gate for Slovenia-only integrations (ARSO/SMOK/OpenSky bbox/NAP) ───────────
+// ── Gate for Slovenia-only integrations (ARSO/SMOK/OpenSky bbox/NAP/interventions) ─
 // These services already stop polling their external APIs once geocodeCountry
 // isn't 'si', or once their own enable toggle is off (both checked inside each
-// refresh()) — but their in-memory caches keep whatever was last fetched. This
-// stops that stale data from being reachable via the API directly, regardless
-// of what the frontend nav shows. toggleKey is the matching site_settings flag
-// (enableArsoWeather / enableAircraft / enableTraffic) for the routes below.
+// refresh()) — but their in-memory caches / DB tables keep whatever was last
+// fetched. This stops that stale data from being reachable via the API directly,
+// regardless of what the frontend nav shows. toggleKey is the matching
+// site_settings flag for the routes below — opt-in (must be === true), not
+// opt-out, so an unconfigured deployment stays fully dormant by default.
 function requireEnabled(toggleKey) {
   return (_req, res, next) => {
     const { getSetting } = require('../services/database');
     const s = getSetting('site_settings', {});
-    if (s.geocodeCountry !== 'si' || s[toggleKey] === false) {
+    if (s.geocodeCountry !== 'si' || s[toggleKey] !== true) {
       return res.status(404).json({ error: 'Not available for this deployment' });
     }
     next();
@@ -483,5 +484,20 @@ router.get('/traffic/cameras', requireAuth, requireEnabled('enableTraffic'), (_r
 router.get('/traffic/roadworks', requireAuth, requireEnabled('enableTraffic'), (_req, res) => res.json(napTraffic.getRoadworksResponse()));
 router.get('/traffic/events', requireAuth, requireEnabled('enableTraffic'), (_req, res) => res.json(napTraffic.getEventsResponse()));
 router.get('/traffic/vms', requireAuth, requireEnabled('enableTraffic'), (_req, res) => res.json(napTraffic.getVmsResponse()));
+
+// ── Public-safety interventions (Slovenia) ───────────────────────────────────────
+const interventions = require('../services/interventions');
+router.get('/interventions', requireAuth, requireEnabled('enableInterventions'), (req, res) => {
+  try {
+    const { limit, offset, municipality, type, q, from, to } = req.query;
+    res.json(interventions.query({ limit, offset, municipality, type, q, from, to }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.get('/interventions/municipalities', requireAuth, requireEnabled('enableInterventions'), (_req, res) => {
+  try { res.json(interventions.getMunicipalities()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.get('/interventions/types', requireAuth, requireEnabled('enableInterventions'), (_req, res) => {
+  try { res.json(interventions.getTypes()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 module.exports = router;
