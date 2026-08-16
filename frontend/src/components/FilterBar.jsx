@@ -3,6 +3,14 @@ import { Filter, Pause, Play, X, ChevronLeft, ChevronRight } from 'lucide-react'
 const S = {
   bar:    { flexShrink:0, background:'var(--bg-1)', borderBottom:'1px solid var(--border)' },
   row:    { display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.4rem 1rem', flexWrap:'wrap' },
+  // Row 1 must never wrap — with flexWrap:'wrap', a browser moves an item that doesn't fit
+  // entirely to a new line rather than shrinking what's already on the line, which is what
+  // sent Pause to its own row on some devices (larger Android font-scale/display-size
+  // settings alone, even on identical hardware, was enough to tip it over). nowrap forces
+  // the two inputs (the only items without flexShrink:0 below) to compress instead — down
+  // to their minWidth floor — before anything is pushed off the line. overflowX is just a
+  // safety net for truly extreme zoom levels beyond what that floor can absorb.
+  row1:   { display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.4rem 1rem', flexWrap:'nowrap', overflowX:'auto' },
   input:  { background:'var(--bg-3)', border:'1px solid var(--border)', borderRadius:'0.4rem',
             padding:'0.3rem 0.6rem', fontSize:'0.78rem', fontFamily:'monospace',
             color:'var(--text-1)', outline:'none' },
@@ -17,7 +25,7 @@ const S = {
 
 function ActiveBadge({ label, color, onRemove }) {
   return (
-    <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem',
+    <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem', flexShrink:0,
       fontSize:'0.68rem', padding:'0.1rem 0.4rem 0.1rem 0.5rem', borderRadius:'1rem',
       color, background: color + '20', border:`1px solid ${color}44`, fontWeight:600 }}>
       {label}
@@ -37,18 +45,18 @@ export default function FilterBar({ filters, onChange, paused, onTogglePause, ne
   return (
     <div style={S.bar}>
       {/* Row 1 — text filters */}
-      <div style={S.row}>
+      <div style={S.row1}>
         <Filter size={13} style={{ color:'var(--text-3)', flexShrink:0 }} />
 
-        <input style={{ ...S.input, width:'110px' }} placeholder="Capcode…"
+        <input style={{ ...S.input, width:'110px', minWidth:'50px' }} placeholder="Capcode…"
           value={filters.capcode} onChange={e => onChange({ ...filters, capcode: e.target.value })} />
 
-        <input style={{ ...S.input, width:'140px' }} placeholder="Keyword / regex…"
+        <input style={{ ...S.input, width:'140px', minWidth:'60px' }} placeholder="Keyword / regex…"
           value={filters.keyword} onChange={e => onChange({ ...filters, keyword: e.target.value })} />
 
         {(hasText || hasAlias || hasGroup) && (
           <button onClick={() => onChange({ capcode:'', keyword:'', alias:'', group:'' })}
-            style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.15rem' }}
+            style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.15rem', flexShrink:0 }}
             title="Clear all filters">
             <X size={13} />
           </button>
@@ -64,10 +72,10 @@ export default function FilterBar({ filters, onChange, paused, onTogglePause, ne
             onRemove={() => onChange({ ...filters, group:'' })} />
         )}
 
-        <div style={{ flex:1 }} />
+        <div style={{ flex:1, minWidth:0 }} />
 
         <button onClick={onTogglePause} style={{
-          display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.25rem 0.65rem',
+          display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.25rem 0.65rem', flexShrink:0,
           borderRadius:'0.4rem', fontSize:'0.78rem', fontWeight:500, cursor:'pointer', border:'1px solid',
           background: paused ? 'color-mix(in srgb, var(--accent-amber) 12%, transparent)' : 'var(--bg-3)',
           borderColor: paused ? 'color-mix(in srgb, var(--accent-amber) 35%, transparent)' : 'var(--border)',
