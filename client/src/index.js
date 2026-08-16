@@ -870,16 +870,21 @@ function createPipeline(baseCfg, index) {
           mmonProc.stdin.on('error', () => {});
         } else {
           // dataStream's fd now belongs to multimon-ng's stdin — nothing left for Node to
-          // read 'data' events from, so the liveness watchdog polls rtl_fm's own read-byte
-          // counter instead (/proc/<pid>/io's rchar). A read failure (e.g. /proc unavailable
-          // on this platform) is treated as "can't tell", not "stalled", so it can't spin up
-          // a false restart loop — it just keeps the pipeline marked alive.
+          // read 'data' events from, so the liveness watchdog polls multimon-ng's own
+          // read-byte counter instead (/proc/<pid>/io's rchar on multimon-ng's PID, not
+          // rtl_fm's — rtl_fm pulls USB samples via libusb's ioctl-based URB API, which
+          // /proc/pid/io's rchar doesn't count at all, so watching rtl_fm here would read
+          // as permanently stalled and force a restart every ~20s even under normal
+          // operation. multimon-ng, by contrast, reads its stdin pipe with a plain blocking
+          // read(), which rchar always counts.). A read failure (e.g. /proc unavailable on
+          // this platform) is treated as "can't tell", not "stalled", so it can't spin up a
+          // false restart loop — it just keeps the pipeline marked alive.
           let lastBytesRead = null, ioUnavailableWarned = false;
           ioPollTimer = setInterval(() => {
             if (stopping || myGen !== generation) return;
             let bytesRead = null;
             try {
-              const m = /rchar:\s*(\d+)/.exec(fs.readFileSync(`/proc/${rtlProc.pid}/io`, 'utf8'));
+              const m = /rchar:\s*(\d+)/.exec(fs.readFileSync(`/proc/${mmonProc.pid}/io`, 'utf8'));
               bytesRead = m ? parseInt(m[1], 10) : null;
             } catch (_) {}
             if (bytesRead === null) {
