@@ -42,7 +42,7 @@ COPY --from=frontend-build /build/dist ./frontend/dist
 
 # Create data directory
 RUN mkdir -p /app/backend/data && \
-    chown -R node:node /app
+    chown node:node /app/backend/data
 
 # Run as non-root user
 USER node
