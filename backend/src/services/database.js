@@ -959,9 +959,13 @@ function upsertKeywordAlert(orgId, alert) {
 function deleteKeywordAlert(id, orgId) { return getDb().prepare('DELETE FROM keyword_alerts WHERE id=? AND org_id=?').run(id, orgId).changes; }
 
 // ── Voice channels (org-scoped; separate from SDR/dongle POCSAG config) ────────
+// sort_order sorts first (currently unused/always 0 — no UI sets it yet, kept for a future
+// manual-reorder feature) so a natural name sort is the effective order today: description
+// COLLATE NOCASE handles "CH01" < "CH05" < "CH15" correctly since the numbers are zero-padded.
 function getVoiceChannels(orgId) {
-  if (orgId == null) return getDb().prepare('SELECT * FROM voice_channels ORDER BY sort_order ASC, id ASC').all();
-  return getDb().prepare('SELECT * FROM voice_channels WHERE org_id=? ORDER BY sort_order ASC, id ASC').all(orgId);
+  const order = 'ORDER BY sort_order ASC, description COLLATE NOCASE ASC, id ASC';
+  if (orgId == null) return getDb().prepare(`SELECT * FROM voice_channels ${order}`).all();
+  return getDb().prepare(`SELECT * FROM voice_channels WHERE org_id=? ${order}`).all(orgId);
 }
 function upsertVoiceChannel(orgId, ch) {
   if (ch.id) {
