@@ -11,6 +11,7 @@ const { broadcastAll, notifyAll } = require('./fanout');
 const { recordMessage, registerSource, unregisterSource } = require('./deadair');
 const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
 const { resolveAliasHome } = require('../utils/aliasPlace');
+const { buildDongleSourceId } = require('../utils/dongleSource');
 const { loadSdrConfigIntoEnv, getDedupConfig, getDongleConfigs, getMessageNormalizations } = require('./config');
 const { resolveDeviceIndex } = require('./rtlDevices');
 const logger = require('../utils/logger');
@@ -704,7 +705,7 @@ function handleLine(line, sourceId = 'sdr') {
 
 // ── Multi-dongle pipeline spawner ─────────────────────────────────────────────
 function spawnDonglePipeline(dongle, label, myGen) {
-  const dongleSourceId = `dongle-${dongle.device}`;
+  const dongleSourceId = buildDongleSourceId(dongle);
   registerSource(dongleSourceId);
   const sourceName = dongle.mode === 'airband' ? 'rtl_airband' : 'rtl_fm';
   logger.info(`${label} Starting: device=${dongle.device} freq=${dongle.freq || process.env.RTL_FM_FREQ} mode=${dongle.mode || 'single'}`);
@@ -837,7 +838,7 @@ function stopMultiDonglePipelines() {
     try { p.dataStream?.unpipe(); p.dataStream?.destroy(); } catch (_) {}
     try { p.mmonProc?.kill('SIGTERM'); } catch (_) {}
     try { p.rtlProc?.kill('SIGTERM'); } catch (_) {}
-    try { unregisterSource(`dongle-${p.cfg.device}`); } catch (_) {}
+    try { unregisterSource(buildDongleSourceId(p.cfg)); } catch (_) {}
     try { p.socket?.close(); } catch (_) {}
     try { p.voiceSockets?.forEach(s => s.close()); } catch (_) {}
   }

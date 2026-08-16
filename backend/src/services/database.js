@@ -3,6 +3,7 @@ const path = require('path');
 const fs   = require('fs');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
+const { buildDongleSourceId } = require('../utils/dongleSource');
 
 const DB_PATH = process.env.DB_PATH || './data/pagermonitor.db';
 let db;
@@ -524,10 +525,12 @@ function getLocalDongleLabelMap() {
   const map = new Map();
   if (!Array.isArray(dongles)) return map;
   for (const dongle of dongles) {
-    const sourceId = `dongle-${dongle?.device ?? ''}`;
     const label = String(dongle?.label || '').trim();
-    if (!label || sourceId === 'dongle-') continue;
-    map.set(sourceId, label);
+    if (!label) continue;
+    const sourceId = buildDongleSourceId(dongle);
+    const legacySourceId = `dongle-${String(dongle?.device ?? '').trim()}`;
+    if (sourceId !== 'dongle-') map.set(sourceId, label);
+    if (legacySourceId !== 'dongle-') map.set(legacySourceId, label);
   }
   return map;
 }
