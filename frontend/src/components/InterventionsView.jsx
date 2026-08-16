@@ -60,12 +60,16 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo }) {
   const clusterRef = useRef(null); // L.markerClusterGroup — keeps dense areas (Ljubljana etc) readable
   const markersRef = useRef(new Map());
   const tileLayerRef = useRef(null);
-  const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'dark');
+  const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
     const L   = window.L;
-    const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 8 }); // Slovenia
+    // maxZoom set here explicitly, not just via the tile layer — the tile layer is
+    // added in a separate effect below (keyed on basemap), and markerClusterGroup
+    // needs a resolvable max zoom on the map itself before that runs, or it throws
+    // "Map has no maxZoom specified".
+    const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 8, maxZoom: 19 }); // Slovenia
     if (L.markerClusterGroup) {
       clusterRef.current = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 45 });
       map.addLayer(clusterRef.current);
