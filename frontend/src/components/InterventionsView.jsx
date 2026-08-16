@@ -23,7 +23,7 @@ function typeStyle(type) {
 
 function fmtWhen(iso) {
   if (!iso) return null;
-  try { return new Date(iso).toLocaleString(undefined, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  try { return new Date(iso).toLocaleString('sl-SI', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
   catch (_) { return iso; }
 }
 
@@ -41,9 +41,9 @@ function escHtml(s) {
 
 function popupHtml(row) {
   const { color } = typeStyle(row.intervention_type);
-  const where = row.address || row.municipality || 'Location unknown';
+  const where = row.address || row.municipality || 'Neznana lokacija';
   const pendingBadge = row.description_pending
-    ? `<span style="font-size:0.6rem;font-weight:600;padding:0.05rem 0.4rem;border-radius:1rem;margin-left:0.4rem;color:#d29922;background:rgba(210,153,34,0.15)">PENDING</span>`
+    ? `<span style="font-size:0.6rem;font-weight:600;padding:0.05rem 0.4rem;border-radius:1rem;margin-left:0.4rem;color:#d29922;background:rgba(210,153,34,0.15)">NEZAKLJUČENO</span>`
     : '';
   // Always the real Slovenian source text (event_type, then intervention_type) —
   // typeStyle's own label is only an internal English tag for keyword-matching,
@@ -54,7 +54,7 @@ function popupHtml(row) {
       <div style="font-weight:700;color:${color}">${escHtml(title)}${pendingBadge}</div>
       <div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">${escHtml(where)}</div>
       ${row.description ? `<div style="margin-top:0.4rem;line-height:1.4">${escHtml(row.description)}</div>`
-        : row.description_pending ? `<div style="margin-top:0.4rem;font-style:italic;color:var(--text-3)">Awaiting details…</div>` : ''}
+        : row.description_pending ? `<div style="margin-top:0.4rem;font-style:italic;color:var(--text-3)">Čakanje na podrobnosti…</div>` : ''}
       ${row.occurred_at ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">${fmtWhen(row.occurred_at)}</div>` : ''}
     </div>`;
 }
@@ -157,10 +157,10 @@ function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setA
     }}>
       <div style={{ position: 'relative', flex: '1 1 180px', minWidth: '140px' }}>
         <Search size={13} style={{ position: 'absolute', left: '0.5rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
-        <input value={qInput} onChange={e => setQInput(e.target.value)} placeholder="Search description, place…"
+        <input value={qInput} onChange={e => setQInput(e.target.value)} placeholder="Iskanje po opisu, kraju…"
           style={{ ...selStyle, width: '100%', paddingLeft: '1.7rem', boxSizing: 'border-box' }} />
         {qInput && (
-          <button onClick={() => setQInput('')} title="Clear" style={{
+          <button onClick={() => setQInput('')} title="Počisti" style={{
             position: 'absolute', right: '0.35rem', top: '50%', transform: 'translateY(-50%)',
             background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex' }}>
             <X size={13} />
@@ -169,23 +169,23 @@ function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setA
       </div>
 
       <select value={filters.municipality} onChange={e => setFilters(f => ({ ...f, municipality: e.target.value }))} style={selStyle}>
-        <option value="">All municipalities</option>
+        <option value="">Vse občine</option>
         {municipalities.map(m => <option key={m} value={m}>{m}</option>)}
       </select>
 
       <select value={filters.type} onChange={e => setFilters(f => ({ ...f, type: e.target.value }))} style={selStyle}>
-        <option value="">All types</option>
+        <option value="">Vse vrste</option>
         {types.map(t => <option key={t} value={t}>{t}</option>)}
       </select>
 
-      <button onClick={() => setArchiveMode(v => !v)} title="Search full history instead of the recent live feed" style={{
+      <button onClick={() => setArchiveMode(v => !v)} title="Preišči celotno zgodovino namesto zadnjih dogodkov" style={{
         display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.6rem', borderRadius: '0.4rem',
         fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap',
         border: archiveMode ? '1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent)' : '1px solid var(--border)',
         background: archiveMode ? 'color-mix(in srgb, var(--accent-blue) 12%, transparent)' : 'var(--bg-3)',
         color: archiveMode ? 'var(--accent-blue)' : 'var(--text-2)',
       }}>
-        <History size={13} /> Archive
+        <History size={13} /> Arhiv
       </button>
 
       {archiveMode && (
@@ -198,10 +198,10 @@ function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setA
 
       {(filters.q || filters.municipality || filters.type || filters.from || filters.to) && (
         <button onClick={() => { setQInput(''); setFilters({ q: '', municipality: '', type: '', from: '', to: '' }); }}
-          title="Clear all filters" style={{
+          title="Počisti vse filtre" style={{
             display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.5rem', borderRadius: '0.4rem',
             fontSize: '0.75rem', color: 'var(--text-3)', background: 'none', border: '1px solid var(--border)', cursor: 'pointer' }}>
-          <Filter size={12} /> Reset
+          <Filter size={12} /> Počisti
         </button>
       )}
     </div>
@@ -214,7 +214,7 @@ function ResultList({ rows, selected, onSelect }) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
         color: 'var(--text-3)', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>
-        No interventions match these filters.
+        Noben dogodek ne ustreza tem filtrom.
       </div>
     );
   }
@@ -238,11 +238,11 @@ function ResultList({ rows, selected, onSelect }) {
                 {title}
               </span>
               {!!r.description_pending && (
-                <span title="Full narrative not published yet — still checking periodically" style={{
+                <span title="Celotno besedilo še ni objavljeno — preverjamo periodično" style={{
                   fontSize: '0.62rem', fontWeight: 600, padding: '0.05rem 0.4rem', borderRadius: '1rem',
                   color: 'var(--accent-amber, #d29922)',
                   background: 'color-mix(in srgb, var(--accent-amber, #d29922) 15%, transparent)' }}>
-                  PENDING
+                  NEZAKLJUČENO
                 </span>
               )}
             </div>
@@ -256,7 +256,7 @@ function ResultList({ rows, selected, onSelect }) {
               </div>
             ) : r.description_pending ? (
               <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', fontStyle: 'italic', marginTop: '0.3rem' }}>
-                Awaiting details…
+                Čakanje na podrobnosti…
               </div>
             ) : null}
           </button>
@@ -335,12 +335,12 @@ export default function InterventionsView({ visible }) {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
           <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} />
-          Loading interventions…
+          Nalaganje dogodkov…
         </div>
       ) : error && !rows.length ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--accent-red)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-          Failed to load interventions: {error}
+          Napaka pri nalaganju dogodkov: {error}
         </div>
       ) : (
         <div className="pm-interventions-body" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
@@ -350,9 +350,9 @@ export default function InterventionsView({ visible }) {
             display: 'flex', flexDirection: 'column', background: 'var(--bg-1)', minHeight: 0 }}>
             <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-3)',
               borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
-              Showing {rows.length} of {total} {archiveMode ? 'archived' : `last ${LIVE_WINDOW_DAYS}-day`} {total === 1 ? 'result' : 'results'}
-              {activeFilters ? ' (filtered)' : ''}
-              {!archiveMode && ' — switch to Archive for older'}
+              Prikazanih {rows.length} od {total} rezultatov {archiveMode ? '(arhiv)' : `(zadnji ${LIVE_WINDOW_DAYS} dni)`}
+              {activeFilters ? ' · filtrirano' : ''}
+              {!archiveMode && ' — za starejše preklopi na Arhiv'}
             </div>
             <ResultList rows={rows} selected={selected} onSelect={setSelected} />
             {archiveMode && rows.length < total && (
@@ -360,7 +360,7 @@ export default function InterventionsView({ visible }) {
                 flexShrink: 0, padding: '0.55rem', fontSize: '0.78rem', fontWeight: 500,
                 color: 'var(--accent-blue)', background: 'var(--bg-3)', border: 'none',
                 borderTop: '1px solid var(--border-soft)', cursor: loadingMore ? 'default' : 'pointer' }}>
-                {loadingMore ? 'Loading…' : `Load ${Math.min(PAGE_SIZE, total - rows.length)} more`}
+                {loadingMore ? 'Nalaganje…' : `Naloži še ${Math.min(PAGE_SIZE, total - rows.length)}`}
               </button>
             )}
           </div>
