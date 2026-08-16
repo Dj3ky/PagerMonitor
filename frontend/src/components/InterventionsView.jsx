@@ -21,6 +21,34 @@ function typeStyle(type) {
   return { color: '#8b949e', Icon: MapPin, label: 'Other' };
 }
 
+// Slovenian-labeled legend, kept separate from typeStyle's internal English tag
+// (which is only ever used for keyword-matching, never shown).
+const LEGEND = [
+  { color: '#ef4444', Icon: Flame,     label: 'Požar' },
+  { color: '#f97316', Icon: Car,       label: 'Prometna nesreča' },
+  { color: '#14b8a6', Icon: Waves,     label: 'Nesreče na vodi' },
+  { color: '#a855f7', Icon: Biohazard, label: 'Nevarne snovi' },
+  { color: '#eab308', Icon: Skull,     label: 'Najdbe NUS' },
+  { color: '#0ea5e9', Icon: Wrench,    label: 'Tehnična pomoč' },
+  { color: '#8b949e', Icon: MapPin,    label: 'Drugo' },
+];
+
+function Legend() {
+  return (
+    <div style={{
+      position: 'absolute', bottom: '0.5rem', right: '0.5rem', zIndex: 1000,
+      padding: '0.4rem 0.55rem', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.25rem',
+      background: 'var(--bg-1)', border: '1px solid var(--border)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
+    }}>
+      {LEGEND.map(({ color, Icon, label }) => (
+        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.68rem', color: 'var(--text-2)' }}>
+          <Icon size={11} style={{ color, flexShrink: 0 }} /> {label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function fmtWhen(iso) {
   if (!iso) return null;
   try { return new Date(iso).toLocaleString('sl-SI', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
@@ -60,7 +88,7 @@ function popupHtml(row) {
 }
 
 // ── Map ──────────────────────────────────────────────────────────────────────
-function InterventionsMap({ rows, visible, updatedAt, flyTo }) {
+function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const clusterRef = useRef(null); // L.markerClusterGroup — keeps dense areas (Ljubljana etc) readable
@@ -81,7 +109,12 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo }) {
       map.addLayer(clusterRef.current);
     }
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; };
+    // markersRef must be cleared here too — under StrictMode's dev-mode double-invoke
+    // (mount → cleanup → mount again), leaving stale marker objects around after the
+    // map/cluster group they belonged to gets destroyed means the next markers-effect
+    // run tries to removeLayer() them from a *new* cluster group that never had them,
+    // which throws inside Leaflet.markercluster's internal bookkeeping.
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); };
   }, []);
 
   useEffect(() => {
@@ -108,6 +141,7 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo }) {
       const { color } = typeStyle(r.intervention_type);
       const marker = L.marker([r.lat, r.lng], { icon: markerIcon(L, color) });
       marker.bindPopup(popupHtml(r), { maxWidth: 320 });
+      marker.on('click', () => onSelect?.(r.id)); // keep the list panel in sync with the map, not just the reverse
       layer.addLayer ? layer.addLayer(marker) : marker.addTo(map);
       markersRef.current.set(r.id, marker);
     });
@@ -132,6 +166,7 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo }) {
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       <LastUpdated updatedAt={updatedAt} />
       <BasemapSwitcher basemap={basemap} onChange={setBasemap} />
+      <Legend />
       <div ref={divRef} style={{ height: '100%' }} />
     </div>
   );
@@ -210,6 +245,15 @@ function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setA
 
 // ── Result list ──────────────────────────────────────────────────────────────
 function ResultList({ rows, selected, onSelect }) {
+  const rowRefs = useRef(new Map());
+
+  // Keeps the list in sync when selection comes from the map side (marker click),
+  // not just the reverse — scrolls the matching row into view if it's off-screen.
+  useEffect(() => {
+    if (selected == null) return;
+    rowRefs.current.get(selected)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selected]);
+
   if (!rows.length) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -226,7 +270,8 @@ function ResultList({ rows, selected, onSelect }) {
         // Always the real Slovenian source text — never typeStyle's internal English tag.
         const title = r.event_type || r.intervention_type || 'Neznano';
         return (
-          <button key={r.id} onClick={() => onSelect(r.id)} style={{
+          <button key={r.id} ref={el => { if (el) rowRefs.current.set(r.id, el); else rowRefs.current.delete(r.id); }}
+            onClick={() => onSelect(r.id)} style={{
             display: 'block', width: '100%', textAlign: 'left', padding: '0.55rem 0.75rem',
             borderBottom: '1px solid var(--border-soft)', cursor: 'pointer',
             background: active ? 'color-mix(in srgb, var(--accent-green) 10%, transparent)' : 'transparent',
@@ -344,7 +389,7 @@ export default function InterventionsView({ visible }) {
         </div>
       ) : (
         <div className="pm-interventions-body" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-          <InterventionsMap rows={mapRows} visible={visible} updatedAt={updatedAt} flyTo={selected} />
+          <InterventionsMap rows={mapRows} visible={visible} updatedAt={updatedAt} flyTo={selected} onSelect={setSelected} />
           <div className="pm-interventions-list" style={{
             width: '420px', flexShrink: 0, borderLeft: '1px solid var(--border)',
             display: 'flex', flexDirection: 'column', background: 'var(--bg-1)', minHeight: 0 }}>
