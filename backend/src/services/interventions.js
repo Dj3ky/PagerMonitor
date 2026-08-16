@@ -17,7 +17,8 @@ const FEED_HOST          = 'spin3.sos112.si';
 const RSS_URL            = `https://${FEED_HOST}/javno/ODApi/true`;
 const DETAIL_URL         = id => `https://${FEED_HOST}/api/javno/lokacija/${id}`;
 const REFRESH_MS         = 90 * 1000;
-const DETAIL_BATCH       = 15; // per tick — stay polite to the source
+const DETAIL_BATCH       = 40; // per tick — this hits the source's own per-id endpoint,
+                                 // not the same one that's IP-gated, so a higher cap is fine
 const GEOCODE_BATCH      = 10;
 const RECHECK_WINDOW_MS  = 2 * 24 * 60 * 60 * 1000; // give up on missing narrative after 2 days
 
@@ -80,12 +81,16 @@ async function refresh() {
   })).filter(r => r.id));
 
   // 2. Fill in detail for rows still missing coordinates, or still waiting on a
-  //    narrative within the recheck window.
+  //    narrative within the recheck window. Rows still missing coordinates
+  //    entirely (freshly-discovered placeholders — blank/"Other" until this
+  //    fills in) are ordered ahead of narrative-only rechecks, so a burst of
+  //    new ids can't starve the batch and leave them empty for longer than
+  //    necessary.
   const needsDetail = db.prepare(`
     SELECT id FROM interventions
     WHERE lat IS NULL
        OR (description_pending = 1 AND first_seen_at > datetime('now', ?))
-    ORDER BY id DESC LIMIT ?
+    ORDER BY (lat IS NULL) DESC, id DESC LIMIT ?
   `).all(`-${RECHECK_WINDOW_MS / 1000} seconds`, DETAIL_BATCH);
 
   const updateDetail = db.prepare(`
@@ -134,6 +139,9 @@ async function refresh() {
 }
 
 // ── Query helpers (used by the API routes) ──────────────────────────────────────
+// Returns { rows, total } — total is the full match count regardless of limit/offset,
+// so callers (the archive search UI) can show "N of M" and paginate instead of
+// silently truncating at the page size with no indication there's more.
 function query({ limit = 50, offset = 0, municipality, type, q, from, to } = {}) {
   ensureTable();
   const where  = [];
@@ -146,14 +154,17 @@ function query({ limit = 50, offset = 0, municipality, type, q, from, to } = {})
     where.push('(description LIKE @q OR municipality LIKE @q OR address LIKE @q OR event_type LIKE @q)');
     params.q = `%${q}%`;
   }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = getDb().prepare(`SELECT COUNT(*) AS n FROM interventions ${whereSql}`).get(params).n;
+
   params.limit  = Math.min(Math.max(parseInt(limit, 10)  || 50, 1), 200);
   params.offset = Math.max(parseInt(offset, 10) || 0, 0);
-  const sql = `
-    SELECT * FROM interventions
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+  const rows = getDb().prepare(`
+    SELECT * FROM interventions ${whereSql}
     ORDER BY reported_at DESC LIMIT @limit OFFSET @offset
-  `;
-  return getDb().prepare(sql).all(params);
+  `).all(params);
+
+  return { rows, total };
 }
 
 function getMunicipalities() {

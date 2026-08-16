@@ -40,11 +40,15 @@ function escHtml(s) {
 function popupHtml(row) {
   const { color, label } = typeStyle(row.intervention_type);
   const where = row.address || row.municipality || 'Location unknown';
+  const pendingBadge = row.description_pending
+    ? `<span style="font-size:0.6rem;font-weight:600;padding:0.05rem 0.4rem;border-radius:1rem;margin-left:0.4rem;color:#d29922;background:rgba(210,153,34,0.15)">PENDING</span>`
+    : '';
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:220px;max-width:300px;color:var(--text-1)">
-      <div style="font-weight:700;color:${color}">${escHtml(row.event_type || label)}</div>
+      <div style="font-weight:700;color:${color}">${escHtml(row.event_type || label)}${pendingBadge}</div>
       <div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">${escHtml(where)}</div>
-      ${row.description ? `<div style="margin-top:0.4rem;line-height:1.4">${escHtml(row.description)}</div>` : ''}
+      ${row.description ? `<div style="margin-top:0.4rem;line-height:1.4">${escHtml(row.description)}</div>`
+        : row.description_pending ? `<div style="margin-top:0.4rem;font-style:italic;color:var(--text-3)">Awaiting details…</div>` : ''}
       ${row.occurred_at ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">${fmtWhen(row.occurred_at)}</div>` : ''}
     </div>`;
 }
@@ -53,15 +57,21 @@ function popupHtml(row) {
 function InterventionsMap({ rows, visible, updatedAt, flyTo }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
+  const clusterRef = useRef(null); // L.markerClusterGroup — keeps dense areas (Ljubljana etc) readable
   const markersRef = useRef(new Map());
   const tileLayerRef = useRef(null);
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'dark');
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
-    const map = window.L.map(divRef.current, { center: [46.12, 14.80], zoom: 8 }); // Slovenia
+    const L   = window.L;
+    const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 8 }); // Slovenia
+    if (L.markerClusterGroup) {
+      clusterRef.current = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 45 });
+      map.addLayer(clusterRef.current);
+    }
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; };
   }, []);
 
   useEffect(() => {
@@ -81,12 +91,14 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo }) {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
-    markersRef.current.forEach(m => map.removeLayer(m));
+    const layer = clusterRef.current || map; // fall back to plain markers if the plugin didn't load
+    markersRef.current.forEach(m => layer.removeLayer(m));
     markersRef.current = new Map();
     rows.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng)).forEach(r => {
       const { color } = typeStyle(r.intervention_type);
-      const marker = L.marker([r.lat, r.lng], { icon: markerIcon(L, color) }).addTo(map);
+      const marker = L.marker([r.lat, r.lng], { icon: markerIcon(L, color) });
       marker.bindPopup(popupHtml(r), { maxWidth: 320 });
+      layer.addLayer ? layer.addLayer(marker) : marker.addTo(map);
       markersRef.current.set(r.id, marker);
     });
   }, [rows]);
@@ -96,8 +108,14 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo }) {
     const map = mapRef.current;
     const marker = markersRef.current.get(flyTo);
     if (!map || !marker) return;
-    map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 12), { duration: 0.6 });
-    marker.openPopup();
+    // Inside a collapsed cluster — zoomToShowLayer spiders/zooms until it's visible,
+    // then the callback opens its popup. Without clustering, just fly straight to it.
+    if (clusterRef.current) {
+      clusterRef.current.zoomToShowLayer(marker, () => marker.openPopup());
+    } else {
+      map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 12), { duration: 0.6 });
+      marker.openPopup();
+    }
   }, [flyTo]);
 
   return (
@@ -207,16 +225,28 @@ function ResultList({ rows, selected, onSelect }) {
               <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-1)' }}>
                 {r.event_type || label}
               </span>
+              {!!r.description_pending && (
+                <span title="Full narrative not published yet — still checking periodically" style={{
+                  fontSize: '0.62rem', fontWeight: 600, padding: '0.05rem 0.4rem', borderRadius: '1rem',
+                  color: 'var(--accent-amber, #d29922)',
+                  background: 'color-mix(in srgb, var(--accent-amber, #d29922) 15%, transparent)' }}>
+                  PENDING
+                </span>
+              )}
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: '0.15rem' }}>
               {r.address || r.municipality || '—'} · {fmtWhen(r.occurred_at || r.reported_at)}
             </div>
-            {r.description && (
+            {r.description ? (
               <div style={{ fontSize: '0.74rem', color: 'var(--text-2)', marginTop: '0.3rem', lineHeight: 1.4,
-                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                 {r.description}
               </div>
-            )}
+            ) : r.description_pending ? (
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', fontStyle: 'italic', marginTop: '0.3rem' }}>
+                Awaiting details…
+              </div>
+            ) : null}
           </button>
         );
       })}
@@ -225,8 +255,11 @@ function ResultList({ rows, selected, onSelect }) {
 }
 
 // ── Main panel ───────────────────────────────────────────────────────────────
+const PAGE_SIZE = 100;
+
 export default function InterventionsView({ visible }) {
   const [rows, setRows]           = useState([]);
+  const [total, setTotal]         = useState(0);
   const [municipalities, setMunicipalities] = useState([]);
   const [types, setTypes]         = useState([]);
   const [filters, setFilters]     = useState({ q: '', municipality: '', type: '', from: '', to: '' });
@@ -234,33 +267,38 @@ export default function InterventionsView({ visible }) {
   const [selected, setSelected]   = useState(null);
   const [updatedAt, setUpdatedAt] = useState(null);
   const [loading, setLoading]     = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError]         = useState(null);
   const loadedOnce = useRef(false);
 
   const activeFilters = filters.q || filters.municipality || filters.type || filters.from || filters.to;
 
-  const load = useCallback(async () => {
+  // append=true adds a page onto the existing list (Load more); otherwise it's a
+  // fresh search/refresh that replaces the list from offset 0.
+  const load = useCallback(async (append = false) => {
+    append ? setLoadingMore(true) : setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: archiveMode ? '200' : '100' });
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: append ? String(rows.length) : '0' });
       if (filters.q)            params.set('q', filters.q);
       if (filters.municipality) params.set('municipality', filters.municipality);
       if (filters.type)         params.set('type', filters.type);
       if (archiveMode && filters.from) params.set('from', filters.from);
       if (archiveMode && filters.to)   params.set('to', filters.to + 'T23:59:59');
-      const data = await getJson(`/api/interventions?${params}`);
-      setRows(data);
+      const { rows: page, total: n } = await getJson(`/api/interventions?${params}`);
+      setRows(prev => append ? [...prev, ...page] : page);
+      setTotal(n);
       setUpdatedAt(new Date().toISOString());
       setError(null);
     } catch (e) { setError(e.message); }
-    finally { setLoading(false); loadedOnce.current = true; }
-  }, [filters, archiveMode]);
+    finally { setLoading(false); setLoadingMore(false); loadedOnce.current = true; }
+  }, [filters, archiveMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    load();
+    load(false);
     if (archiveMode) return; // archive browsing doesn't auto-refresh out from under you
-    const iv = setInterval(load, REFRESH_MS);
+    const iv = setInterval(() => load(false), REFRESH_MS);
     return () => clearInterval(iv);
-  }, [load, archiveMode]);
+  }, [filters, archiveMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     getJson('/api/interventions/municipalities').then(setMunicipalities).catch(() => {});
@@ -290,14 +328,23 @@ export default function InterventionsView({ visible }) {
         <div className="pm-interventions-body" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <InterventionsMap rows={mapRows} visible={visible} updatedAt={updatedAt} flyTo={selected} />
           <div className="pm-interventions-list" style={{
-            width: '340px', flexShrink: 0, borderLeft: '1px solid var(--border)',
+            width: '420px', flexShrink: 0, borderLeft: '1px solid var(--border)',
             display: 'flex', flexDirection: 'column', background: 'var(--bg-1)', minHeight: 0 }}>
             <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-3)',
               borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
-              {rows.length} {archiveMode ? 'archived' : 'recent'} {rows.length === 1 ? 'result' : 'results'}
+              Showing {rows.length} of {total} {archiveMode ? 'archived' : 'recent'} {total === 1 ? 'result' : 'results'}
               {activeFilters ? ' (filtered)' : ''}
+              {!archiveMode && total > rows.length && ' — switch to Archive to see the rest'}
             </div>
             <ResultList rows={rows} selected={selected} onSelect={setSelected} />
+            {archiveMode && rows.length < total && (
+              <button onClick={() => load(true)} disabled={loadingMore} style={{
+                flexShrink: 0, padding: '0.55rem', fontSize: '0.78rem', fontWeight: 500,
+                color: 'var(--accent-blue)', background: 'var(--bg-3)', border: 'none',
+                borderTop: '1px solid var(--border-soft)', cursor: loadingMore ? 'default' : 'pointer' }}>
+                {loadingMore ? 'Loading…' : `Load ${Math.min(PAGE_SIZE, total - rows.length)} more`}
+              </button>
+            )}
           </div>
         </div>
       )}
