@@ -6,6 +6,8 @@ import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './w
 // technical assistance, etc) — see backend/src/services/interventions.js for the
 // source and polling details. Live view + filterable/searchable archive.
 const REFRESH_MS = 60 * 1000;
+const LIVE_WINDOW_DAYS = 3; // "Live" = last N days, not just "most recent N rows" — anything
+                             // older is only reachable via Archive, even if the feed's been quiet.
 const BASEMAP_STORAGE_KEY = 'pm_interventions_basemap';
 
 function typeStyle(type) {
@@ -38,14 +40,18 @@ function escHtml(s) {
 }
 
 function popupHtml(row) {
-  const { color, label } = typeStyle(row.intervention_type);
+  const { color } = typeStyle(row.intervention_type);
   const where = row.address || row.municipality || 'Location unknown';
   const pendingBadge = row.description_pending
     ? `<span style="font-size:0.6rem;font-weight:600;padding:0.05rem 0.4rem;border-radius:1rem;margin-left:0.4rem;color:#d29922;background:rgba(210,153,34,0.15)">PENDING</span>`
     : '';
+  // Always the real Slovenian source text (event_type, then intervention_type) —
+  // typeStyle's own label is only an internal English tag for keyword-matching,
+  // never meant to be shown.
+  const title = row.event_type || row.intervention_type || 'Neznano';
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:220px;max-width:300px;color:var(--text-1)">
-      <div style="font-weight:700;color:${color}">${escHtml(row.event_type || label)}${pendingBadge}</div>
+      <div style="font-weight:700;color:${color}">${escHtml(title)}${pendingBadge}</div>
       <div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">${escHtml(where)}</div>
       ${row.description ? `<div style="margin-top:0.4rem;line-height:1.4">${escHtml(row.description)}</div>`
         : row.description_pending ? `<div style="margin-top:0.4rem;font-style:italic;color:var(--text-3)">Awaiting details…</div>` : ''}
@@ -215,8 +221,10 @@ function ResultList({ rows, selected, onSelect }) {
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
       {rows.map(r => {
-        const { color, Icon, label } = typeStyle(r.intervention_type);
+        const { color, Icon } = typeStyle(r.intervention_type);
         const active = r.id === selected;
+        // Always the real Slovenian source text — never typeStyle's internal English tag.
+        const title = r.event_type || r.intervention_type || 'Neznano';
         return (
           <button key={r.id} onClick={() => onSelect(r.id)} style={{
             display: 'block', width: '100%', textAlign: 'left', padding: '0.55rem 0.75rem',
@@ -227,7 +235,7 @@ function ResultList({ rows, selected, onSelect }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Icon size={13} style={{ color, flexShrink: 0 }} />
               <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-1)' }}>
-                {r.event_type || label}
+                {title}
               </span>
               {!!r.description_pending && (
                 <span title="Full narrative not published yet — still checking periodically" style={{
@@ -286,8 +294,14 @@ export default function InterventionsView({ visible }) {
       if (filters.q)            params.set('q', filters.q);
       if (filters.municipality) params.set('municipality', filters.municipality);
       if (filters.type)         params.set('type', filters.type);
-      if (archiveMode && filters.from) params.set('from', filters.from);
-      if (archiveMode && filters.to)   params.set('to', filters.to + 'T23:59:59');
+      if (archiveMode) {
+        if (filters.from) params.set('from', filters.from);
+        if (filters.to)   params.set('to', filters.to + 'T23:59:59');
+      } else {
+        // Live = last LIVE_WINDOW_DAYS days, not just "most recent N rows" — older
+        // entries stay reachable only through Archive, even on a quiet feed.
+        params.set('from', new Date(Date.now() - LIVE_WINDOW_DAYS * 86400000).toISOString());
+      }
       const { rows: page, total: n } = await getJson(`/api/interventions?${params}`);
       setRows(prev => append ? [...prev, ...page] : page);
       setTotal(n);
@@ -336,9 +350,9 @@ export default function InterventionsView({ visible }) {
             display: 'flex', flexDirection: 'column', background: 'var(--bg-1)', minHeight: 0 }}>
             <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-3)',
               borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
-              Showing {rows.length} of {total} {archiveMode ? 'archived' : 'recent'} {total === 1 ? 'result' : 'results'}
+              Showing {rows.length} of {total} {archiveMode ? 'archived' : `last ${LIVE_WINDOW_DAYS}-day`} {total === 1 ? 'result' : 'results'}
               {activeFilters ? ' (filtered)' : ''}
-              {!archiveMode && total > rows.length && ' — switch to Archive to see the rest'}
+              {!archiveMode && ' — switch to Archive for older'}
             </div>
             <ResultList rows={rows} selected={selected} onSelect={setSelected} />
             {archiveMode && rows.length < total && (
