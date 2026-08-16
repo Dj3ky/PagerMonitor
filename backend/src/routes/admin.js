@@ -13,7 +13,8 @@ const { getDb, getStats, getMessageStats,
         getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
         getHighlightRules, upsertHighlightRule, deleteHighlightRule,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
-        getVoiceChannels, upsertVoiceChannel, deleteVoiceChannel,
+        getVoiceChannels, getAllVoiceChannels, upsertVoiceChannel, deleteVoiceChannel,
+        getVoiceChannelHidden, setVoiceChannelHidden,
         getDiscordRelays, upsertDiscordRelay, deleteDiscordRelay,
         getWebhooks, upsertWebhook, deleteWebhook,
         addAuditLog, getAuditLog,
@@ -549,22 +550,24 @@ router.delete('/keyword-alerts/:id', (req,res) => {
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
-// ── Voice channels (org-scoped) — listenable audio channels, separate from SDR/POCSAG config ──
-router.get('/voice-channels',        (req,res) => { try{ res.json(getVoiceChannels(req.session.orgId)); } catch(e){ res.status(500).json({error:e.message}); }});
-router.put('/voice-channels',        (req,res) => { try{ const { id } = upsertVoiceChannel(req.session.orgId, req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});
-router.delete('/voice-channels/:id', (req,res) => {
+// ── Voice channels — the catalog is instance-wide (tied to shared physical dongles, not
+// per-org content), so managing it is platform-admin only. Each org can still opt individual
+// channels out for its own users — see the /voice-channel-visibility routes further down,
+// which are the ones regular org admins use. ──────────────────────────────────────────────
+router.get('/voice-channels',        platformOnly, (_req,res) => { try{ res.json(getAllVoiceChannels()); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/voice-channels',        platformOnly, (req,res) => { try{ const { id } = upsertVoiceChannel(req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});
+router.delete('/voice-channels/:id', platformOnly, (req,res) => {
   try {
-    const changes = deleteVoiceChannel(parseInt(req.params.id), req.session.orgId);
-    if (!changes) return res.status(404).json({ error: 'Channel not found, or not yours to delete' });
+    const changes = deleteVoiceChannel(parseInt(req.params.id));
+    if (!changes) return res.status(404).json({ error: 'Channel not found' });
     res.json({ok:true});
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
 // Live per-channel status — listener counts, which dongle/client owns the channel, and
-// when it was last confirmed transmitting. Polled by the admin UI. Owner/listener data
-// is instance infrastructure (not org-scoped, same rationale as sdr-clients/audioConnected
-// above); the channel list itself is scoped to the requesting org.
-router.get('/voice-channels/listeners', (req, res) => {
+// when it was last confirmed transmitting. Polled by the platform-admin catalog page, so
+// shows every channel regardless of which orgs have opted out of it.
+router.get('/voice-channels/listeners', platformOnly, (_req, res) => {
   try {
     const audioRelay   = require('../services/audioRelay');
     const { getClients } = require('../services/clientTracker');
@@ -573,7 +576,7 @@ router.get('/voice-channels/listeners', (req, res) => {
     const clientLabel = (id) => getClients().find(c => c.id === id)?.displayName || id;
 
     const out = {};
-    for (const c of getVoiceChannels(req.session.orgId)) {
+    for (const c of getAllVoiceChannels()) {
       const owner = audioRelay.resolveChannelOwner(c.id);
       out[c.id] = {
         count: listenerCounts[c.id]?.count || 0,
@@ -588,6 +591,19 @@ router.get('/voice-channels/listeners', (req, res) => {
       };
     }
     res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Per-org visibility toggle — lets an org admin hide specific channels from the shared
+// catalog above for their own org's users, without touching the catalog itself.
+router.get('/voice-channel-visibility', adminOnly, (req, res) => {
+  try { res.json({ channels: getAllVoiceChannels(), hidden: getVoiceChannelHidden(req.session.orgId) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.put('/voice-channel-visibility/:id', adminOnly, (req, res) => {
+  try {
+    setVoiceChannelHidden(req.session.orgId, parseInt(req.params.id), !!req.body.hidden);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

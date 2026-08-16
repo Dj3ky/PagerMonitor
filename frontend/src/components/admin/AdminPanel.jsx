@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useSite } from '../../context/SiteContext.jsx';
 import { Cpu, Database, Bell, Tag, Terminal, Server, Users, Highlighter,
          Copy, Layers, Settings2, ChevronDown, Wifi,
-         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera, Bot, SlidersHorizontal } from 'lucide-react';
+         BarChart2, Link, Radio, ClipboardList, Archive, Activity, HardDrive, Mail, Brain, RefreshCw, EyeOff, Wand2, MapPin, Plane, Camera, Bot, SlidersHorizontal, Headphones } from 'lucide-react';
 import ErrorBoundary  from '../ErrorBoundary.jsx';
 import SdrControl     from './SdrControl.jsx';
 import SystemStats    from './SystemStats.jsx';
@@ -39,6 +39,7 @@ import MsgNormalizations   from './MsgNormalizations.jsx';
 import UserLocations       from './UserLocations.jsx';
 import Organizations       from './Organizations.jsx';
 import VoiceChannels       from './VoiceChannels.jsx';
+import VoiceChannelVisibility from './VoiceChannelVisibility.jsx';
 import DiscordRelay        from './DiscordRelay.jsx';
 
 // platformOnly tabs are instance-wide infrastructure (shared by every org) — gated to
@@ -51,7 +52,8 @@ const TABS = [
   { id:'clientlogs',  label:'Client Logs',    icon:<Terminal size={14}/>,   serverOnly: true, platformOnly: true },
   { id:'client',      label:'Client Key',     icon:<Wifi size={14}/>,       serverOnly: true, platformOnly: true },
   { id:'deadair',     label:'Dead Air',       icon:<Radio size={14}/>,      platformOnly: true },
-  { id:'voicechannels', label:'Voice Channels', icon:<Radio size={14}/> },
+  { id:'voicechannels', label:'Voice Channels', icon:<Radio size={14}/>, platformOnly: true },
+  { id:'channelvisibility', label:'Channel Visibility', icon:<Headphones size={14}/> },
   { id:'discordrelay',  label:'Discord Relay',  icon:<Bot size={14}/> },
 
   { group: 'Messages' },
@@ -107,6 +109,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'keyword':     return <KeywordAlerts />;
     case 'deadair':     return <DeadAirConfig />;
     case 'voicechannels': return <VoiceChannels />;
+    case 'channelvisibility': return <VoiceChannelVisibility />;
     case 'discordrelay':  return <DiscordRelay />;
     case 'webhooks':    return <Webhooks />;
     case 'email':       return <EmailConfig />;

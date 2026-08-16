@@ -349,6 +349,20 @@ function _migrate() {
     logger.info('Migration: added tau to voice_channels');
   }
 
+  // Voice channels are tied to physical dongles shared by the whole server, so the catalog
+  // itself is instance-wide (platform-admin managed) rather than per-org content — org_id on
+  // voice_channels above is legacy/unused now. Each org can still opt out of specific shared
+  // channels for its own users: a row's mere existence here means "hidden for this org",
+  // absence means visible — opt-out rather than opt-in so every existing channel stays visible
+  // to every org the moment this ships, instead of every dropdown going empty until reconfigured.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS voice_channel_hidden (
+      channel_id INTEGER NOT NULL REFERENCES voice_channels(id) ON DELETE CASCADE,
+      org_id     INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      PRIMARY KEY (channel_id, org_id)
+    )
+  `);
+
   // Discord voice relays — streams one voice_channels entry live into a Discord voice
   // channel via a bot connection. Org-scoped like voice_channels itself. Multiple rows can
   // share the same bot_token (one bot, multiple guilds) or use distinct tokens (needed if
@@ -958,26 +972,42 @@ function upsertKeywordAlert(orgId, alert) {
 }
 function deleteKeywordAlert(id, orgId) { return getDb().prepare('DELETE FROM keyword_alerts WHERE id=? AND org_id=?').run(id, orgId).changes; }
 
-// ── Voice channels (org-scoped; separate from SDR/dongle POCSAG config) ────────
+// ── Voice channels (instance-wide catalog, platform-admin managed — see voice_channel_hidden
+// above for the per-org opt-out layer) — separate from SDR/dongle POCSAG config ────────
 // sort_order sorts first (currently unused/always 0 — no UI sets it yet, kept for a future
 // manual-reorder feature) so a natural name sort is the effective order today: description
 // COLLATE NOCASE handles "CH01" < "CH05" < "CH15" correctly since the numbers are zero-padded.
-function getVoiceChannels(orgId) {
-  const order = 'ORDER BY sort_order ASC, description COLLATE NOCASE ASC, id ASC';
-  if (orgId == null) return getDb().prepare(`SELECT * FROM voice_channels ${order}`).all();
-  return getDb().prepare(`SELECT * FROM voice_channels WHERE org_id=? ${order}`).all(orgId);
+function getAllVoiceChannels() {
+  return getDb().prepare('SELECT * FROM voice_channels ORDER BY sort_order ASC, description COLLATE NOCASE ASC, id ASC').all();
 }
-function upsertVoiceChannel(orgId, ch) {
+// What a given org's users should actually see — the full catalog minus whatever that org
+// has opted out of.
+function getVoiceChannels(orgId) {
+  return getDb().prepare(`
+    SELECT vc.* FROM voice_channels vc
+    WHERE NOT EXISTS (SELECT 1 FROM voice_channel_hidden h WHERE h.channel_id = vc.id AND h.org_id = ?)
+    ORDER BY vc.sort_order ASC, vc.description COLLATE NOCASE ASC, vc.id ASC
+  `).all(orgId);
+}
+function upsertVoiceChannel(ch) {
   if (ch.id) {
-    const changes = getDb().prepare('UPDATE voice_channels SET description=?,freq=?,mode=?,squelch=?,tau=?,sort_order=? WHERE id=? AND org_id=?')
-      .run(ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.tau || '', ch.sort_order || 0, ch.id, orgId).changes;
+    const changes = getDb().prepare('UPDATE voice_channels SET description=?,freq=?,mode=?,squelch=?,tau=?,sort_order=? WHERE id=?')
+      .run(ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.tau || '', ch.sort_order || 0, ch.id).changes;
     return { id: ch.id, changes };
   }
-  const id = getDb().prepare('INSERT INTO voice_channels (org_id,description,freq,mode,squelch,tau,sort_order) VALUES (?,?,?,?,?,?,?)')
-    .run(orgId, ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.tau || '', ch.sort_order || 0).lastInsertRowid;
+  const id = getDb().prepare('INSERT INTO voice_channels (description,freq,mode,squelch,tau,sort_order) VALUES (?,?,?,?,?,?)')
+    .run(ch.description, ch.freq, ch.mode || 'nfm', ch.squelch || '', ch.tau || '', ch.sort_order || 0).lastInsertRowid;
   return { id, changes: 1 };
 }
-function deleteVoiceChannel(id, orgId) { return getDb().prepare('DELETE FROM voice_channels WHERE id=? AND org_id=?').run(id, orgId).changes; }
+function deleteVoiceChannel(id) { return getDb().prepare('DELETE FROM voice_channels WHERE id=?').run(id).changes; }
+// Which channel ids a given org has opted out of.
+function getVoiceChannelHidden(orgId) {
+  return getDb().prepare('SELECT channel_id FROM voice_channel_hidden WHERE org_id=?').all(orgId).map(r => r.channel_id);
+}
+function setVoiceChannelHidden(orgId, channelId, hidden) {
+  if (hidden) getDb().prepare('INSERT OR IGNORE INTO voice_channel_hidden (channel_id, org_id) VALUES (?,?)').run(channelId, orgId);
+  else getDb().prepare('DELETE FROM voice_channel_hidden WHERE channel_id=? AND org_id=?').run(channelId, orgId);
+}
 // Unscoped lookup for internal SDR pipeline use — dongle_configs (instance-wide, not org-scoped)
 // stores raw channel ids, so generating a dongle's rtl_airband config needs the row regardless
 // of which org owns it.
@@ -1154,7 +1184,8 @@ module.exports = {
   getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode,
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,
   getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
-  getVoiceChannels, upsertVoiceChannel, deleteVoiceChannel, getVoiceChannelById,
+  getVoiceChannels, getAllVoiceChannels, upsertVoiceChannel, deleteVoiceChannel, getVoiceChannelById,
+  getVoiceChannelHidden, setVoiceChannelHidden,
   getDiscordRelays, upsertDiscordRelay, deleteDiscordRelay, getAllDiscordRelays,
   getWebhooks, upsertWebhook, deleteWebhook,
   addAuditLog, getAuditLog,

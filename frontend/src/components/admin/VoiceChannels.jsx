@@ -3,7 +3,8 @@ import { Radio, Trash2, Plus, Save, Headphones, Cpu, Clock } from 'lucide-react'
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
-const api  = (m,p,b) => fetch(`${BASE}${p}`,{method:m,headers:{'Content-Type':'application/json','Authorization':`Bearer ${tok()}`},body:b?JSON.stringify(b):undefined}).then(r=>r.json());
+const api  = (m,p,b) => fetch(`${BASE}${p}`,{method:m,headers:{'Content-Type':'application/json','Authorization':`Bearer ${tok()}`},body:b?JSON.stringify(b):undefined})
+  .then(async r => { const d = await r.json().catch(()=>({})); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d; });
 
 const MODES = ['nfm','am'];
 const EMPTY = { description:'', freq:'', mode:'nfm', squelch:'', tau:'', sort_order:0 };
@@ -50,8 +51,10 @@ export default function VoiceChannels() {
 
   const del = async (id) => {
     if (!confirm('Delete this channel?')) return;
-    await api('DELETE',`/admin/voice-channels/${id}`);
-    await load(); flash('ok','Deleted');
+    try {
+      await api('DELETE',`/admin/voice-channels/${id}`);
+      await load(); flash('ok','Deleted');
+    } catch(e){ flash('err',e.message); }
   };
 
   return (
@@ -62,6 +65,8 @@ export default function VoiceChannels() {
       <p style={{fontSize:'0.82rem',color:'var(--text-3)',marginBottom:'1rem',lineHeight:1.6}}>
         Catalog of listenable voice channels (e.g. firefighter dispatch frequencies) — separate from the POCSAG
         decode frequency. Assign channels to a dongle in SDR Control → Multiple SDR dongles to stream them live.
+        Shared instance-wide across every organization on this server — an org admin can hide individual
+        channels from their own users under Channel Visibility, but can't edit the catalog itself.
       </p>
       <Flash msg={msg}/>
 
