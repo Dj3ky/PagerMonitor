@@ -5,7 +5,7 @@ const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
 const api  = (m,p,b) => fetch(`${BASE}${p}`,{method:m,headers:{'Content-Type':'application/json','Authorization':`Bearer ${tok()}`},body:b?JSON.stringify(b):undefined}).then(r=>r.json());
 
-const EMPTY = { description:'', voice_channel_id:'', bot_token:'', guild_id:'', discord_channel_id:'', enabled:true };
+const EMPTY = { description:'', channel_ids:[], bot_token:'', guild_id:'', discord_channel_id:'', enabled:true };
 
 function Flash({msg}){ if(!msg)return null; const ok=msg.type==='ok'; return <div style={{padding:'0.4rem 0.75rem',borderRadius:'0.4rem',fontSize:'0.78rem',fontFamily:'monospace',marginBottom:'0.75rem',color:ok?'var(--accent-green)':'var(--accent-red)',background:`color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 10%,transparent)`,border:`1px solid color-mix(in srgb,${ok?'var(--accent-green)':'var(--accent-red)'} 30%,transparent)`}}>{msg.text}</div>; }
 
@@ -23,11 +23,11 @@ export default function DiscordRelay() {
   ]).then(([r,ch]) => { setRelays(Array.isArray(r)?r:[]); setChannels(Array.isArray(ch)?ch:[]); });
   useEffect(()=>{ load(); },[]);
 
-  const edit = (r) => { setEditing(r.id); setForm({...r, enabled: !!r.enabled}); };
+  const edit = (r) => { setEditing(r.id); setForm({...r, enabled: !!r.enabled, channel_ids: Array.isArray(r.channel_ids) ? r.channel_ids : (r.voice_channel_id ? [r.voice_channel_id] : [])}); };
   const cancel = () => { setEditing(null); setForm(EMPTY); };
 
   const save = async () => {
-    if (!form.voice_channel_id) { flash('err', 'Pick a voice channel'); return; }
+    if (!form.channel_ids?.length) { flash('err', 'Pick at least one voice channel'); return; }
     if (!form.bot_token || !form.guild_id || !form.discord_channel_id) { flash('err', 'Bot token, guild ID, and Discord channel ID are all required'); return; }
     try {
       await api('PUT','/admin/discord-relays', form);
@@ -42,6 +42,7 @@ export default function DiscordRelay() {
   };
 
   const channelName = (id) => channels.find(c => c.id === id)?.description || `#${id}`;
+  const channelNames = (ids) => (Array.isArray(ids) ? ids : []).map(channelName).join(', ');
 
   return (
     <div style={{maxWidth:'560px'}}>
@@ -67,7 +68,7 @@ export default function DiscordRelay() {
               )}
             </div>
             <div style={{fontFamily:'monospace',fontSize:'0.75rem',color:'var(--text-3)'}}>
-              <span style={{color:'var(--accent-amber)'}}>{channelName(r.voice_channel_id)}</span>
+              <span style={{color:'var(--accent-amber)'}}>{channelNames(r.channel_ids)}</span>
               {' -> guild '}{r.guild_id}{' / channel '}{r.discord_channel_id}
             </div>
           </div>
@@ -85,14 +86,34 @@ export default function DiscordRelay() {
           <input className="pm-input" value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="e.g. Fire dispatch -> Discord"/>
         </div>
         <div style={{marginBottom:'0.75rem'}}>
-          <label className="pm-label">Voice channel to relay</label>
-          <select className="pm-input" value={form.voice_channel_id} onChange={e=>setForm(f=>({...f,voice_channel_id:e.target.value?parseInt(e.target.value):''}))}>
-            <option value="">Select a channel…</option>
-            {channels.map(c=><option key={c.id} value={c.id}>{c.description} ({c.freq})</option>)}
-          </select>
-          {channels.length === 0 && (
-            <div style={{fontSize:'0.68rem',color:'var(--text-3)',marginTop:'0.2rem'}}>
+          <label className="pm-label">Voice channels to relay ({form.channel_ids?.length || 0} selected)</label>
+          <p style={{fontSize:'0.72rem',color:'var(--text-3)',margin:'0 0 0.4rem'}}>
+            Pick more than one to relay whichever is actively transmitting — the bot sticks with it until it
+            drops, then hands off, same as the live-listen auto-switch on the dashboard.
+          </p>
+          {channels.length === 0 ? (
+            <div style={{fontSize:'0.68rem',color:'var(--text-3)'}}>
               No channels defined yet — add some in Admin → Voice Channels first.
+            </div>
+          ) : (
+            <div style={{maxHeight:'220px',overflowY:'auto',display:'flex',flexWrap:'wrap',gap:'0.35rem'}}>
+              {channels.map(c=>(
+                <label key={c.id} style={{
+                  display:'flex',alignItems:'center',gap:'0.3rem',
+                  fontSize:'0.78rem',cursor:'pointer',padding:'0.15rem 0.5rem',
+                  borderRadius:'0.3rem',border:'1px solid var(--border)',background:'var(--bg-0)',
+                }}>
+                  <input type="checkbox"
+                    checked={(form.channel_ids || []).includes(c.id)}
+                    onChange={e=>{
+                      const ids = e.target.checked
+                        ? [...(form.channel_ids || []), c.id]
+                        : (form.channel_ids || []).filter(x=>x!==c.id);
+                      setForm(f=>({...f, channel_ids: ids}));
+                    }}/>
+                  <span>{c.description} ({c.freq})</span>
+                </label>
+              ))}
             </div>
           )}
         </div>
@@ -115,7 +136,7 @@ export default function DiscordRelay() {
           Enabled
         </label>
         <div style={{display:'flex',gap:'0.5rem'}}>
-          <button className="pm-btn pm-btn-primary" onClick={save} disabled={!form.voice_channel_id||!form.bot_token||!form.guild_id||!form.discord_channel_id}><Save size={13}/> Save</button>
+          <button className="pm-btn pm-btn-primary" onClick={save} disabled={!form.channel_ids?.length||!form.bot_token||!form.guild_id||!form.discord_channel_id}><Save size={13}/> Save</button>
           {editing && <button className="pm-btn" onClick={cancel}>Cancel</button>}
         </div>
       </div>

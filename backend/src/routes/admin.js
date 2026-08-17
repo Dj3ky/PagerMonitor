@@ -616,9 +616,9 @@ router.get('/discord-relays', (req, res) => {
 });
 router.put('/discord-relays', (req, res) => {
   try {
-    const { description, voice_channel_id, bot_token, guild_id, discord_channel_id } = req.body;
-    if (!voice_channel_id || !bot_token || !guild_id || !discord_channel_id) {
-      return res.status(400).json({ error: 'voice_channel_id, bot_token, guild_id, and discord_channel_id are required' });
+    const { channel_ids, bot_token, guild_id, discord_channel_id } = req.body;
+    if (!Array.isArray(channel_ids) || channel_ids.length === 0 || !bot_token || !guild_id || !discord_channel_id) {
+      return res.status(400).json({ error: 'channel_ids (at least one), bot_token, guild_id, and discord_channel_id are required' });
     }
     const { id } = upsertDiscordRelay(req.session.orgId, req.body);
     require('../services/discordRelay').reconcile().catch(() => {});

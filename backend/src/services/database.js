@@ -381,6 +381,25 @@ function _migrate() {
     )
   `);
 
+  // A relay can now pull from more than one voice_channels entry — whichever one is
+  // actively transmitting gets relayed (same "stick with the active one, hand off when it
+  // drops" behavior as the browser player's auto-listen; see discordRelay.js). The legacy
+  // voice_channel_id column on discord_relays stays populated (mirrors the first channel
+  // in the set) purely for its NOT NULL FK and any old code paths still reading it — this
+  // table is the source of truth for which channels actually feed a relay.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS discord_relay_channels (
+      relay_id          INTEGER NOT NULL REFERENCES discord_relays(id) ON DELETE CASCADE,
+      voice_channel_id  INTEGER NOT NULL REFERENCES voice_channels(id) ON DELETE CASCADE,
+      PRIMARY KEY (relay_id, voice_channel_id)
+    )
+  `);
+  const backfilled = db.prepare(`
+    INSERT OR IGNORE INTO discord_relay_channels (relay_id, voice_channel_id)
+    SELECT id, voice_channel_id FROM discord_relays
+  `).run();
+  if (backfilled.changes > 0) logger.info(`Migration: backfilled ${backfilled.changes} discord_relay_channels row(s) from discord_relays.voice_channel_id`);
+
   // Message notes
   db.exec(`
     CREATE TABLE IF NOT EXISTS message_notes (
@@ -1014,28 +1033,69 @@ function setVoiceChannelHidden(orgId, channelId, hidden) {
 function getVoiceChannelById(id) { return getDb().prepare('SELECT * FROM voice_channels WHERE id=?').get(id); }
 
 // ── Discord relays (org-scoped) ─────────────────────────────────────────────────
-function getDiscordRelays(orgId) {
-  if (orgId == null) return getDb().prepare('SELECT * FROM discord_relays ORDER BY id ASC').all();
-  return getDb().prepare('SELECT * FROM discord_relays WHERE org_id=? ORDER BY id ASC').all(orgId);
+// Attaches `channel_ids` (all voice_channels feeding a relay, in the app's standard
+// channel order) to each row via one batched join rather than a query per relay.
+function attachRelayChannelIds(rows) {
+  if (rows.length === 0) return rows;
+  const db = getDb();
+  const placeholders = rows.map(() => '?').join(',');
+  const links = db.prepare(`
+    SELECT drc.relay_id, drc.voice_channel_id
+    FROM discord_relay_channels drc
+    JOIN voice_channels vc ON vc.id = drc.voice_channel_id
+    WHERE drc.relay_id IN (${placeholders})
+    ORDER BY vc.sort_order ASC, vc.id ASC
+  `).all(...rows.map(r => r.id));
+  const byRelay = new Map();
+  for (const { relay_id, voice_channel_id } of links) {
+    if (!byRelay.has(relay_id)) byRelay.set(relay_id, []);
+    byRelay.get(relay_id).push(voice_channel_id);
+  }
+  for (const r of rows) r.channel_ids = byRelay.get(r.id) || (r.voice_channel_id != null ? [r.voice_channel_id] : []);
+  return rows;
 }
+function getDiscordRelays(orgId) {
+  const rows = orgId == null
+    ? getDb().prepare('SELECT * FROM discord_relays ORDER BY id ASC').all()
+    : getDb().prepare('SELECT * FROM discord_relays WHERE org_id=? ORDER BY id ASC').all(orgId);
+  return attachRelayChannelIds(rows);
+}
+// r.channel_ids is the source of truth going forward; r.voice_channel_id is still accepted
+// as a single-channel fallback for any older caller. The legacy voice_channel_id column
+// mirrors channel_ids[0] purely to satisfy its own NOT NULL FK — reads should use channel_ids.
 function upsertDiscordRelay(orgId, r) {
   const enabled = r.enabled ? 1 : 0;
-  if (r.id) {
-    const changes = getDb().prepare(`
-      UPDATE discord_relays SET description=?,voice_channel_id=?,bot_token=?,guild_id=?,discord_channel_id=?,enabled=?
-      WHERE id=? AND org_id=?
-    `).run(r.description || '', r.voice_channel_id, r.bot_token, r.guild_id, r.discord_channel_id, enabled, r.id, orgId).changes;
-    return { id: r.id, changes };
-  }
-  const id = getDb().prepare(`
-    INSERT INTO discord_relays (org_id,description,voice_channel_id,bot_token,guild_id,discord_channel_id,enabled)
-    VALUES (?,?,?,?,?,?,?)
-  `).run(orgId, r.description || '', r.voice_channel_id, r.bot_token, r.guild_id, r.discord_channel_id, enabled).lastInsertRowid;
-  return { id, changes: 1 };
+  const channelIds = Array.isArray(r.channel_ids) && r.channel_ids.length
+    ? [...new Set(r.channel_ids.map(Number))]
+    : (r.voice_channel_id != null ? [Number(r.voice_channel_id)] : []);
+  if (channelIds.length === 0) throw new Error('At least one voice channel is required');
+  const primaryChannelId = channelIds[0];
+
+  const db = getDb();
+  const run = db.transaction(() => {
+    let id = r.id;
+    if (id) {
+      const changes = db.prepare(`
+        UPDATE discord_relays SET description=?,voice_channel_id=?,bot_token=?,guild_id=?,discord_channel_id=?,enabled=?
+        WHERE id=? AND org_id=?
+      `).run(r.description || '', primaryChannelId, r.bot_token, r.guild_id, r.discord_channel_id, enabled, id, orgId).changes;
+      if (changes === 0) return { id, changes: 0 };
+    } else {
+      id = db.prepare(`
+        INSERT INTO discord_relays (org_id,description,voice_channel_id,bot_token,guild_id,discord_channel_id,enabled)
+        VALUES (?,?,?,?,?,?,?)
+      `).run(orgId, r.description || '', primaryChannelId, r.bot_token, r.guild_id, r.discord_channel_id, enabled).lastInsertRowid;
+    }
+    db.prepare('DELETE FROM discord_relay_channels WHERE relay_id=?').run(id);
+    const insertLink = db.prepare('INSERT OR IGNORE INTO discord_relay_channels (relay_id, voice_channel_id) VALUES (?,?)');
+    for (const chId of channelIds) insertLink.run(id, chId);
+    return { id, changes: 1 };
+  });
+  return run();
 }
 function deleteDiscordRelay(id, orgId) { return getDb().prepare('DELETE FROM discord_relays WHERE id=? AND org_id=?').run(id, orgId).changes; }
 // Unscoped — discordRelay.js manages connections instance-wide, regardless of which org owns each row.
-function getAllDiscordRelays() { return getDb().prepare('SELECT * FROM discord_relays').all(); }
+function getAllDiscordRelays() { return attachRelayChannelIds(getDb().prepare('SELECT * FROM discord_relays').all()); }
 
 // ── Webhooks ──────────────────────────────────────────────────────────────────
 function getWebhooks(orgId) { return getDb().prepare('SELECT * FROM webhooks WHERE org_id=? ORDER BY id').all(orgId); }

@@ -104,11 +104,63 @@ async function waitForReady(entry) {
   });
 }
 
+// A relay can cover more than one voice_channels entry — only the actively-transmitting
+// one gets relayed, using the exact same "stick with the current one until it drops, then
+// hand off" behavior as the browser player's auto-listen (LiveChannels.jsx), so a relay
+// doesn't garble two simultaneous transmissions together. With a single channel this is a
+// no-op (currentChannelId never changes, no polling needed) — same as the old behavior.
+const SWITCH_GRACE_MS = 3500; // mirrors the browser player's AUTO_SWITCH_GRACE_MS
+function createChannelSelector(channelIds, audioRelay) {
+  let current = channelIds.length === 1 ? channelIds[0] : null;
+  let graceTimer = null;
+  let poll = null;
+  if (channelIds.length > 1) {
+    poll = setInterval(() => {
+      const activeSet = audioRelay.getActiveChannels();
+      if (current != null && activeSet[current]) {
+        if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+        return;
+      }
+      if (current == null) {
+        current = channelIds.find(id => activeSet[id]) ?? null;
+        return;
+      }
+      if (!graceTimer) {
+        graceTimer = setTimeout(() => {
+          graceTimer = null;
+          const stillActive = audioRelay.getActiveChannels();
+          if (current != null && stillActive[current]) return; // resumed just before the timer fired
+          current = channelIds.find(id => stillActive[id]) ?? null;
+        }, SWITCH_GRACE_MS);
+      }
+    }, 250);
+  }
+  return {
+    isSelected: (id) => channelIds.length === 1 || current === id,
+    stop: () => { if (poll) clearInterval(poll); if (graceTimer) clearTimeout(graceTimer); },
+  };
+}
+
+// Best-effort bot status showing which channels this relay covers, with a live-counting
+// "connected since" timer (Discord renders timestamps.start itself — no repeated updates
+// needed). Presence is per bot *account*, not per-guild, so relays sharing one bot_token
+// will overwrite each other's status; harmless, just cosmetic, last one wins.
+function setRelayActivity(client, channelIds, deps) {
+  try {
+    const { getVoiceChannelById } = require('./database');
+    const labels = channelIds.map(id => getVoiceChannelById(id)?.description || `#${id}`);
+    client.user.setPresence({
+      activities: [{ name: labels.join(', '), type: deps.ActivityType.Listening, timestamps: { start: Date.now() } }],
+    });
+  } catch (_) {}
+}
+
 async function startRelay(row, deps) {
   const label = row.description || `relay ${row.id}`;
   const entry = getOrCreateClient(row.bot_token, deps);
   const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType,
           VoiceConnectionStatus, entersState } = deps;
+  const channelIds = Array.isArray(row.channel_ids) && row.channel_ids.length ? row.channel_ids : [row.voice_channel_id];
   let connection;
   try {
     await waitForReady(entry);
@@ -123,19 +175,28 @@ async function startRelay(row, deps) {
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
 
     const passThrough = new PassThrough();
-    const resample = createDiscordResampler();
     const resource = createAudioResource(passThrough, { inputType: StreamType.Raw });
     const player = createAudioPlayer();
     player.play(resource);
     connection.subscribe(player);
 
-    const unsubscribe = require('./audioRelay').subscribeChannel(row.voice_channel_id, (payload) => {
-      const pcm = resample(payload);
+    const audioRelay = require('./audioRelay');
+    const selector = createChannelSelector(channelIds, audioRelay);
+    // Each channel keeps its own resampler instance (rather than sharing one across the
+    // group) so a mid-stream hand-off doesn't carry over stale interpolation state from
+    // whichever channel was previously selected.
+    const resamplers = new Map(channelIds.map(id => [id, createDiscordResampler()]));
+    const unsubscribes = channelIds.map(chId => audioRelay.subscribeChannel(chId, (payload) => {
+      const pcm = resamplers.get(chId)(payload);
+      if (!selector.isSelected(chId)) return;
       if (pcm.length) { try { passThrough.write(pcm); } catch (_) {} }
-    });
+    }));
+    const unsubscribe = () => { unsubscribes.forEach(u => { try { u(); } catch (_) {} }); selector.stop(); };
+
+    setRelayActivity(entry.client, channelIds, deps);
 
     active.set(row.id, { connection, player, passThrough, unsubscribe, botToken: row.bot_token });
-    logger.info(`Discord relay "${label}" connected — channel ${row.voice_channel_id} -> guild ${row.guild_id}/${row.discord_channel_id}`);
+    logger.info(`Discord relay "${label}" connected — channel(s) ${channelIds.join(',')} -> guild ${row.guild_id}/${row.discord_channel_id}`);
 
     // Guards against connection-error, player-error, and a failed Disconnected
     // self-heal all firing for the same drop and stacking up multiple retries.
