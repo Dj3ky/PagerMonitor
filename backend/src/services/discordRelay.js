@@ -109,11 +109,12 @@ async function startRelay(row, deps) {
   const entry = getOrCreateClient(row.bot_token, deps);
   const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType,
           VoiceConnectionStatus, entersState } = deps;
+  let connection;
   try {
     await waitForReady(entry);
 
     const guild = await entry.client.guilds.fetch(row.guild_id);
-    const connection = joinVoiceChannel({
+    connection = joinVoiceChannel({
       channelId: row.discord_channel_id,
       guildId: row.guild_id,
       adapterCreator: guild.voiceAdapterCreator,
@@ -168,6 +169,10 @@ async function startRelay(row, deps) {
       }
     });
   } catch (e) {
+    // joinVoiceChannel() can succeed (signaling) while the later Ready wait times
+    // out (UDP handshake never completes) — without destroy() that leaves the bot
+    // dangling in the channel with nothing managing or retrying it.
+    if (connection) { try { connection.destroy(); } catch (_) {} }
     releaseClient(row.bot_token);
     logger.warn(`Discord relay "${label}" failed to start: ${e.message}`);
   }
