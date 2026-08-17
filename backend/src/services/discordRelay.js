@@ -105,39 +105,29 @@ async function waitForReady(entry) {
 }
 
 // A relay can cover more than one voice_channels entry — only the actively-transmitting
-// one gets relayed, using the exact same "stick with the current one until it drops, then
-// hand off" behavior as the browser player's auto-listen (LiveChannels.jsx), so a relay
-// doesn't garble two simultaneous transmissions together. With a single channel this is a
-// no-op (currentChannelId never changes, no polling needed) — same as the old behavior.
-const SWITCH_GRACE_MS = 3500; // mirrors the browser player's AUTO_SWITCH_GRACE_MS
-function createChannelSelector(channelIds, audioRelay) {
+// one gets relayed, so two simultaneous transmissions don't garble together. With a single
+// channel this is a no-op (current never changes, no polling needed) — same as the old
+// behavior. Unlike the browser player's auto-listen (LiveChannels.jsx), this doesn't add
+// its own grace period before handing off — audioRelay.js's own ACTIVITY_HANG_MS (800ms)
+// already debounces brief mid-transmission pauses upstream, so a relay-side grace period on
+// top of that is redundant and actively harmful here: radio traffic on a given channel is
+// often short and sparse, and a several-second "wait and see if it resumes" window meant for
+// a human listener routinely eats an entire brief transmission on a different channel while
+// waiting — which looked like "only my busiest source ever comes through" in practice.
+function createChannelSelector(channelIds, audioRelay, onChange) {
   let current = channelIds.length === 1 ? channelIds[0] : null;
-  let graceTimer = null;
   let poll = null;
   if (channelIds.length > 1) {
     poll = setInterval(() => {
       const activeSet = audioRelay.getActiveChannels();
-      if (current != null && activeSet[current]) {
-        if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
-        return;
-      }
-      if (current == null) {
-        current = channelIds.find(id => activeSet[id]) ?? null;
-        return;
-      }
-      if (!graceTimer) {
-        graceTimer = setTimeout(() => {
-          graceTimer = null;
-          const stillActive = audioRelay.getActiveChannels();
-          if (current != null && stillActive[current]) return; // resumed just before the timer fired
-          current = channelIds.find(id => stillActive[id]) ?? null;
-        }, SWITCH_GRACE_MS);
-      }
+      if (current != null && activeSet[current]) return; // still talking — stay put
+      const next = channelIds.find(id => activeSet[id]) ?? null;
+      if (next !== current) { current = next; onChange?.(current, activeSet); }
     }, 250);
   }
   return {
     isSelected: (id) => channelIds.length === 1 || current === id,
-    stop: () => { if (poll) clearInterval(poll); if (graceTimer) clearTimeout(graceTimer); },
+    stop: () => { if (poll) clearInterval(poll); },
   };
 }
 
@@ -181,12 +171,23 @@ async function startRelay(row, deps) {
     connection.subscribe(player);
 
     const audioRelay = require('./audioRelay');
-    const selector = createChannelSelector(channelIds, audioRelay);
+    const selector = createChannelSelector(channelIds, audioRelay, (newCurrent, activeSet) => {
+      logger.warn(`Discord relay "${label}" diag: selector switched to channel ${newCurrent}, activeSet=${JSON.stringify(activeSet)}`);
+    });
     // Each channel keeps its own resampler instance (rather than sharing one across the
     // group) so a mid-stream hand-off doesn't carry over stale interpolation state from
     // whichever channel was previously selected.
     const resamplers = new Map(channelIds.map(id => [id, createDiscordResampler()]));
+    // TEMPORARY diagnostic — logs at most once every 5s per channel, showing whether audio
+    // is actually arriving from audioRelay.js at all (vs. arriving but not selected). Remove
+    // once the "some channels never come through" issue is root-caused.
+    const lastDiagLog = new Map();
     const unsubscribes = channelIds.map(chId => audioRelay.subscribeChannel(chId, (payload) => {
+      const now = Date.now();
+      if (!lastDiagLog.has(chId) || now - lastDiagLog.get(chId) > 5000) {
+        lastDiagLog.set(chId, now);
+        logger.warn(`Discord relay "${label}" diag: channel ${chId} got ${payload.length}B payload, selected=${selector.isSelected(chId)}`);
+      }
       const pcm = resamplers.get(chId)(payload);
       if (!selector.isSelected(chId)) return;
       if (pcm.length) { try { passThrough.write(pcm); } catch (_) {} }
