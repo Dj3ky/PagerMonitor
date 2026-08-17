@@ -39,8 +39,10 @@ export default function DedupConfig() {
         <Copy size={16} style={{ color: 'var(--accent-green)' }} /> Duplicate Message Suppression
       </h2>
       <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginBottom: '1rem' }}>
-        If the same capcode sends the same message within the window, later copies are silently dropped.
-        Useful for pager networks that repeat transmissions.
+        If the same capcode sends a similar message within the window, later copies are treated as
+        retransmissions of the same page instead of new messages: a clearer/more complete retransmission
+        replaces the stored text in place, otherwise it's dropped. Useful for pager networks that repeat
+        transmissions, even when retransmissions decode with slightly different or corrupted text.
       </p>
 
       <div className="pm-card">

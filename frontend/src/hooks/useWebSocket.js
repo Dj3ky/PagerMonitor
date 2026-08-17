@@ -145,6 +145,10 @@ export function useWebSocket(backendUrl) {
           window.__pm_alerts = window.__pm_alerts || new Set();
           window.__pm_alerts.add(data.id);
           setTimeout(() => window.__pm_alerts?.delete(data.id), 30000);
+        } else if (data.type === 'message_update') {
+          setMessages(prev => prev.map(m =>
+            m.id === data.id ? { ...m, message: data.message } : m
+          ));
         } else if (data.type === 'message_location') {
           setMessages(prev => prev.map(m =>
             m.id === data.id ? { ...m, lat: data.lat, lng: data.lng } : m

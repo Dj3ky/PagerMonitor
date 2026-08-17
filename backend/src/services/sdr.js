@@ -12,7 +12,7 @@ const { recordMessage, registerSource, unregisterSource } = require('./deadair')
 const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
 const { resolveAliasHome } = require('../utils/aliasPlace');
 const { buildDongleSourceId } = require('../utils/dongleSource');
-const { loadSdrConfigIntoEnv, getDedupConfig, getDongleConfigs, getMessageNormalizations } = require('./config');
+const { loadSdrConfigIntoEnv, getDongleConfigs, getMessageNormalizations } = require('./config');
 const { resolveDeviceIndex } = require('./rtlDevices');
 const logger = require('../utils/logger');
 
@@ -60,21 +60,7 @@ function buildMmonArgs() {
 }
 
 // ── Dedup ─────────────────────────────────────────────────────────────────────
-const dedupCache = new Map();
-function isDuplicate(capcode, message) {
-  const cfg = getDedupConfig();
-  if (!cfg.enabled || !message) return false;
-  const key  = `${capcode}|${message}`;
-  const last = dedupCache.get(key);
-  const now  = Date.now();
-  if (last && (now - last) < cfg.windowSeconds * 1000) return true;
-  dedupCache.set(key, now);
-  if (dedupCache.size > 2000) {
-    const cutoff = now - 300_000;
-    for (const [k, v] of dedupCache) if (v < cutoff) dedupCache.delete(k);
-  }
-  return false;
-}
+const dedup = require('./dedup');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -658,8 +644,19 @@ function handleLine(line, sourceId = 'sdr') {
 
   if (!parsed) return;
 
-  if (isDuplicate(parsed.capcode, parsed.message)) {
-    addLog('system', `[dedup] ${parsed.capcode} "${parsed.message.substring(0, 40)}"`);
+  const dedupResult = dedup.evaluate(parsed.capcode, parsed.message);
+  if (dedupResult.duplicate) {
+    if (dedupResult.update) {
+      const { id } = dedupResult.update;
+      try {
+        require('./database').getDb().prepare('UPDATE messages SET message=?, raw=? WHERE id=?').run(parsed.message, line, id);
+        dedup.recordUpdate(dedupResult.update, parsed.message);
+        broadcast({ type: 'message_update', id, message: parsed.message });
+        addLog('system', `[dedup] updated #${id} ${parsed.capcode} with clearer retransmission`);
+      } catch (_) {}
+    } else {
+      addLog('system', `[dedup] ${parsed.capcode} "${parsed.message.substring(0, 40)}"`);
+    }
     return;
   }
 
@@ -680,6 +677,7 @@ function handleLine(line, sourceId = 'sdr') {
   };
 
   const id     = insertMessage(rawMsg);
+  dedup.recordInsert(parsed.capcode, parsed.message, id);
   const perOrg = broadcastAll(rawMsg, id); // resolves alias/group + applies each org's feed filter
 
   recordMessage(sourceId);

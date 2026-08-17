@@ -18,26 +18,9 @@ const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
 const { resolveAliasHome } = require('../utils/aliasPlace');
 const { recordMessage, unregisterSource } = require('../services/deadair');
 const { recordClientMessage, recordClientPing, recordClientOffline, getClientConfig, popPendingCommand } = require('../services/clientTracker');
-const { getDedupConfig } = require('../services/config');
 const { getVoiceChannelById } = require('../services/database');
 const logger                    = require('../utils/logger');
-
-// Dedup cache (same logic as sdr.js but for remote messages)
-const dedupCache = new Map();
-function isDuplicate(capcode, message) {
-  const cfg = getDedupConfig();
-  if (!cfg.enabled || !message) return false;
-  const key  = `${capcode}|${message}`;
-  const last = dedupCache.get(key);
-  const now  = Date.now();
-  if (last && (now - last) < cfg.windowSeconds * 1000) return true;
-  dedupCache.set(key, now);
-  if (dedupCache.size > 2000) {
-    const cutoff = now - 300_000;
-    for (const [k, v] of dedupCache) if (v < cutoff) dedupCache.delete(k);
-  }
-  return false;
-}
+const dedup                     = require('../services/dedup');
 
 // Auth middleware — verify X-Client-Key
 function requireClientKey(req, res, next) {
@@ -63,8 +46,19 @@ router.post('/message', requireClientKey, (req, res) => {
       return res.status(400).json({ error: 'capcode and protocol required' });
     }
 
-    if (isDuplicate(capcode, message)) {
-      logger.debug(`[client:${clientId}] dedup skip ${capcode}`);
+    const dedupResult = dedup.evaluate(capcode, message);
+    if (dedupResult.duplicate) {
+      if (dedupResult.update) {
+        const { id } = dedupResult.update;
+        try {
+          require('../services/database').getDb().prepare('UPDATE messages SET message=?, raw=? WHERE id=?').run(message || '', raw || '', id);
+          dedup.recordUpdate(dedupResult.update, message);
+          broadcast({ type: 'message_update', id, message });
+          logger.debug(`[client:${clientId}] dedup updated #${id} ${capcode} with clearer retransmission`);
+        } catch (_) {}
+      } else {
+        logger.debug(`[client:${clientId}] dedup skip ${capcode}`);
+      }
       return res.json({ ok: true, deduped: true });
     }
 
@@ -98,6 +92,7 @@ router.post('/message', requireClientKey, (req, res) => {
     };
 
     const id     = insertMessage(rawMsg);
+    dedup.recordInsert(capcode, message, id);
     const perOrg = broadcastAll(rawMsg, id); // resolves alias/group + applies each org's feed filter
 
     recordMessage(clientId);
