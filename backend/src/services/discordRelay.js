@@ -136,6 +136,25 @@ async function startRelay(row, deps) {
     active.set(row.id, { connection, player, passThrough, unsubscribe, botToken: row.bot_token });
     logger.info(`Discord relay "${label}" connected — channel ${row.voice_channel_id} -> guild ${row.guild_id}/${row.discord_channel_id}`);
 
+    // Guards against connection-error, player-error, and a failed Disconnected
+    // self-heal all firing for the same drop and stacking up multiple retries.
+    let retrying = false;
+    const retry = (reason) => {
+      if (retrying) return;
+      retrying = true;
+      logger.warn(`Discord relay "${label}": ${reason}, retrying in 10s`);
+      stopRelay(row.id);
+      setTimeout(() => { startRelay(row, deps).catch(e => logger.warn(`Discord relay "${label}" retry failed: ${e.message}`)); }, 10_000);
+    };
+
+    // Both emit 'error' when something in the voice/audio pipeline hiccups (Opus
+    // encoding glitch, UDP handshake issue, etc). An EventEmitter's 'error' event
+    // with no listener throws and crashes the whole process — an unhandled error
+    // here was previously taking down the entire backend a few seconds after
+    // every relay start, which looked like "bot connects then vanishes forever".
+    connection.on('error', (err) => retry(`connection error: ${err.message}`));
+    player.on('error', (err) => retry(`player error: ${err.message}`));
+
     // Discord voice connections drop briefly and reconnect on their own fairly often —
     // give it a moment to self-heal before tearing down and retrying from scratch.
     connection.on(VoiceConnectionStatus.Disconnected, async () => {
@@ -145,9 +164,7 @@ async function startRelay(row, deps) {
           entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
         ]);
       } catch {
-        logger.warn(`Discord relay "${label}": lost connection, retrying in 10s`);
-        stopRelay(row.id);
-        setTimeout(() => { startRelay(row, deps).catch(e => logger.warn(`Discord relay "${label}" retry failed: ${e.message}`)); }, 10_000);
+        retry('lost connection');
       }
     });
   } catch (e) {
