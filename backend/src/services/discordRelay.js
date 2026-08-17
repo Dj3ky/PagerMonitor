@@ -167,14 +167,14 @@ async function startRelay(row, deps) {
     const passThrough = new PassThrough();
     const resource = createAudioResource(passThrough, { inputType: StreamType.Raw });
     const player = createAudioPlayer();
-    player.play(resource);
-    connection.subscribe(player);
     // TEMPORARY diagnostic — @discordjs/voice's AudioPlayer state (Idle/Buffering/Playing/
-    // AutoPaused/Paused). Selection can be correct while this never reaches "Playing", or
-    // gets stuck AutoPaused after a silent gap instead of resuming on the next write.
+    // AutoPaused/Paused). Attached BEFORE play() specifically because play() fires its first
+    // transition (idle -> buffering) synchronously — a listener added after play() misses it.
     player.on('stateChange', (oldS, newS) => {
       logger.warn(`Discord relay "${label}" diag: player state ${oldS.status} -> ${newS.status}`);
     });
+    player.play(resource);
+    connection.subscribe(player);
 
     const audioRelay = require('./audioRelay');
     const selector = createChannelSelector(channelIds, audioRelay, (newCurrent, activeSet) => {
