@@ -41,7 +41,14 @@ async function main() {
 
   connection.on('debug', (m) => console.log('[CONN DEBUG]', m));
   connection.on('error', (e) => console.log('[CONN ERROR]', e));
-  connection.on('stateChange', (oldS, newS) => console.log('[STATE]', oldS.status, '->', newS.status, JSON.stringify(newS.reason !== undefined ? { reason: newS.reason } : {})));
+  const hookedNetworkings = new WeakSet();
+  connection.on('stateChange', (oldS, newS) => {
+    console.log('[STATE]', oldS.status, '->', newS.status, JSON.stringify(newS.reason !== undefined ? { reason: newS.reason } : {}));
+    if (newS.networking && !hookedNetworkings.has(newS.networking)) {
+      hookedNetworkings.add(newS.networking);
+      newS.networking.on('close', (code) => console.log('[RAW VOICE WS CLOSE CODE]', code));
+    }
+  });
 
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
