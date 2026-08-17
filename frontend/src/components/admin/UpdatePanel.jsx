@@ -111,8 +111,9 @@ export default function UpdatePanel() {
   };
 
   // ── Derived state ───────────────────────────────────────────────────────────
-  const upToDate   = localInfo && remoteInfo && localInfo.localCommits === remoteInfo.sha;
-  const hasUpdate  = localInfo && remoteInfo && localInfo.localCommits !== remoteInfo.sha;
+  const canCompare = Boolean(localInfo?.localCommits && remoteInfo?.sha);
+  const upToDate   = canCompare && localInfo.localCommits === remoteInfo.sha;
+  const hasUpdate  = canCompare && localInfo.localCommits !== remoteInfo.sha;
   const localShort = localInfo?.localHash;
   const remShort   = remoteInfo?.sha?.slice(0, 7);
   const localDateF = localInfo?.localDate  ? new Date(localInfo.localDate).toLocaleDateString()  : '—';
@@ -195,6 +196,11 @@ export default function UpdatePanel() {
               {!remoteInfo && localInfo && (
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-3)' }}>
                   Cannot compare — GitHub unreachable
+                </span>
+              )}
+              {remoteInfo && !canCompare && (
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-3)' }}>
+                  Cannot compare — local Git metadata unavailable
                 </span>
               )}
             </div>
