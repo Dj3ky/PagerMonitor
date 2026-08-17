@@ -169,6 +169,12 @@ async function startRelay(row, deps) {
     const player = createAudioPlayer();
     player.play(resource);
     connection.subscribe(player);
+    // TEMPORARY diagnostic — @discordjs/voice's AudioPlayer state (Idle/Buffering/Playing/
+    // AutoPaused/Paused). Selection can be correct while this never reaches "Playing", or
+    // gets stuck AutoPaused after a silent gap instead of resuming on the next write.
+    player.on('stateChange', (oldS, newS) => {
+      logger.warn(`Discord relay "${label}" diag: player state ${oldS.status} -> ${newS.status}`);
+    });
 
     const audioRelay = require('./audioRelay');
     const selector = createChannelSelector(channelIds, audioRelay, (newCurrent, activeSet) => {
@@ -190,7 +196,15 @@ async function startRelay(row, deps) {
       }
       const pcm = resamplers.get(chId)(payload);
       if (!selector.isSelected(chId)) return;
-      if (pcm.length) { try { passThrough.write(pcm); } catch (_) {} }
+      if (pcm.length) {
+        try {
+          const ok = passThrough.write(pcm);
+          if (!lastDiagLog.has(`w${chId}`) || now - lastDiagLog.get(`w${chId}`) > 5000) {
+            lastDiagLog.set(`w${chId}`, now);
+            logger.warn(`Discord relay "${label}" diag: wrote ${pcm.length}B to passThrough for channel ${chId}, write()=${ok}, player state=${player.state.status}`);
+          }
+        } catch (e) { logger.warn(`Discord relay "${label}" diag: passThrough.write threw: ${e.message}`); }
+      }
     }));
     const unsubscribe = () => { unsubscribes.forEach(u => { try { u(); } catch (_) {} }); selector.stop(); };
 
