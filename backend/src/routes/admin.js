@@ -1,5 +1,6 @@
 const express = require('express');
 const router  = express.Router();
+const fs      = require('fs');
 const os      = require('os');
 const path    = require('path');
 const { execSync, spawn } = require('child_process');
@@ -1022,15 +1023,58 @@ router.post('/ai-geocode/test', platformOnly, async (req, res) => {
 const ROOT_DIR      = path.join(__dirname, '../../..');
 const UPDATE_SCRIPT = path.join(ROOT_DIR, 'update-web.sh');
 
+function detectUpdateEnvironment() {
+  const dockerEnv = process.env.PM_UPDATE_MODE || '';
+  if (dockerEnv === 'docker') {
+    return {
+      mode: 'docker',
+      supported: false,
+      reason: 'The web updater is only supported for host/systemd installs. In Docker, use the documented host-side update workflow from the Makefile instead.',
+      commands: ['make update'],
+    };
+  }
+
+  try {
+    if (fs.existsSync('/.dockerenv')) {
+      return {
+        mode: 'docker',
+        supported: false,
+        reason: 'The web updater is only supported for host/systemd installs. In Docker, use the documented host-side update workflow from the Makefile instead.',
+        commands: ['make update'],
+      };
+    }
+  } catch (_) {}
+
+  try {
+    const cgroup = fs.readFileSync('/proc/1/cgroup', 'utf8');
+    if (/(^|\/)(docker|containerd|kubepods)(\/|$)/m.test(cgroup)) {
+      return {
+        mode: 'docker',
+        supported: false,
+        reason: 'The web updater is only supported for host/systemd installs. In Docker, use the documented host-side update workflow from the Makefile instead.',
+        commands: ['make update'],
+      };
+    }
+  } catch (_) {}
+
+  return {
+    mode: 'host',
+    supported: true,
+    reason: null,
+    commands: [],
+  };
+}
+
 // GET /admin/update/status — local git info (frontend fetches GitHub API itself)
 router.get('/update/status', platformOnly, (_req, res) => {
+  const updateEnv = detectUpdateEnvironment();
   let localHash = null, localDate = null, localCommits = null;
   try {
     localHash    = execSync('git rev-parse --short HEAD',      { cwd: ROOT_DIR, timeout: 5000, stdio: 'pipe' }).toString().trim();
     localDate    = execSync('git log -1 --format=%ci',         { cwd: ROOT_DIR, timeout: 5000, stdio: 'pipe' }).toString().trim();
     localCommits = execSync('git rev-parse HEAD',              { cwd: ROOT_DIR, timeout: 5000, stdio: 'pipe' }).toString().trim();
   } catch (_) {}
-  res.json({ version, localHash, localDate, localCommits });
+  res.json({ version, localHash, localDate, localCommits, updateEnv });
 });
 
 // Strip ANSI colour escape codes (e.g. \x1b[33m) from Vite/npm output
@@ -1040,6 +1084,14 @@ function stripAnsi(str) {
 
 // POST /admin/update — streams update-web.sh output via SSE, then restarts service
 router.post('/update', platformOnly, (req, res) => {
+  const updateEnv = detectUpdateEnvironment();
+  if (!updateEnv.supported) {
+    return res.status(409).json({
+      error: updateEnv.reason,
+      updateEnv,
+    });
+  }
+
   res.setHeader('Content-Type',  'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection',    'keep-alive');
