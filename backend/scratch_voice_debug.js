@@ -13,6 +13,7 @@ process.on('uncaughtException', (e) => console.log('[UNCAUGHT]', e));
 process.on('unhandledRejection', (e) => console.log('[UNHANDLED REJECTION]', e));
 
 async function main() {
+  db.initDb();
   const rows = db.getAllDiscordRelays().filter(r => r.enabled);
   const row = rows.find(r => (r.description || '').includes('TST15')) || rows[0];
   if (!row) { console.log('No enabled relay rows found in DB'); process.exit(1); }
