@@ -71,7 +71,7 @@ function createDiscordResampler() {
 }
 
 const clients = new Map(); // botToken -> { client, refCount, ready }
-const active  = new Map(); // discord_relays.id -> { connection, player, passThrough, unsubscribe, botToken }
+const active  = new Map(); // discord_relays.id -> { connection, player, unsubscribe, botToken }
 
 function getOrCreateClient(botToken, deps) {
   let entry = clients.get(botToken);
@@ -164,59 +164,40 @@ async function startRelay(row, deps) {
     });
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
 
-    const passThrough = new PassThrough();
-    const resource = createAudioResource(passThrough, { inputType: StreamType.Raw });
+    // @discordjs/voice's AudioResource is single-use: once the player falls back to Idle —
+    // which happens whenever its stream has had no data for a stretch, the normal state
+    // with several sparse channels where most of the time nothing is selected — the
+    // original resource can't be resumed by writing to it again, even though the
+    // PassThrough itself is still open. Recreate a fresh PassThrough/resource and re-play()
+    // whenever we're about to write and the player has gone idle, rather than assuming one
+    // resource survives the relay's entire lifetime. With a single channel the player still
+    // idles between transmissions the same way, so this applies regardless of channel count.
+    let passThrough = new PassThrough();
     const player = createAudioPlayer();
-    // TEMPORARY diagnostic — @discordjs/voice's AudioPlayer state (Idle/Buffering/Playing/
-    // AutoPaused/Paused). Attached BEFORE play() specifically because play() fires its first
-    // transition (idle -> buffering) synchronously — a listener added after play() misses it.
-    // Wrapped in try/catch: if this throws during a later, internally-triggered transition
-    // (the library's own dispatch loop, not our code), an uncaught exception here would
-    // otherwise crash the whole process silently from our perspective.
-    player.on('stateChange', (oldS, newS) => {
-      try {
-        logger.warn(`Discord relay "${label}" diag: player state ${oldS.status} -> ${newS.status}`);
-      } catch (e) { logger.warn(`Discord relay "${label}" diag: stateChange listener itself threw: ${e.message}`); }
-    });
-    player.play(resource);
+    player.play(createAudioResource(passThrough, { inputType: StreamType.Raw }));
     connection.subscribe(player);
-    logger.warn(`Discord relay "${label}" diag: right after play() — stateChange listeners=${player.listenerCount('stateChange')}, player.state=${player.state.status}, resource.started=${resource.started}, resource.ended=${resource.ended}, playStream.readable=${resource.playStream.readable}, playStream.destroyed=${resource.playStream.destroyed}`);
+    function ensurePlaying() {
+      if (player.state.status !== 'idle') return;
+      passThrough = new PassThrough();
+      player.play(createAudioResource(passThrough, { inputType: StreamType.Raw }));
+    }
 
     const audioRelay = require('./audioRelay');
-    const selector = createChannelSelector(channelIds, audioRelay, (newCurrent, activeSet) => {
-      logger.warn(`Discord relay "${label}" diag: selector switched to channel ${newCurrent}, activeSet=${JSON.stringify(activeSet)}`);
-    });
+    const selector = createChannelSelector(channelIds, audioRelay);
     // Each channel keeps its own resampler instance (rather than sharing one across the
     // group) so a mid-stream hand-off doesn't carry over stale interpolation state from
     // whichever channel was previously selected.
     const resamplers = new Map(channelIds.map(id => [id, createDiscordResampler()]));
-    // TEMPORARY diagnostic — logs at most once every 5s per channel, showing whether audio
-    // is actually arriving from audioRelay.js at all (vs. arriving but not selected). Remove
-    // once the "some channels never come through" issue is root-caused.
-    const lastDiagLog = new Map();
     const unsubscribes = channelIds.map(chId => audioRelay.subscribeChannel(chId, (payload) => {
-      const now = Date.now();
-      if (!lastDiagLog.has(chId) || now - lastDiagLog.get(chId) > 5000) {
-        lastDiagLog.set(chId, now);
-        logger.warn(`Discord relay "${label}" diag: channel ${chId} got ${payload.length}B payload, selected=${selector.isSelected(chId)}`);
-      }
       const pcm = resamplers.get(chId)(payload);
       if (!selector.isSelected(chId)) return;
-      if (pcm.length) {
-        try {
-          const ok = passThrough.write(pcm);
-          if (!lastDiagLog.has(`w${chId}`) || now - lastDiagLog.get(`w${chId}`) > 5000) {
-            lastDiagLog.set(`w${chId}`, now);
-            logger.warn(`Discord relay "${label}" diag: wrote ${pcm.length}B to passThrough for channel ${chId}, write()=${ok}, player state=${player.state.status}, listeners=${player.listenerCount('stateChange')}, playStream.readable=${resource.playStream.readable}, playStream.destroyed=${resource.playStream.destroyed}, playStream.readableEnded=${resource.playStream.readableEnded}`);
-          }
-        } catch (e) { logger.warn(`Discord relay "${label}" diag: passThrough.write threw: ${e.message}`); }
-      }
+      if (pcm.length) { ensurePlaying(); try { passThrough.write(pcm); } catch (_) {} }
     }));
     const unsubscribe = () => { unsubscribes.forEach(u => { try { u(); } catch (_) {} }); selector.stop(); };
 
     setRelayActivity(entry.client, channelIds, deps);
 
-    active.set(row.id, { connection, player, passThrough, unsubscribe, botToken: row.bot_token });
+    active.set(row.id, { connection, player, unsubscribe, botToken: row.bot_token });
     logger.info(`Discord relay "${label}" connected — channel(s) ${channelIds.join(',')} -> guild ${row.guild_id}/${row.discord_channel_id}`);
 
     // Guards against connection-error, player-error, and a failed Disconnected
@@ -264,7 +245,6 @@ function stopRelay(id) {
   const entry = active.get(id);
   if (!entry) return;
   try { entry.unsubscribe(); } catch (_) {}
-  try { entry.passThrough.end(); } catch (_) {}
   try { entry.player.stop(); } catch (_) {}
   try { entry.connection.destroy(); } catch (_) {}
   active.delete(id);
