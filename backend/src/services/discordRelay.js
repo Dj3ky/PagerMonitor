@@ -170,11 +170,17 @@ async function startRelay(row, deps) {
     // TEMPORARY diagnostic — @discordjs/voice's AudioPlayer state (Idle/Buffering/Playing/
     // AutoPaused/Paused). Attached BEFORE play() specifically because play() fires its first
     // transition (idle -> buffering) synchronously — a listener added after play() misses it.
+    // Wrapped in try/catch: if this throws during a later, internally-triggered transition
+    // (the library's own dispatch loop, not our code), an uncaught exception here would
+    // otherwise crash the whole process silently from our perspective.
     player.on('stateChange', (oldS, newS) => {
-      logger.warn(`Discord relay "${label}" diag: player state ${oldS.status} -> ${newS.status}`);
+      try {
+        logger.warn(`Discord relay "${label}" diag: player state ${oldS.status} -> ${newS.status}`);
+      } catch (e) { logger.warn(`Discord relay "${label}" diag: stateChange listener itself threw: ${e.message}`); }
     });
     player.play(resource);
     connection.subscribe(player);
+    logger.warn(`Discord relay "${label}" diag: right after play() — stateChange listeners=${player.listenerCount('stateChange')}, player.state=${player.state.status}, resource.started=${resource.started}, resource.ended=${resource.ended}, playStream.readable=${resource.playStream.readable}, playStream.destroyed=${resource.playStream.destroyed}`);
 
     const audioRelay = require('./audioRelay');
     const selector = createChannelSelector(channelIds, audioRelay, (newCurrent, activeSet) => {
@@ -201,7 +207,7 @@ async function startRelay(row, deps) {
           const ok = passThrough.write(pcm);
           if (!lastDiagLog.has(`w${chId}`) || now - lastDiagLog.get(`w${chId}`) > 5000) {
             lastDiagLog.set(`w${chId}`, now);
-            logger.warn(`Discord relay "${label}" diag: wrote ${pcm.length}B to passThrough for channel ${chId}, write()=${ok}, player state=${player.state.status}`);
+            logger.warn(`Discord relay "${label}" diag: wrote ${pcm.length}B to passThrough for channel ${chId}, write()=${ok}, player state=${player.state.status}, listeners=${player.listenerCount('stateChange')}, playStream.readable=${resource.playStream.readable}, playStream.destroyed=${resource.playStream.destroyed}, playStream.readableEnded=${resource.playStream.readableEnded}`);
           }
         } catch (e) { logger.warn(`Discord relay "${label}" diag: passThrough.write threw: ${e.message}`); }
       }
