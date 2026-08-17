@@ -120,6 +120,11 @@ async function startRelay(row, deps) {
       adapterCreator: guild.voiceAdapterCreator,
       selfDeaf: true,
     });
+    // TEMPORARY diagnostic — @discordjs/voice's 'debug' event carries the real reason
+    // for state changes (e.g. why the voice websocket closes right after connecting).
+    // Remove once the "connects then drops" issue is root-caused.
+    connection.on('debug', (m) => logger.warn(`Discord relay "${label}" debug: ${m}`));
+
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
 
     const passThrough = new PassThrough();
