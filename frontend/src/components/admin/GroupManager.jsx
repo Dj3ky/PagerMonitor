@@ -361,7 +361,7 @@ export default function GroupManager({ onGroupsChange }) {
 
       <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginBottom:'0.75rem',
         padding:'0.4rem 0.6rem', background:'var(--bg-2)', borderRadius:'0.35rem', border:'1px solid var(--border)' }}>
-        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>name;color;parent_name;row_color;row_sound</span>
+        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>id;name;color;parent_name;row_color;row_sound</span> — id is exported for cross-referencing the aliases CSV's group_id column; it's ignored on import
       </div>
 
       {groups.length > 0 && (

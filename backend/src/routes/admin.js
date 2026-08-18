@@ -338,8 +338,10 @@ router.get('/groups/export', (req, res) => {
     const groups = getGroups(req.session.orgId);
     const nameById = {};
     groups.forEach(g => { nameById[g.id] = g.name; });
-    const csv = ['name;color;parent_name;row_color;row_sound',
-      ...groups.map(g => `"${(g.name||'').replace(/"/g,'""')}";"${g.color||''}";"${(g.parent_id ? nameById[g.parent_id]||'' : '').replace(/"/g,'""')}";"${g.row_color||''}";"${g.row_sound||''}"`),
+    // id is exported so it can be cross-referenced against the group_id column in the
+    // aliases CSV — it's ignored on import (groups are matched/created by name instead).
+    const csv = ['id;name;color;parent_name;row_color;row_sound',
+      ...groups.map(g => `"${g.id}";"${(g.name||'').replace(/"/g,'""')}";"${g.color||''}";"${(g.parent_id ? nameById[g.parent_id]||'' : '').replace(/"/g,'""')}";"${g.row_color||''}";"${g.row_sound||''}"`),
     ].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="groups.csv"');
