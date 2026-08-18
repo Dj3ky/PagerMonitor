@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag, Siren, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag, Siren, ShieldCheck, ShieldAlert, ChevronRight, ChevronDown } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -26,37 +26,125 @@ function useModes() {
 }
 
 // One level of group nesting (top-level "parent" groups + their children) rendered as a
-// tree of independent checkboxes. Checking a parent doesn't tick its children in the UI —
-// the backend expands a selected parent to include every message from its children at
-// match time (see groupMatchesSelection in database.js), so the hint text below explains
-// that instead of pre-selecting rows the user didn't explicitly check.
+// collapsible tree. Checking a parent selects/deselects every child with it — the backend
+// treats a selected parent as covering every child regardless of the children's own state
+// (see groupMatchesSelection in database.js), so a child left unchecked while its parent
+// stays checked would still alarm; cascading the checkbox keeps what's on screen truthful
+// about what will actually fire, and children are locked (not just visually ticked) while
+// their parent is selected so unchecking one can't silently do nothing.
 function GroupPicker({ groups, selectedIds, onChange }) {
   const { t } = useTranslation();
+  const [search, setSearch] = useState('');
   const topLevel = groups.filter(g => !g.parent_id);
   const subOf    = pid => groups.filter(g => g.parent_id === pid);
-  const toggle   = id => onChange(selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id]);
+  // Start expanded for any parent that already has an individually-selected child, so an
+  // existing selection is visible rather than hidden behind a collapsed row.
+  const [expanded, setExpanded] = useState(() => new Set(
+    topLevel.filter(g => subOf(g.id).some(c => selectedIds.includes(c.id))).map(g => g.id)
+  ));
 
-  const Row = ({ g, indent }) => (
-    <label style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.78rem', cursor:'pointer',
-      padding:'0.15rem 0.4rem', borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)',
-      marginLeft: indent ? '1.1rem' : 0 }}>
-      {indent > 0 && <span style={{ fontSize:'0.68rem', color:'var(--text-3)' }}>↳</span>}
-      <input type="checkbox" checked={selectedIds.includes(g.id)} onChange={() => toggle(g.id)} />
-      <span style={{ color: g.color }}>{g.name}</span>
-    </label>
-  );
+  const toggleExpanded = id => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const toggleParent = g => {
+    const childIds     = subOf(g.id).map(c => c.id);
+    const isSelected    = selectedIds.includes(g.id);
+    const withoutBranch = selectedIds.filter(x => x !== g.id && !childIds.includes(x));
+    onChange(isSelected ? withoutBranch : [...withoutBranch, g.id, ...childIds]);
+  };
+
+  const toggleLeaf = id => onChange(selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id]);
 
   if (!groups.length) return <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noGroupsDefined')}</span>;
+
+  const q           = search.trim().toLowerCase();
+  const nameMatches = g => g.name?.toLowerCase().includes(q);
+  // While searching, a parent stays visible if it matches or any child does, and force-expands
+  // so the match is actually shown — overriding manual collapse state without losing it.
+  const visibleTop  = q ? topLevel.filter(g => nameMatches(g) || subOf(g.id).some(nameMatches)) : topLevel;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
       <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginBottom:'0.15rem' }}>{t('userProfile.groupsIncludeChildren')}</div>
-      {topLevel.map(g => (
-        <div key={g.id} style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
-          <Row g={g} indent={0} />
-          {subOf(g.id).map(sub => <Row key={sub.id} g={sub} indent={1} />)}
-        </div>
-      ))}
+      <input className="pm-input" type="text" placeholder={t('userProfile.searchGroups')}
+        value={search} onChange={e => setSearch(e.target.value)}
+        style={{ fontSize:'0.75rem', padding:'0.3rem 0.5rem' }} />
+      {q && !visibleTop.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noSearchResults')}</span>}
+      {visibleTop.map(g => {
+        const allChildren    = subOf(g.id);
+        const children       = q && !nameMatches(g) ? allChildren.filter(nameMatches) : allChildren;
+        const parentSelected = selectedIds.includes(g.id);
+        const isExpanded     = q ? true : expanded.has(g.id);
+        return (
+          <div key={g.id} style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'0.2rem' }}>
+              {allChildren.length > 0 ? (
+                <button type="button" onClick={() => toggleExpanded(g.id)}
+                  title={isExpanded ? t('userProfile.collapse') : t('userProfile.expand')}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)',
+                    padding:'0.1rem', display:'flex', flexShrink:0 }}>
+                  {isExpanded ? <ChevronDown size={13}/> : <ChevronRight size={13}/>}
+                </button>
+              ) : <span style={{ width:'19px', flexShrink:0 }} />}
+              <label style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.78rem', cursor:'pointer',
+                padding:'0.15rem 0.4rem', borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)', flex:1 }}>
+                <input type="checkbox" checked={parentSelected} onChange={() => toggleParent(g)} />
+                <span style={{ color: g.color }}>{g.name}</span>
+                {allChildren.length > 0 && <span style={{ fontSize:'0.65rem', color:'var(--text-3)' }}>({allChildren.length})</span>}
+              </label>
+            </div>
+            {isExpanded && children.map(sub => (
+              <label key={sub.id} title={parentSelected ? t('userProfile.includedViaParent') : undefined}
+                style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.78rem',
+                  cursor: parentSelected ? 'default' : 'pointer', padding:'0.15rem 0.4rem', borderRadius:'0.3rem',
+                  border:'1px solid var(--border)', background:'var(--bg-0)', marginLeft:'1.6rem',
+                  opacity: parentSelected ? 0.6 : 1 }}>
+                <input type="checkbox" checked={parentSelected || selectedIds.includes(sub.id)}
+                  disabled={parentSelected} onChange={() => toggleLeaf(sub.id)} />
+                <span style={{ color: sub.color }}>{sub.name}</span>
+              </label>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Checkbox list of aliases with a search box filtering by name or capcode — shared by all
+// three notification tiers (email/push/alert), each of which stores its own capcode list.
+function AliasPicker({ aliases, selectedCapcodes, onChange }) {
+  const { t } = useTranslation();
+  const [search, setSearch] = useState('');
+  const toggle = capcode => onChange(selectedCapcodes.includes(capcode) ? selectedCapcodes.filter(x => x !== capcode) : [...selectedCapcodes, capcode]);
+
+  if (!aliases.length) return <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noAliasesDefined')}</span>;
+
+  const q        = search.trim().toLowerCase();
+  const filtered = q ? aliases.filter(a => a.name?.toLowerCase().includes(q) || a.capcode?.toLowerCase().includes(q)) : aliases;
+
+  return (
+    <div>
+      <input className="pm-input" type="text" placeholder={t('userProfile.searchAliases')}
+        value={search} onChange={e => setSearch(e.target.value)}
+        style={{ fontSize:'0.75rem', padding:'0.3rem 0.5rem', marginBottom:'0.35rem' }} />
+      <div style={{ maxHeight:'160px', overflowY:'auto', border:'1px solid var(--border)',
+        borderRadius:'0.4rem', padding:'0.35rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
+        {filtered.map(a => (
+          <label key={a.capcode} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
+            fontSize:'0.75rem', cursor:'pointer', padding:'0.15rem 0.4rem',
+            borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)',
+            whiteSpace:'nowrap' }}>
+            <input type="checkbox" checked={selectedCapcodes.includes(a.capcode)} onChange={() => toggle(a.capcode)} />
+            <span style={{ color: a.color || 'var(--accent-green)' }}>{a.name}</span>
+            <span style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.68rem' }}>{a.capcode}</span>
+          </label>
+        ))}
+        {!filtered.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noSearchResults')}</span>}
+      </div>
     </div>
   );
 }
@@ -243,27 +331,8 @@ export default function UserProfile({ onClose }) {
               {prefs.mode === 'aliases' && (
                 <div style={{ marginBottom:'0.75rem' }}>
                   <label className="pm-label">{t('userProfile.selectAliases')}</label>
-                  <div style={{ maxHeight:'160px', overflowY:'auto', border:'1px solid var(--border)',
-                    borderRadius:'0.4rem', padding:'0.35rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
-                    {aliases.map(a => (
-                      <label key={a.capcode} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
-                        fontSize:'0.75rem', cursor:'pointer', padding:'0.15rem 0.4rem',
-                        borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)',
-                        whiteSpace:'nowrap' }}>
-                        <input type="checkbox"
-                          checked={(prefs.capcodes || []).includes(a.capcode)}
-                          onChange={e => {
-                            const caps = e.target.checked
-                              ? [...(prefs.capcodes || []), a.capcode]
-                              : (prefs.capcodes || []).filter(x => x !== a.capcode);
-                            setPrefs(p => ({ ...p, capcodes: caps }));
-                          }} />
-                        <span style={{ color: a.color || 'var(--accent-green)' }}>{a.name}</span>
-                        <span style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.68rem' }}>{a.capcode}</span>
-                      </label>
-                    ))}
-                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noAliasesDefined')}</span>}
-                  </div>
+                  <AliasPicker aliases={aliases} selectedCapcodes={prefs.capcodes || []}
+                    onChange={caps => setPrefs(p => ({ ...p, capcodes: caps }))} />
                 </div>
               )}
 
@@ -359,27 +428,8 @@ export default function UserProfile({ onClose }) {
               {prefs.push_mode === 'aliases' && (
                 <div style={{ marginBottom:'0.75rem' }}>
                   <label className="pm-label">{t('userProfile.selectAliases')}</label>
-                  <div style={{ maxHeight:'160px', overflowY:'auto', border:'1px solid var(--border)',
-                    borderRadius:'0.4rem', padding:'0.35rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
-                    {aliases.map(a => (
-                      <label key={a.capcode} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
-                        fontSize:'0.75rem', cursor:'pointer', padding:'0.15rem 0.4rem',
-                        borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)',
-                        whiteSpace:'nowrap' }}>
-                        <input type="checkbox"
-                          checked={(prefs.push_capcodes || []).includes(a.capcode)}
-                          onChange={e => {
-                            const caps = e.target.checked
-                              ? [...(prefs.push_capcodes || []), a.capcode]
-                              : (prefs.push_capcodes || []).filter(x => x !== a.capcode);
-                            setPrefs(p => ({ ...p, push_capcodes: caps }));
-                          }} />
-                        <span style={{ color: a.color || 'var(--accent-green)' }}>{a.name}</span>
-                        <span style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.68rem' }}>{a.capcode}</span>
-                      </label>
-                    ))}
-                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noAliasesDefined')}</span>}
-                  </div>
+                  <AliasPicker aliases={aliases} selectedCapcodes={prefs.push_capcodes || []}
+                    onChange={caps => setPrefs(p => ({ ...p, push_capcodes: caps }))} />
                 </div>
               )}
 
@@ -498,27 +548,8 @@ export default function UserProfile({ onClose }) {
               {prefs.alert_mode === 'aliases' && (
                 <div style={{ marginBottom:'0.75rem' }}>
                   <label className="pm-label">{t('userProfile.selectAliases')}</label>
-                  <div style={{ maxHeight:'160px', overflowY:'auto', border:'1px solid var(--border)',
-                    borderRadius:'0.4rem', padding:'0.35rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
-                    {aliases.map(a => (
-                      <label key={a.capcode} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
-                        fontSize:'0.75rem', cursor:'pointer', padding:'0.15rem 0.4rem',
-                        borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)',
-                        whiteSpace:'nowrap' }}>
-                        <input type="checkbox"
-                          checked={(prefs.alert_capcodes || []).includes(a.capcode)}
-                          onChange={e => {
-                            const caps = e.target.checked
-                              ? [...(prefs.alert_capcodes || []), a.capcode]
-                              : (prefs.alert_capcodes || []).filter(x => x !== a.capcode);
-                            setPrefs(p => ({ ...p, alert_capcodes: caps }));
-                          }} />
-                        <span style={{ color: a.color || 'var(--accent-green)' }}>{a.name}</span>
-                        <span style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.68rem' }}>{a.capcode}</span>
-                      </label>
-                    ))}
-                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noAliasesDefined')}</span>}
-                  </div>
+                  <AliasPicker aliases={aliases} selectedCapcodes={prefs.alert_capcodes || []}
+                    onChange={caps => setPrefs(p => ({ ...p, alert_capcodes: caps }))} />
                 </div>
               )}
 
