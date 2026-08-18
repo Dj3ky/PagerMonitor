@@ -767,6 +767,19 @@ function bulkUpsertGroups(orgId, rows) {
     }
   })(rows);
 }
+// Shared by every notification/feed-filter match site: true if the message's group is
+// directly selected, OR its parent group is selected (so picking a parent/region covers
+// every group nested under it — including ones added after the filter was saved).
+// Only one level of nesting is ever created via the admin UI, so a single parent_id lookup
+// is enough; this reads the DB per call rather than caching, matching how those filters
+// already re-read their settings per message.
+function groupMatchesSelection(groupId, selectedIds) {
+  if (groupId == null || !selectedIds?.length) return false;
+  const gid = Number(groupId);
+  if (selectedIds.includes(gid)) return true;
+  const row = getDb().prepare('SELECT parent_id FROM groups WHERE id=?').get(gid);
+  return !!(row?.parent_id != null && selectedIds.includes(Number(row.parent_id)));
+}
 
 // ── Aliases ───────────────────────────────────────────────────────────────────
 // orgId's own aliases plus every global (org_id IS NULL) default alias — but not both

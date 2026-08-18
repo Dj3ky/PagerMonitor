@@ -1,4 +1,4 @@
-const { getSetting, setSetting, normCapcode } = require('./database');
+const { getSetting, setSetting, normCapcode, groupMatchesSelection } = require('./database');
 const logger = require('../utils/logger');
 
 // Org-scoped settings (feed filter, notification filter/destinations) live under a
@@ -211,7 +211,7 @@ function passesFeedFilter(msg, orgId) {
       if (!filter.capcodes.includes(msgCapcode)) return false;
     }
     else if (filter.mode === 'only_groups') {
-      if (!(msg.group_id != null && filter.group_ids.includes(Number(msg.group_id)))) return false;
+      if (!groupMatchesSelection(msg.group_id, filter.group_ids)) return false;
     }
     else if (filter.mode === 'only_aliases') {
       const hasAlias = !!(msg.alias_name || msg.alias);

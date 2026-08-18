@@ -239,6 +239,7 @@
     "noAliasesDefined": "No aliases defined",
     "selectGroups": "Select groups",
     "noGroupsDefined": "No groups defined",
+    "groupsIncludeChildren": "Selecting a top-level group also notifies for every group nested under it — including ones added later.",
     "capcodesOnePerLine": "Capcodes (one per line)",
     "keywordsOnePerLine": "Keywords (one per line)",
     "savePreferences": "Save preferences",

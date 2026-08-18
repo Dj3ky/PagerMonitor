@@ -222,7 +222,7 @@
   "userProfile": {
     "modes": {
       "all":      { "label": "Vsa sporočila", "desc": "Obveščanje za vsako dekodirano sporočilo" },
-      "groups":   { "label": "Po gasilski zvezi",    "desc": "Samo sporočila izbranih skupin" },
+      "groups":   { "label": "Po zvezi/regiji",    "desc": "Samo sporočila izbranih gasilskih zvez ali regij" },
       "aliases":  { "label": "Po enoti",    "desc": "Samo sporočila izbranih vzdevkov" },
       "capcodes": { "label": "Po RIC-u",    "desc": "Samo določeni RIC-i" },
       "keywords": { "label": "Po ključni besedi", "desc": "Samo sporočila s ključnimi besedami" }
@@ -239,6 +239,7 @@
     "noAliasesDefined": "Ni določenih vzdevkov",
     "selectGroups": "Izberi skupine",
     "noGroupsDefined": "Ni določenih skupin",
+    "groupsIncludeChildren": "Z izbiro nadrejene skupine (regije) so zajete tudi vse skupine (gasilske zveze) pod njo — tudi tiste, dodane pozneje.",
     "capcodesOnePerLine": "RICI-i (eden na vrstico)",
     "keywordsOnePerLine": "Ključne besede (ena na vrstico)",
     "savePreferences": "Shrani nastavitve",

@@ -25,6 +25,42 @@ function useModes() {
   ];
 }
 
+// One level of group nesting (top-level "parent" groups + their children) rendered as a
+// tree of independent checkboxes. Checking a parent doesn't tick its children in the UI —
+// the backend expands a selected parent to include every message from its children at
+// match time (see groupMatchesSelection in database.js), so the hint text below explains
+// that instead of pre-selecting rows the user didn't explicitly check.
+function GroupPicker({ groups, selectedIds, onChange }) {
+  const { t } = useTranslation();
+  const topLevel = groups.filter(g => !g.parent_id);
+  const subOf    = pid => groups.filter(g => g.parent_id === pid);
+  const toggle   = id => onChange(selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id]);
+
+  const Row = ({ g, indent }) => (
+    <label style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.78rem', cursor:'pointer',
+      padding:'0.15rem 0.4rem', borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)',
+      marginLeft: indent ? '1.1rem' : 0 }}>
+      {indent > 0 && <span style={{ fontSize:'0.68rem', color:'var(--text-3)' }}>↳</span>}
+      <input type="checkbox" checked={selectedIds.includes(g.id)} onChange={() => toggle(g.id)} />
+      <span style={{ color: g.color }}>{g.name}</span>
+    </label>
+  );
+
+  if (!groups.length) return <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noGroupsDefined')}</span>;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+      <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginBottom:'0.15rem' }}>{t('userProfile.groupsIncludeChildren')}</div>
+      {topLevel.map(g => (
+        <div key={g.id} style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+          <Row g={g} indent={0} />
+          {subOf(g.id).map(sub => <Row key={sub.id} g={sub} indent={1} />)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Flash({ msg }) {
   if (!msg) return null;
   const ok = msg.type === 'ok';
@@ -68,7 +104,7 @@ export default function UserProfile({ onClose }) {
     // Load current email and prefs
     api('GET', '/auth/me').then(d => setEmail(d.email || '')).catch(() => {});
     api('GET', '/auth/me/notif-prefs').then(setPrefs).catch(() => {});
-    api('GET', '/admin/groups').then(d => setGroups(Array.isArray(d) ? d.filter(g => !g.parent_id) : [])).catch(() => {});
+    api('GET', '/admin/groups').then(d => setGroups(Array.isArray(d) ? d : [])).catch(() => {});
     api('GET', '/admin/aliases').then(d => setAliases(Array.isArray(d) ? d : [])).catch(() => {});
     api('GET', '/api/push/subscriptions/count').then(d => setPushCount(d.count ?? null)).catch(() => {});
   }, []);
@@ -234,24 +270,8 @@ export default function UserProfile({ onClose }) {
               {prefs.mode === 'groups' && (
                 <div style={{ marginBottom:'0.75rem' }}>
                   <label className="pm-label">{t('userProfile.selectGroups')}</label>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem' }}>
-                    {groups.map(g => (
-                      <label key={g.id} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
-                        fontSize:'0.78rem', cursor:'pointer', padding:'0.15rem 0.4rem',
-                        borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)' }}>
-                        <input type="checkbox"
-                          checked={prefs.group_ids.includes(g.id)}
-                          onChange={e => {
-                            const ids = e.target.checked
-                              ? [...prefs.group_ids, g.id]
-                              : prefs.group_ids.filter(x => x !== g.id);
-                            setPrefs(p => ({ ...p, group_ids: ids }));
-                          }} />
-                        <span style={{ color: g.color }}>{g.name}</span>
-                      </label>
-                    ))}
-                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noGroupsDefined')}</span>}
-                  </div>
+                  <GroupPicker groups={groups} selectedIds={prefs.group_ids}
+                    onChange={ids => setPrefs(p => ({ ...p, group_ids: ids }))} />
                 </div>
               )}
 
@@ -366,24 +386,8 @@ export default function UserProfile({ onClose }) {
               {prefs.push_mode === 'groups' && (
                 <div style={{ marginBottom:'0.75rem' }}>
                   <label className="pm-label">{t('userProfile.selectGroups')}</label>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem' }}>
-                    {groups.map(g => (
-                      <label key={g.id} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
-                        fontSize:'0.78rem', cursor:'pointer', padding:'0.15rem 0.4rem',
-                        borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)' }}>
-                        <input type="checkbox"
-                          checked={(prefs.push_group_ids || []).includes(g.id)}
-                          onChange={e => {
-                            const ids = e.target.checked
-                              ? [...(prefs.push_group_ids || []), g.id]
-                              : (prefs.push_group_ids || []).filter(x => x !== g.id);
-                            setPrefs(p => ({ ...p, push_group_ids: ids }));
-                          }} />
-                        <span style={{ color: g.color }}>{g.name}</span>
-                      </label>
-                    ))}
-                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noGroupsDefined')}</span>}
-                  </div>
+                  <GroupPicker groups={groups} selectedIds={prefs.push_group_ids || []}
+                    onChange={ids => setPrefs(p => ({ ...p, push_group_ids: ids }))} />
                 </div>
               )}
 
@@ -521,24 +525,8 @@ export default function UserProfile({ onClose }) {
               {prefs.alert_mode === 'groups' && (
                 <div style={{ marginBottom:'0.75rem' }}>
                   <label className="pm-label">{t('userProfile.selectGroups')}</label>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem' }}>
-                    {groups.map(g => (
-                      <label key={g.id} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
-                        fontSize:'0.78rem', cursor:'pointer', padding:'0.15rem 0.4rem',
-                        borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)' }}>
-                        <input type="checkbox"
-                          checked={(prefs.alert_group_ids || []).includes(g.id)}
-                          onChange={e => {
-                            const ids = e.target.checked
-                              ? [...(prefs.alert_group_ids || []), g.id]
-                              : (prefs.alert_group_ids || []).filter(x => x !== g.id);
-                            setPrefs(p => ({ ...p, alert_group_ids: ids }));
-                          }} />
-                        <span style={{ color: g.color }}>{g.name}</span>
-                      </label>
-                    ))}
-                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noGroupsDefined')}</span>}
-                  </div>
+                  <GroupPicker groups={groups} selectedIds={prefs.alert_group_ids || []}
+                    onChange={ids => setPrefs(p => ({ ...p, alert_group_ids: ids }))} />
                 </div>
               )}
 
