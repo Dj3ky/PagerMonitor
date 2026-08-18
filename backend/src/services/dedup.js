@@ -18,6 +18,12 @@ const { getDedupConfig } = require('./config');
 // treated as unrelated (e.g. two distinct dispatches to the same station),
 // not retransmissions of one page.
 const SIMILARITY_THRESHOLD = 0.55;
+// Retransmission corruption on POCSAG/FLEX almost always starts clean and
+// degrades from some point onward — it doesn't scramble the beginning. So a
+// long shared prefix is treated as a retransmission match even when the
+// corrupted tail drags whole-string similarity below SIMILARITY_THRESHOLD.
+const PREFIX_MIN_LEN   = 15;
+const PREFIX_MIN_RATIO = 0.4;
 // Safety-net sweep interval for capcodes that stop sending entirely — normal
 // pruning already happens per-capcode against the configured dedup window.
 const STALE_SWEEP_MS = 300_000;
@@ -48,6 +54,22 @@ function similarity(a, b) {
   if (!a || !b) return 0;
   const maxLen = Math.max(a.length, b.length);
   return maxLen === 0 ? 1 : 1 - levenshtein(a, b) / maxLen;
+}
+
+function commonPrefixLen(a, b) {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a[i] === b[i]) i++;
+  return i;
+}
+
+// True if b looks like a retransmission of a — either the whole strings are
+// close, or they share a long clean prefix before one of them degrades.
+function looksLikeRetransmission(a, b) {
+  if (similarity(a, b) >= SIMILARITY_THRESHOLD) return true;
+  const prefixLen = commonPrefixLen(a, b);
+  const minLen = Math.min(a.length, b.length);
+  return minLen > 0 && prefixLen >= PREFIX_MIN_LEN && prefixLen / minLen >= PREFIX_MIN_RATIO;
 }
 
 // Rewards length, heavily penalizes control characters and multimon-ng's
@@ -88,7 +110,7 @@ function evaluate(capcode, message) {
   const entries = (cache.get(capcode) || []).filter(e => now - e.timestamp < windowMs);
   cache.set(capcode, entries);
 
-  const match = entries.find(e => similarity(e.message, message) >= SIMILARITY_THRESHOLD);
+  const match = entries.find(e => looksLikeRetransmission(e.message, message));
   if (!match) return { duplicate: false };
 
   return scoreText(message) > match.score
