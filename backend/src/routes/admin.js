@@ -100,6 +100,7 @@ router.put('/sdr/dongles',  platformOnly, (req, res)  => {
     saveDongleConfigs(dongles.length > 0 ? dongles : null);
     // Don't restart here — caller will restart after setting all configs
     addAuditLog(req.session?.username||'admin', 'sdr.dongles', `count=${dongles.length}`);
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
     res.json({ ok: true });
   } catch(e){ res.status(500).json({error:e.message}); }
 });
@@ -602,11 +603,18 @@ router.delete('/keyword-alerts/:id', (req,res) => {
 // channels out for its own users — see the /voice-channel-visibility routes further down,
 // which are the ones regular org admins use. ──────────────────────────────────────────────
 router.get('/voice-channels',        platformOnly, (_req,res) => { try{ res.json(getAllVoiceChannels()); } catch(e){ res.status(500).json({error:e.message}); }});
-router.put('/voice-channels',        platformOnly, (req,res) => { try{ const { id } = upsertVoiceChannel(req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/voice-channels',        platformOnly, (req,res) => {
+  try{
+    const { id } = upsertVoiceChannel(req.body);
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
+    res.json({ok:true,id});
+  } catch(e){ res.status(500).json({error:e.message}); }
+});
 router.delete('/voice-channels/:id', platformOnly, (req,res) => {
   try {
     const changes = deleteVoiceChannel(parseInt(req.params.id));
     if (!changes) return res.status(404).json({ error: 'Channel not found' });
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
     res.json({ok:true});
   } catch(e){ res.status(500).json({error:e.message}); }
 });
@@ -650,6 +658,7 @@ router.get('/voice-channel-visibility', adminOnly, (req, res) => {
 router.put('/voice-channel-visibility/:id', adminOnly, (req, res) => {
   try {
     setVoiceChannelHidden(req.session.orgId, parseInt(req.params.id), !!req.body.hidden);
+    require('../services/websocket').broadcastToOrg(req.session.orgId, { type: 'voice_channels_changed' });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -879,6 +888,7 @@ router.delete('/sdr-clients/:id', platformOnly, (req, res) => {
     const id = decodeURIComponent(req.params.id);
     resetClient(id);
     unregisterSource(id);   // clear dead-air tracking for removed client
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
     res.json({ ok: true });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -899,6 +909,7 @@ router.put('/sdr-clients/:id/config', platformOnly, (req, res) => {
       return res.status(409).json({ error: describeChannelConflicts(conflicts), conflicts });
     }
     const version = saveClientConfig(clientId, req.body);
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
     res.json({ ok: true, version });
   }
   catch (e) { res.status(500).json({ error: e.message }); }

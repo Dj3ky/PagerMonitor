@@ -72,7 +72,14 @@ export default function LiveChannels() {
   const autoListenRef = useRef(autoListen); autoListenRef.current = autoListen;
 
   useEffect(() => {
-    fetchVoiceChannels().then(r => setChannels(Array.isArray(r) ? r : [])).catch(() => {});
+    const refetch = () => fetchVoiceChannels().then(r => setChannels(Array.isArray(r) ? r : [])).catch(() => {});
+    refetch();
+    // Catalog/dongle-assignment/visibility edits happen in the admin UI, possibly from a
+    // different browser tab or user — the server tells every affected connection to refetch
+    // rather than us trying to guess what changed.
+    return subscribeWsMessages(data => {
+      if (data.type === 'voice_channels_changed' || data.type === 'ws_reconnected') refetch();
+    });
   }, []);
 
   // "Is anyone talking" indicator — independent of whether we're actually listening,
