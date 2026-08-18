@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Layers, Plus, Trash2, Pencil, X, Save } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Layers, Plus, Trash2, Pencil, X, Save, Upload, Download } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
-import { adminFetchGroups, adminSaveGroup, adminDeleteGroup } from '../../utils/api.js';
+import { adminFetchGroups, adminSaveGroup, adminDeleteGroup, adminDeleteAllGroups,
+         adminExportGroupsCsv, adminImportGroupsCsv } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -29,6 +30,8 @@ export default function GroupManager({ onGroupsChange }) {
   const [editing, setEditing] = useState(null); // group id
   const [originalIsGlobal, setOriginalIsGlobal] = useState(false); // scope at the time editing started
   const [msg, setMsg]         = useState(null);
+  const [importAsGlobal, setImportAsGlobal] = useState(false);
+  const fileRef                = useRef();
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 3500); };
 
@@ -67,6 +70,32 @@ export default function GroupManager({ onGroupsChange }) {
       reload();
       onGroupsChange?.([]);
     } catch (e) { flash('err', e.message); }
+  };
+
+  const handleExport = () => adminExportGroupsCsv().catch(e => flash('err', e.message));
+
+  const handleDeleteAll = async () => {
+    if (!confirm(`Delete all ${groups.length} groups? Aliases and subgroups in them will become ungrouped. This cannot be undone.`)) return;
+    try {
+      const r = await adminDeleteAllGroups();
+      flash('ok', `Deleted ${r.deleted} groups`);
+      reload();
+      onGroupsChange?.([]);
+    } catch (e) { flash('err', e.message); }
+  };
+
+  const handleImport = async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const r = await adminImportGroupsCsv(text, isPlatformAdmin && importAsGlobal);
+      const skipNote = r.skipped ? `, ${r.skipped} skipped (empty name)` : '';
+      flash('ok', `Imported ${r.imported ?? 0} groups${skipNote}`);
+      reload();
+      onGroupsChange?.([]);
+    } catch (e) { flash('err', e.message); }
+    e.target.value = '';
   };
 
   const GroupRow = ({ g, indent = 0 }) => {
@@ -111,9 +140,24 @@ export default function GroupManager({ onGroupsChange }) {
 
   return (
     <div style={{ maxWidth:'600px' }}>
-      <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', marginBottom:'1rem', display:'flex', alignItems:'center', gap:'0.5rem' }}>
-        <Layers size={16} style={{ color:'var(--accent-purple)' }} /> Groups
-      </h2>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.5rem' }}>
+        <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', display:'flex', alignItems:'center', gap:'0.5rem', margin:0 }}>
+          <Layers size={16} style={{ color:'var(--accent-purple)' }} /> Groups
+        </h2>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+          {isPlatformAdmin && (
+            <label style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.72rem', color:'var(--text-3)', cursor:'pointer' }}
+              title="New imports become global/shared defaults instead of belonging to your own org">
+              <input type="checkbox" checked={importAsGlobal} onChange={e => setImportAsGlobal(e.target.checked)} />
+              Import as global
+            </label>
+          )}
+          <button className="pm-btn" onClick={handleExport} style={{ fontSize:'0.75rem' }}><Download size={12} /> Export CSV</button>
+          <button className="pm-btn" onClick={() => fileRef.current?.click()} style={{ fontSize:'0.75rem' }}><Upload size={12} /> Import CSV</button>
+          {groups.length > 0 && <button className="pm-btn" onClick={handleDeleteAll} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}><Trash2 size={12} /> Delete All</button>}
+          <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={handleImport} />
+        </div>
+      </div>
       <p style={{ fontSize:'0.82rem', color:'var(--text-3)', marginBottom:'1rem' }}>
         Organise aliases into groups and subgroups. Groups appear as badges in the message feed.
       </p>
@@ -223,6 +267,11 @@ export default function GroupManager({ onGroupsChange }) {
             ? (form.is_global !== originalIsGlobal ? (form.is_global ? 'Update & make global' : 'Update & assign to my org') : 'Update group')
             : (form.is_global ? 'Create global group' : 'Create group')}
         </button>
+      </div>
+
+      <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginBottom:'0.75rem',
+        padding:'0.4rem 0.6rem', background:'var(--bg-2)', borderRadius:'0.35rem', border:'1px solid var(--border)' }}>
+        CSV format: <span style={{ color:'var(--text-2)' }}>name,color,parent_name,row_color,row_sound</span>
       </div>
 
       {/* Group list */}

@@ -9,7 +9,7 @@ const { requireAdmin, requireEditor, requirePlatformAdmin } = require('../servic
 const { startSdrPipeline, stopSdrPipeline, restartSdrPipeline, getStatus, getLogs } = require('../services/sdr');
 const { listAttachedDongles } = require('../services/rtlDevices');
 const { getDb, getStats, getMessageStats,
-        getGroups, createGroup, updateGroup, deleteGroup,
+        getGroups, createGroup, updateGroup, deleteGroup, deleteAllGroups, bulkUpsertGroups,
         getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
         getHighlightRules, upsertHighlightRule, deleteHighlightRule,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
@@ -322,6 +322,49 @@ router.delete('/groups/:id', (req, res) => {
     res.json({ ok: true });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Deletes only the caller's own org's groups — never the global library or another org's.
+router.delete('/groups', adminOnly, (req, res) => {
+  try {
+    const deleted = deleteAllGroups(req.session.orgId);
+    addAuditLog(req.session?.username||'admin', 'group.delete_all', `count=${deleted}`, req.session.orgId);
+    res.json({ ok: true, deleted });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Group CSV export
+router.get('/groups/export', (req, res) => {
+  try {
+    const groups = getGroups(req.session.orgId);
+    const nameById = {};
+    groups.forEach(g => { nameById[g.id] = g.name; });
+    const csv = ['name,color,parent_name,row_color,row_sound',
+      ...groups.map(g => `"${(g.name||'').replace(/"/g,'""')}","${g.color||''}","${(g.parent_id ? nameById[g.parent_id]||'' : '').replace(/"/g,'""')}","${g.row_color||''}","${g.row_sound||''}"`),
+    ].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="groups.csv"');
+    res.send('﻿' + csv);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Group CSV import
+router.post('/groups/import', express.text({ type: 'text/csv', limit: '1mb' }), (req, res) => {
+  try {
+    const lines = req.body.replace(/^﻿/, '').replace(/\r/g, '').split('\n').filter(Boolean);
+    const header = lines[0].toLowerCase();
+    if (!header.includes('name')) return res.status(400).json({ error: 'CSV must have name column' });
+    const cols = header.split(',').map(c => c.replace(/"/g,'').trim());
+    const rows = []; let skipped = 0;
+    for (const line of lines.slice(1)) {
+      const vals = parseCsvLine(line);
+      const row  = {};
+      cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
+      if (row.name) rows.push({ name: row.name, color: row.color||'#4ade80', parent_name: row.parent_name||null, row_color: row.row_color||null, row_sound: row.row_sound||null });
+      else skipped++;
+    }
+    bulkUpsertGroups(effectiveOrgId(req), rows);
+    res.json({ ok: true, imported: rows.length, skipped });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Aliases (admin — with group_id support; org-scoped like groups) ───────────

@@ -299,6 +299,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
               <Field label="Date/Time" v={`${fmtDate(msg.timestamp, locale)} ${fmtTime(msg.timestamp, locale, hour12)}`} mono />
               {alias       && <Field label="Alias"  v={alias} />}
               {groupName   && <Field label="Group"  v={groupName} />}
+              {msg.parent_group_name && <Field label="Parent group" v={msg.parent_group_name} />}
               {clientLabel && <Field label="Source" v={clientLabel} mono={!msg.client_name} />}
               {(geoResult || (msg.lat && msg.lng)) && (
                 <Field label="Location" mono

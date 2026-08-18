@@ -725,6 +725,48 @@ function deleteGroup(id, orgId, isPlatformAdmin) {
   const params = isPlatformAdmin ? [id] : [id, orgId];
   return getDb().prepare(sql).run(...params).changes;
 }
+// Deletes only orgId's own groups (or, when orgId is null, only global groups) — never
+// another org's. Orphans (rather than cascades) aliases/subgroups that pointed at them.
+function deleteAllGroups(orgId) {
+  const db = getDb();
+  const scopeSql    = orgId == null ? 'org_id IS NULL' : 'org_id = ?';
+  const scopeParams = orgId == null ? [] : [orgId];
+  const ids = db.prepare(`SELECT id FROM groups WHERE ${scopeSql}`).all(...scopeParams).map(r => r.id);
+  if (ids.length) {
+    const placeholders = ids.map(() => '?').join(',');
+    db.prepare(`UPDATE aliases SET group_id=NULL WHERE group_id IN (${placeholders})`).run(...ids);
+    db.prepare(`UPDATE groups SET parent_id=NULL WHERE parent_id IN (${placeholders})`).run(...ids);
+  }
+  return db.prepare(`DELETE FROM groups WHERE ${scopeSql}`).run(...scopeParams).changes;
+}
+// CSV import: matches existing groups by name within the caller's own scope (never a global
+// group when importing into an org, even if the names collide) to update in place, otherwise
+// inserts. Two passes because parent_name may reference a group defined later in the same file.
+function bulkUpsertGroups(orgId, rows) {
+  const db = getDb();
+  const scopeSql    = orgId == null ? 'org_id IS NULL' : 'org_id = ?';
+  const scopeParams = orgId == null ? [] : [orgId];
+  const nameToId = {};
+  for (const g of db.prepare(`SELECT id, name FROM groups WHERE ${scopeSql}`).all(...scopeParams)) nameToId[g.name] = g.id;
+
+  const insert    = db.prepare('INSERT INTO groups (org_id, name, color, row_color, row_sound) VALUES (?, ?, ?, ?, ?)');
+  const update    = db.prepare('UPDATE groups SET color=?, row_color=?, row_sound=? WHERE id=?');
+  const setParent = db.prepare('UPDATE groups SET parent_id=? WHERE id=?');
+
+  db.transaction(rows => {
+    for (const r of rows) {
+      const id = nameToId[r.name];
+      if (id) update.run(r.color || '#4ade80', r.row_color || null, r.row_sound || null, id);
+      else nameToId[r.name] = insert.run(orgId ?? null, r.name, r.color || '#4ade80', r.row_color || null, r.row_sound || null).lastInsertRowid;
+    }
+    for (const r of rows) {
+      if (!r.parent_name) continue;
+      const parentId = nameToId[r.parent_name];
+      const childId  = nameToId[r.name];
+      if (parentId && childId && parentId !== childId) setParent.run(parentId, childId);
+    }
+  })(rows);
+}
 
 // ── Aliases ───────────────────────────────────────────────────────────────────
 // orgId's own aliases plus every global (org_id IS NULL) default alias — but not both
@@ -1233,7 +1275,7 @@ module.exports = {
   initDb, getDb,
   ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL,
   insertMessage, getHistory, searchMessages, getMessageStats, deleteMessage,
-  getGroups, createGroup, updateGroup, deleteGroup,
+  getGroups, createGroup, updateGroup, deleteGroup, deleteAllGroups, bulkUpsertGroups,
   getAliases, upsertAlias, deleteAlias, bulkUpsertAliases, getAliasNameForCapcode,
   getSetting, setSetting,
   createOrganization, getOrganizations, getOrganization, renameOrganization, deleteOrganization,
