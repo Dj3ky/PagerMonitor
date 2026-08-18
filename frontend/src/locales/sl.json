@@ -222,7 +222,7 @@
   "userProfile": {
     "modes": {
       "all":      { "label": "Vsa sporočila", "desc": "Obveščanje za vsako dekodirano sporočilo" },
-      "groups":   { "label": "Po gasilsi zvezi",    "desc": "Samo sporočila izbranih skupin" },
+      "groups":   { "label": "Po gasilski zvezi",    "desc": "Samo sporočila izbranih skupin" },
       "aliases":  { "label": "Po enoti",    "desc": "Samo sporočila izbranih vzdevkov" },
       "capcodes": { "label": "Po RIC-u",    "desc": "Samo določeni RIC-i" },
       "keywords": { "label": "Po ključni besedi", "desc": "Samo sporočila s ključnimi besedami" }

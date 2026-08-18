@@ -338,8 +338,8 @@ router.get('/groups/export', (req, res) => {
     const groups = getGroups(req.session.orgId);
     const nameById = {};
     groups.forEach(g => { nameById[g.id] = g.name; });
-    const csv = ['name,color,parent_name,row_color,row_sound',
-      ...groups.map(g => `"${(g.name||'').replace(/"/g,'""')}","${g.color||''}","${(g.parent_id ? nameById[g.parent_id]||'' : '').replace(/"/g,'""')}","${g.row_color||''}","${g.row_sound||''}"`),
+    const csv = ['name;color;parent_name;row_color;row_sound',
+      ...groups.map(g => `"${(g.name||'').replace(/"/g,'""')}";"${g.color||''}";"${(g.parent_id ? nameById[g.parent_id]||'' : '').replace(/"/g,'""')}";"${g.row_color||''}";"${g.row_sound||''}"`),
     ].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="groups.csv"');
@@ -353,7 +353,7 @@ router.post('/groups/import', express.text({ type: 'text/csv', limit: '1mb' }), 
     const lines = req.body.replace(/^﻿/, '').replace(/\r/g, '').split('\n').filter(Boolean);
     const header = lines[0].toLowerCase();
     if (!header.includes('name')) return res.status(400).json({ error: 'CSV must have name column' });
-    const cols = header.split(',').map(c => c.replace(/"/g,'').trim());
+    const cols = header.split(';').map(c => c.replace(/"/g,'').trim());
     const rows = []; let skipped = 0;
     for (const line of lines.slice(1)) {
       const vals = parseCsvLine(line);
@@ -399,8 +399,8 @@ router.delete('/aliases/:capcode', (req, res) => {
 router.get('/aliases/export', (req, res) => {
   try {
     const aliases = getAliases(req.session.orgId);
-    const csv = ['capcode,name,color,notes,group_id',
-      ...aliases.map(a => `"${a.capcode}","${(a.name||'').replace(/"/g,'""')}","${a.color||''}","${(a.notes||'').replace(/"/g,'""')}","${a.group_id||''}"`),
+    const csv = ['capcode;name;color;notes;group_id',
+      ...aliases.map(a => `"${a.capcode}";"${(a.name||'').replace(/"/g,'""')}";"${a.color||''}";"${(a.notes||'').replace(/"/g,'""')}";"${a.group_id||''}"`),
     ].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="aliases.csv"');
@@ -414,7 +414,7 @@ router.post('/aliases/import', express.text({ type: 'text/csv', limit: '1mb' }),
     const lines = req.body.replace(/^﻿/, '').replace(/\r/g, '').split('\n').filter(Boolean);
     const header = lines[0].toLowerCase();
     if (!header.includes('capcode')) return res.status(400).json({ error: 'CSV must have capcode column' });
-    const cols = header.split(',').map(c => c.replace(/"/g,'').trim());
+    const cols = header.split(';').map(c => c.replace(/"/g,'').trim());
     const rows = []; let skipped = 0;
     for (const line of lines.slice(1)) {
       const vals = parseCsvLine(line);
@@ -446,11 +446,13 @@ router.delete('/rules/:id', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Semicolon-delimited (not comma) — Excel in European locales (e.g. Slovenian) uses ','
+// as the decimal separator, so it defaults to splitting CSV columns on ';' instead.
 function parseCsvLine(line) {
   const result = []; let cur = '', inQ = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
-    if (c === '"') { inQ = !inQ; } else if (c === ',' && !inQ) { result.push(cur); cur = ''; } else cur += c;
+    if (c === '"') { inQ = !inQ; } else if (c === ';' && !inQ) { result.push(cur); cur = ''; } else cur += c;
   }
   result.push(cur);
   return result;
