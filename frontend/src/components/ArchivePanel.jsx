@@ -170,6 +170,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
             <div style={{ display:'flex', alignItems:'center', gap:'0.5rem',
               padding:'0.28rem 0.75rem', background:'var(--bg-2)', borderBottom:'1px solid var(--border)',
               position:'sticky', top:0, zIndex:2 }}>
+              <span style={{ flexShrink:0, width:'12px' }} />
               {[t('messageFeed.dateTime'), t('messageFeed.source'), t('messageFeed.capcode'), t('messageFeed.aliasGroup'), t('messageFeed.message')].map((h, i) => (
                 <span key={h} style={{ fontFamily:'monospace', fontSize:'0.6rem', fontWeight:700,
                   textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-3)',
