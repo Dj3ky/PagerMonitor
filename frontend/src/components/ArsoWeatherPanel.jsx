@@ -9,7 +9,7 @@ const REFRESH_MS = 2 * 60 * 1000; // backend itself only refreshes every 10 min 
 const BASEMAP_STORAGE_KEY = 'pm_arso_basemap';
 const METRIC_STORAGE_KEY  = 'pm_arso_metric';
 
-const SEVERITY_LABEL = { yellow: 'Yellow', orange: 'Orange', red: 'Red' };
+const SEVERITY_LABEL = { yellow: 'Rumeno', orange: 'Oranžno', red: 'Rdeče' };
 const SEVERITY_HEX   = { yellow: '#d29922', orange: '#f0883e', red: '#f85149' };
 
 const NO_DATA_COLOR = '#888';
@@ -75,25 +75,25 @@ function contrastText(bg) {
 // Map metric definitions — value getter, marker color, and compact in-circle label.
 const METRICS = {
   temp: {
-    label: 'Temp',
+    label: 'Temp.',
     get:     st => st.tempC,
     color:   tempColor,
     display: v => `${v.toFixed(1)}°`,
   },
   precip: {
-    label: 'Precip',
+    label: 'Padavine',
     get:     st => st.precip24hMm ?? st.precipIntervalMm,
     color:   precipColor,
     display: v => `${v.toFixed(1)}`,
   },
   snow: {
-    label: 'Snow',
+    label: 'Sneg',
     get:     st => st.snowCm,
     color:   snowColor,
     display: v => `${Math.round(v)}cm`,
   },
   wind: {
-    label: 'Wind',
+    label: 'Veter',
     get:     st => st.windSpeedKmh,
     color:   windColor,
     display: v => `${Math.round(v)}`,
@@ -125,9 +125,9 @@ function fmtDateTime(iso) {
 function fmtAge(ms) {
   if (!ms) return null;
   const mins = Math.max(0, Math.round((Date.now() - ms) / 60000));
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 60) return `pred ${mins} min`;
   const hours = Math.floor(mins / 60);
-  return `${hours}h ${mins % 60}m ago`;
+  return `pred ${hours}h ${mins % 60}m`;
 }
 
 const STALE_MS = 60 * 60 * 1000; // no reading for 1h+ → flagged as stale on the map
@@ -146,7 +146,7 @@ function buildRegionPopupHtml(region, alertsForRegion) {
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.78rem;min-width:200px;color:var(--text-1)">
       <div style="font-weight:700;font-size:0.9rem">${region.areaDesc || region.region}</div>
-      ${rows || `<div style="color:var(--text-3);font-size:0.72rem;margin-top:0.3rem">No active warnings</div>`}
+      ${rows || `<div style="color:var(--text-3);font-size:0.72rem;margin-top:0.3rem">Ni aktivnih opozoril</div>`}
     </div>
   `;
 }
@@ -178,35 +178,35 @@ function buildPopupHtml(st) {
   const age = fmtAge(st.updatedMs);
   const stale = isStale(st);
   const cards = [
-    st.tempC     != null && statCard('Temperature', `${st.tempC}°C`),
-    st.humidity  != null && statCard('Humidity', `${st.humidity}%`),
-    st.windSpeedKmh != null && statCard('Wind', `${st.windSpeedKmh} km/h`),
-    st.gustKmh   != null && statCard('Gusts', `${st.gustKmh} km/h`),
+    st.tempC     != null && statCard('Temperatura', `${st.tempC}°C`),
+    st.humidity  != null && statCard('Vlažnost', `${st.humidity}%`),
+    st.windSpeedKmh != null && statCard('Veter', `${st.windSpeedKmh} km/h`),
+    st.gustKmh   != null && statCard('Sunki', `${st.gustKmh} km/h`),
   ].filter(Boolean).join('');
 
   const precip = st.precip24hMm ?? st.precipIntervalMm;
   const extraRows = [
-    ['Wind direction', st.windDirText ? `${st.windDirText}${st.windDirDeg != null ? ` (${st.windDirDeg}°)` : ''}` : '—'],
-    ['Precipitation', precip != null ? `${precip} mm` : '—'],
-    ['Pressure', st.pressureMsl != null ? `${st.pressureMsl} hPa` : '—'],
-    ['Snow depth', st.snowCm != null ? `${st.snowCm} cm` : '—'],
+    ['Smer vetra', st.windDirText ? `${st.windDirText}${st.windDirDeg != null ? ` (${st.windDirDeg}°)` : ''}` : '—'],
+    ['Padavine', precip != null ? `${precip} mm` : '—'],
+    ['Zračni tlak', st.pressureMsl != null ? `${st.pressureMsl} hPa` : '—'],
+    ['Snežna odeja', st.snowCm != null ? `${st.snowCm} cm` : '—'],
   ].map(([k, v]) => `<div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">${k}</span><span style="color:var(--text-1)">${v}</span></div>`).join('');
 
   const history = [
-    historyCard('Temperature', '°C', st.temp24h),
-    historyCard('Humidity', '%', st.humidity24h),
-    historyCard('Wind', ' km/h', st.wind24h),
+    historyCard('Temperatura', '°C', st.temp24h),
+    historyCard('Vlažnost', '%', st.humidity24h),
+    historyCard('Veter', ' km/h', st.wind24h),
   ].filter(Boolean).join('');
 
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.78rem;min-width:210px;color:var(--text-1)">
       <div style="font-weight:700;font-size:0.9rem">${st.name}${st.altitude != null ? ` <span style="font-weight:400;color:var(--text-3);font-size:0.72rem">(${st.altitude} m)</span>` : ''}</div>
       <div style="color:${stale ? 'var(--accent-red)' : 'var(--text-3)'};font-size:0.68rem;margin-bottom:0.5rem">
-        ${stale ? '⚠ Stale — ' : ''}Measured ${fmtTime(st.updated)}${age ? ` · ${age}` : ''}
+        ${stale ? '⚠ Zastarelo — ' : ''}Meritev ${fmtTime(st.updated)}${age ? ` · ${age}` : ''}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;margin-bottom:0.5rem">${cards}</div>
       <div style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.72rem;margin-bottom:0.4rem">${extraRows}</div>
-      ${history ? `<div style="font-weight:600;font-size:0.72rem;color:var(--text-2);border-top:1px solid var(--border);padding-top:0.35rem">24h history</div>${history}` : ''}
+      ${history ? `<div style="font-weight:600;font-size:0.72rem;color:var(--text-2);border-top:1px solid var(--border);padding-top:0.35rem">Zgodovina 24h</div>${history}` : ''}
     </div>
   `;
 }
@@ -225,8 +225,8 @@ function WarningsBanner({ alerts }) {
         color: SEVERITY_HEX[worst.color], fontSize: '0.8rem', fontWeight: 600,
       }}>
         <AlertTriangle size={15} />
-        {alerts.length === 1 ? worst.headline : `${alerts.length} active weather warnings — worst: ${worst.event} (${SEVERITY_LABEL[worst.color]})`}
-        <span style={{ marginLeft: 'auto', fontSize: '0.7rem', fontWeight: 400, opacity: 0.8 }}>{open ? 'hide' : 'details'}</span>
+        {alerts.length === 1 ? worst.headline : `${alerts.length} aktivnih vremenskih opozoril — najhujše: ${worst.event} (${SEVERITY_LABEL[worst.color]})`}
+        <span style={{ marginLeft: 'auto', fontSize: '0.7rem', fontWeight: 400, opacity: 0.8 }}>{open ? 'skrij' : 'podrobnosti'}</span>
       </button>
       {open && (
         <div style={{ padding: '0 0.75rem 0.6rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
@@ -242,7 +242,7 @@ function WarningsBanner({ alerts }) {
               }}>{SEVERITY_LABEL[a.color]}</span>
               <span style={{ color: 'var(--text-1)', fontWeight: 500 }}>{a.event}</span>
               <span style={{ color: 'var(--text-3)' }}>{a.areaDesc}</span>
-              <span style={{ marginLeft: 'auto', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>until {fmtExpiry(a.expires)}</span>
+              <span style={{ marginLeft: 'auto', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>do {fmtExpiry(a.expires)}</span>
             </div>
           ))}
         </div>
@@ -395,7 +395,7 @@ function ForecastStrip({ regions }) {
             flex: '0 0 auto', minWidth: '92px', padding: '0.4rem 0.5rem', borderRadius: '0.4rem',
             background: 'var(--bg-3)', border: '1px solid var(--border)', fontSize: '0.72rem', textAlign: 'center',
           }}>
-            <div style={{ fontWeight: 600, color: 'var(--text-2)' }}>{d.date?.replace(/ CEST| CET/, '') || `Day ${i + 1}`}</div>
+            <div style={{ fontWeight: 600, color: 'var(--text-2)' }}>{d.date?.replace(/ CEST| CET/, '') || `Dan ${i + 1}`}</div>
             <div style={{ color: 'var(--text-3)', margin: '0.15rem 0' }}>{d.conditionText || '—'}</div>
             <div style={{ fontWeight: 700 }}>
               {d.tMaxC != null ? `${d.tMaxC}°` : '—'} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>/ {d.tMinC != null ? `${d.tMinC}°` : '—'}</span>
@@ -451,12 +451,12 @@ export default function ArsoWeatherPanel({ visible }) {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
           <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} />
-          Loading ARSO station data…
+          Nalaganje podatkov ARSO…
         </div>
       ) : error && !current.stations.length ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--accent-red)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-          Failed to load ARSO data: {error}
+          Nalaganje podatkov ARSO ni uspelo: {error}
         </div>
       ) : (
         <>

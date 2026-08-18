@@ -17,10 +17,10 @@ function fmtWhen(iso) {
 function fmtAge(iso) {
   const ms = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(ms / 60000);
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 60) return `pred ${mins} min`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return `pred ${hours}h`;
+  return `pred ${Math.floor(hours / 24)}d`;
 }
 
 // Marker radius scales with magnitude — small tremors stay subtle, larger quakes stand out.
@@ -32,13 +32,13 @@ function radiusFor(mag) {
 function buildPopupHtml(q) {
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.78rem;min-width:200px;color:var(--text-1)">
-      <div style="font-weight:700;font-size:0.9rem">M${q.magnitude != null ? q.magnitude.toFixed(1) : '?'} — ${q.location || 'Unknown location'}</div>
+      <div style="font-weight:700;font-size:0.9rem">M${q.magnitude != null ? q.magnitude.toFixed(1) : '?'} — ${q.location || 'Neznana lokacija'}</div>
       <div style="color:var(--text-3);font-size:0.68rem;margin-bottom:0.45rem">${fmtWhen(q.time)} · ${fmtAge(q.time)}</div>
       <div style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.72rem">
-        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Depth</span><span style="color:var(--text-1)">${q.depthKm != null ? `${q.depthKm} km` : '—'}</span></div>
-        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Stations</span><span style="color:var(--text-1)">${q.stations ?? '—'}</span></div>
-        ${q.intensity ? `<div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Intensity (EMS)</span><span style="color:var(--text-1)">${q.intensity}</span></div>` : ''}
-        ${q.reportCount ? `<div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Felt reports</span><span style="color:var(--text-1)">${q.reportCount}</span></div>` : ''}
+        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Globina</span><span style="color:var(--text-1)">${q.depthKm != null ? `${q.depthKm} km` : '—'}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Postaje</span><span style="color:var(--text-1)">${q.stations ?? '—'}</span></div>
+        ${q.intensity ? `<div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Intenziteta (EMS)</span><span style="color:var(--text-1)">${q.intensity}</span></div>` : ''}
+        ${q.reportCount ? `<div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Zaznana poročila</span><span style="color:var(--text-1)">${q.reportCount}</span></div>` : ''}
       </div>
     </div>
   `;
@@ -57,7 +57,7 @@ function RecentBanner({ quakes }) {
       background: `color-mix(in srgb, ${strongest.color} 14%, transparent)`,
       color: strongest.color, fontSize: '0.8rem', fontWeight: 600,
     }}>
-      {recent.length} earthquake{recent.length > 1 ? 's' : ''} in the last 24h — strongest M{strongest.magnitude?.toFixed(1)} near {strongest.location}
+      {recent.length} {recent.length > 1 ? 'potresov' : 'potres'} v zadnjih 24h — najmočnejši M{strongest.magnitude?.toFixed(1)} blizu {strongest.location}
     </div>
   );
 }
@@ -151,12 +151,12 @@ export default function QuakePanel({ visible }) {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
           <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} />
-          Loading earthquake data…
+          Nalaganje podatkov o potresih…
         </div>
       ) : error && !data.quakes.length ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--accent-red)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-          Failed to load earthquake data: {error}
+          Nalaganje podatkov o potresih ni uspelo: {error}
         </div>
       ) : (
         <QuakeMap quakes={data.quakes} visible={visible} updatedAt={data.updatedAt} />

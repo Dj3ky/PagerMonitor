@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { usePtrScroll } from '../hooks/usePtrScroll.js';
 import { Archive, Search, X, RefreshCw, Download } from 'lucide-react';
 import MessageRow from './MessageRow.jsx';
@@ -15,6 +16,7 @@ function fmtDate(ts, locale) {
 }
 
 export default function ArchivePanel({ highlightRules = [], groups = [] }) {
+  const { t } = useTranslation();
   const { locale } = useSite();
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState([]);
@@ -97,12 +99,12 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
 
         <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', color:'var(--accent-blue)' }}>
           <Archive size={15}/>
-          <span style={{ fontFamily:'monospace', fontSize:'0.8rem', fontWeight:700 }}>Archive</span>
+          <span style={{ fontFamily:'monospace', fontSize:'0.8rem', fontWeight:700 }}>{t('archivePanel.title')}</span>
         </div>
 
         {stats && (
           <span style={{ fontFamily:'monospace', fontSize:'0.72rem', color:'var(--text-3)' }}>
-            {stats.total.toLocaleString()} messages · {fmtDate(stats.oldest, locale)} – {fmtDate(stats.newest, locale)}
+            {t('archivePanel.messageCount', { count: stats.total, formatted: stats.total.toLocaleString() })} · {fmtDate(stats.oldest, locale)} – {fmtDate(stats.newest, locale)}
           </span>
         )}
 
@@ -114,7 +116,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && search(query)}
-              placeholder="Search archive…"
+              placeholder={t('archivePanel.searchPlaceholder')}
               style={{ width:'100%', paddingLeft:'1.75rem', paddingRight:'0.5rem',
                 height:'30px', background:'var(--bg-3)', border:'1px solid var(--border)',
                 borderRadius:'0.4rem', color:'var(--text-1)', fontSize:'0.8rem',
@@ -130,7 +132,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
             </button>
           )}
           <button className="pm-btn" onClick={downloadCsv}
-            title={query ? 'Export search results as CSV' : 'Export all archive as CSV'}
+            title={query ? t('archivePanel.exportSearchCsv') : t('archivePanel.exportAllCsv')}
             style={{ flexShrink:0, height:'30px' }}>
             <Download size={12}/>
           </button>
@@ -157,7 +159,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
             justifyContent:'center', height:'100%', color:'var(--text-3)', gap:'0.5rem' }}>
             <Archive size={32} style={{ opacity:0.2 }}/>
             <p style={{ fontFamily:'monospace', fontSize:'0.85rem', margin:0 }}>
-              {stats?.total === 0 ? 'Archive is empty — no messages archived yet' : 'No results found'}
+              {stats?.total === 0 ? t('archivePanel.empty') : t('archivePanel.noResults')}
             </p>
           </div>
         )}
@@ -168,7 +170,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
             <div style={{ display:'flex', alignItems:'center', gap:'0.5rem',
               padding:'0.28rem 0.75rem', background:'var(--bg-2)', borderBottom:'1px solid var(--border)',
               position:'sticky', top:0, zIndex:2 }}>
-              {['Date / Time', 'Source', 'Capcode', 'Alias / Group', 'Message'].map((h, i) => (
+              {[t('messageFeed.dateTime'), t('messageFeed.source'), t('messageFeed.capcode'), t('messageFeed.aliasGroup'), t('messageFeed.message')].map((h, i) => (
                 <span key={h} style={{ fontFamily:'monospace', fontSize:'0.6rem', fontWeight:700,
                   textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-3)',
                   ...(i === 0 ? { flexShrink:0, minWidth:'62px', textAlign:'right' } :

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import i18n from '../i18n.js';
 
 // geocodeCountry/locale blank by default (unconfigured) — see admin.js's
 // SITE_SETTINGS_DEFAULTS for why this can't default to Slovenia anymore.
@@ -41,6 +42,12 @@ export function SiteProvider({ children }) {
       // Always mark loaded — even if the fetch failed we fall back to defaults
       .finally(() => setSettingsLoaded(true));
   }, []);
+
+  // UI language follows the site locale setting: sl-SI switches to Slovenian,
+  // everything else (including unconfigured) falls back to English.
+  useEffect(() => {
+    i18n.changeLanguage(settings.locale === 'sl-SI' ? 'sl' : 'en');
+  }, [settings.locale]);
 
   const update = (patch) => {
     setSettings(s => {

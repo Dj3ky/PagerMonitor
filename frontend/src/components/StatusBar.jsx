@@ -1,5 +1,6 @@
 import { useRef, useLayoutEffect, useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { useTranslation } from 'react-i18next';
 import { Activity, Wifi, WifiOff, Clock, HardDrive, RefreshCw, GitCommit, AlertTriangle } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
 
@@ -10,13 +11,13 @@ const isNative = Capacitor.isNativePlatform();
 // hashes) is desktop-dashboard density, not phone-glance density. The one thing
 // still worth surfacing unprompted is an actual problem — dead air, SDR down, a
 // dropped connection — so this renders nothing when everything's fine.
-function computeProblem(sdrStatus, serverStatus, wsStatus) {
+function computeProblem(sdrStatus, serverStatus, wsStatus, t) {
   if (wsStatus === 'closed' || wsStatus === 'error') {
-    return { color: 'var(--accent-red)', label: 'Disconnected — reconnecting…' };
+    return { color: 'var(--accent-red)', label: t('statusBar.disconnected') };
   }
   if (sdrStatus?.deadAir === 'alert') {
     const sources = sdrStatus.deadAirSources || [];
-    return { color: 'var(--accent-red)', label: `Dead air${sources.length ? `: ${sources.map(s => s.id).join(', ')}` : ''}` };
+    return { color: 'var(--accent-red)', label: sources.length ? t('statusBar.deadAirWithSources', { sources: sources.map(s => s.id).join(', ') }) : t('statusBar.deadAir') };
   }
   const sdrDisabled = serverStatus?.sdrDisabled ?? false;
   if (sdrDisabled) {
@@ -25,17 +26,17 @@ function computeProblem(sdrStatus, serverStatus, wsStatus) {
       const allActive = clients.every(c => c.online && c.sdrRunning !== false);
       const anyOnline = clients.some(c => c.online);
       if (!allActive) {
-        return { color: anyOnline ? 'var(--accent-amber)' : 'var(--accent-red)', label: anyOnline ? 'SDR partially offline' : 'SDR offline' };
+        return { color: anyOnline ? 'var(--accent-amber)' : 'var(--accent-red)', label: anyOnline ? t('statusBar.sdrPartiallyOffline') : t('statusBar.sdrOffline') };
       }
     }
   } else if (sdrStatus?.dongleStatuses?.length > 1) {
     const allOn = sdrStatus.dongleStatuses.every(d => d.running);
     if (!allOn) {
       const someOn = sdrStatus.dongleStatuses.some(d => d.running);
-      return { color: someOn ? 'var(--accent-amber)' : 'var(--accent-red)', label: someOn ? 'SDR partially offline' : 'SDR offline' };
+      return { color: someOn ? 'var(--accent-amber)' : 'var(--accent-red)', label: someOn ? t('statusBar.sdrPartiallyOffline') : t('statusBar.sdrOffline') };
     }
   } else if (sdrStatus && !sdrStatus.running) {
-    return { color: 'var(--accent-red)', label: 'SDR offline' };
+    return { color: 'var(--accent-red)', label: t('statusBar.sdrOffline') };
   }
   if (sdrStatus?.error) {
     return { color: 'var(--accent-red)', label: sdrStatus.error };
@@ -44,7 +45,8 @@ function computeProblem(sdrStatus, serverStatus, wsStatus) {
 }
 
 function NativeProblemBar({ sdrStatus, serverStatus, wsStatus, onNavigate }) {
-  const problem = computeProblem(sdrStatus, serverStatus, wsStatus);
+  const { t } = useTranslation();
+  const problem = computeProblem(sdrStatus, serverStatus, wsStatus, t);
   if (!problem) return null;
   return (
     <button onClick={() => onNavigate?.('sdrclients')} style={{
@@ -87,10 +89,13 @@ function SdrDot({ on, title }) {
 }
 
 function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSha, updateFlags, onNavigate }) {
+  const { t } = useTranslation();
   const { locale, hour12 } = useSite();
   const sdrRunning  = sdrStatus?.running ?? false;
   const sdrDisabled = serverStatus?.sdrDisabled ?? false;
   const total       = serverStatus?.stats?.total;
+  const sdrWord = (s) => s === 'ACTIVE' ? t('statusBar.active') : s === 'PARTIAL' ? t('statusBar.partial') : t('statusBar.offline');
+  const wsWord = { open: t('statusBar.wsOpen'), connecting: t('statusBar.wsConnecting'), closed: t('statusBar.wsClosed'), error: t('statusBar.wsError'), restarting: t('statusBar.wsRestarting') };
 
   return (
     <>
@@ -98,7 +103,7 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
         {sdrDisabled ? (() => {
           const clients = serverStatus?.sdrClients ?? [];
           if (clients.length === 0) return (
-            <span style={{ fontWeight:700, color:'var(--text-3)' }}>SDR: REMOTE</span>
+            <span style={{ fontWeight:700, color:'var(--text-3)' }}>{t('statusBar.sdrRemote')}</span>
           );
           const allActive  = clients.every(c => c.online && c.sdrRunning !== false);
           const someActive = clients.some(c => c.online && c.sdrRunning !== false);
@@ -159,7 +164,7 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
             <span title={combinedTip} style={{ fontWeight:700,
               color: allActive ? 'var(--accent-green)' : someActive || anyOnline ? 'var(--accent-amber)' : 'var(--accent-red)',
               cursor:'default' }}>
-              SDR {allActive ? 'ACTIVE' : someActive ? 'PARTIAL' : 'OFFLINE'}
+              {t('statusBar.sdrLabel', { status: sdrWord(allActive ? 'ACTIVE' : someActive ? 'PARTIAL' : 'OFFLINE') })}
             </span>
           </>);
         })() : sdrStatus?.dongleStatuses?.length > 1 ? (() => {
@@ -177,7 +182,7 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
             ))}
             <span title={combinedTip} style={{ fontWeight:700, cursor:'default',
               color: allOn ? 'var(--accent-green)' : someOn ? 'var(--accent-amber)' : 'var(--accent-red)' }}>
-              SDR {allOn ? 'ACTIVE' : someOn ? 'PARTIAL' : 'OFFLINE'}
+              {t('statusBar.sdrLabel', { status: sdrWord(allOn ? 'ACTIVE' : someOn ? 'PARTIAL' : 'OFFLINE') })}
             </span>
           </>);
         })() : (() => {
@@ -190,7 +195,7 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
             <SdrDot on={sdrRunning} title={tip} />
             <span title={tip} style={{ fontWeight:700, cursor:'default',
               color: sdrRunning ? 'var(--accent-green)' : 'var(--accent-red)' }}>
-              SDR {sdrRunning ? 'ACTIVE' : 'OFFLINE'}
+              {t('statusBar.sdrLabel', { status: sdrWord(sdrRunning ? 'ACTIVE' : 'OFFLINE') })}
             </span>
           </>);
         })()}
@@ -204,28 +209,28 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
           ? <RefreshCw size={10} style={{ color:'var(--accent-amber)' }} />
           : <WifiOff size={10} style={{ color:'var(--accent-red)' }} />}
         <span style={{ color: wsStatus === 'open' ? 'var(--accent-green)' : wsStatus === 'restarting' ? 'var(--accent-amber)' : 'var(--accent-red)' }}>
-          WS: {wsStatus.toUpperCase()}
+          {t('statusBar.wsLabel', { status: wsWord[wsStatus] || wsStatus.toUpperCase() })}
         </span>
       </span>
       <span style={{ opacity:0.3 }}>·</span>
       <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem' }}
         title={`${messageCount} live${total != null ? ` · ${total} total` : ''}`}>
         <Activity size={10} />
-        {messageCount} live
-        {total != null && <span style={{ opacity:0.6 }}>/ {total} total</span>}
+        {t('statusBar.live', { count: messageCount })}
+        {total != null && <span style={{ opacity:0.6 }}>{t('statusBar.totalSlash', { count: total })}</span>}
       </span>
       {sdrStatus?.lastMessage && <>
         <span style={{ opacity:0.3 }}>·</span>
         <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem' }}>
           <Clock size={10} />
-          Last: {fmtTime(sdrStatus.lastMessage, locale, hour12)}
+          {t('statusBar.last', { time: fmtTime(sdrStatus.lastMessage, locale, hour12) })}
         </span>
       </>}
       {sdrStatus?.restarts > 0 && <>
         <span style={{ opacity:0.3 }}>·</span>
         <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem', color:'var(--accent-amber)' }}>
           <RefreshCw size={10} />
-          {sdrStatus.restarts} restart{sdrStatus.restarts !== 1 ? 's' : ''}
+          {t('statusBar.restarts', { count: sdrStatus.restarts })}
         </span>
       </>}
       {serverStatus?.memory && <>
@@ -248,7 +253,7 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
           <span style={{ opacity:0.3 }}>·</span>
           <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem', color:'var(--accent-red)', fontWeight:700 }}
             title={tip}>
-            ⚠ DEAD AIR{suffix}
+            ⚠ {t('statusBar.deadAirBadge')}{suffix}
           </span>
         </>);
       })()}
@@ -284,15 +289,15 @@ function StatusItems({ sdrStatus, serverStatus, wsStatus, messageCount, latestSh
             <button style={btnStyle}
               title={`Server update available\nInstalled: ${serverHash?.slice(0,7)} · GitHub: ${latestSha.slice(0,7)}\nClick to go to Update page`}
               onClick={() => onNavigate?.('update')}>
-              <GitCommit size={10}/> Server update
+              <GitCommit size={10}/> {t('statusBar.serverUpdate')}
             </button>
           )}
           {serverUpdate && clientUpdate && <span style={{ opacity:0.3 }}>·</span>}
           {clientUpdate && (
             <button style={btnStyle}
-              title={`One or more clients have an update available\nClick to go to SDR Clients`}
+              title={t('statusBar.clientUpdateTooltip')}
               onClick={() => onNavigate?.('sdrclients')}>
-              <GitCommit size={10}/> Client update
+              <GitCommit size={10}/> {t('statusBar.clientUpdate')}
             </button>
           )}
         </>);

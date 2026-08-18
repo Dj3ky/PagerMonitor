@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, LocateFixed, Users, Loader } from 'lucide-react';
 import { fetchMap, saveMessageLocation, clearMessageLocation, fetchUserLocations } from '../utils/api.js';
 import { geocodeAddress, parseLocation } from '../utils/parseLocation.js';
@@ -33,6 +34,7 @@ function Flash({ msg }) {
 }
 
 export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplete, onLocationResolved, visible, resetKey, locationSharing }) {
+  const { t } = useTranslation();
   const { mapDotColor = '#00ff9d', mapMaxAgeDays = 30, geocodeCountry = '', locale, hour12 } = useSite();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -148,7 +150,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
             iconSize:[14,14], iconAnchor:[7,7],
           }),
           zIndexOffset: 1000,
-        }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem"><strong style="color:#3b82f6">You</strong><br/>${user?.username}</div>`)
+        }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem"><strong style="color:#3b82f6">${t('mapView.you')}</strong><br/>${user?.username}</div>`)
           .addTo(mapRef.current);
       }
     } else {
@@ -268,8 +270,8 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     const popup = `<div style="font-family:monospace;font-size:0.8rem;min-width:180px">
       <strong style="color:${color}">${label}</strong><br/>
       <span style="color:#888;font-size:0.7rem">${msg.capcode} · ${fmtTime(msg.timestamp, locale, hour12)}</span><br/>
-      <div style="margin-top:4px;word-break:break-word">${msg.message || '(no text)'}</div>
-      <button onclick="window.__pmDeleteLocation(${msg.id})" style="margin-top:6px;padding:2px 8px;font-size:0.7rem;font-family:monospace;cursor:pointer;border-radius:4px;border:1px solid #ff444466;background:transparent;color:#ff6666;">Delete location</button>
+      <div style="margin-top:4px;word-break:break-word">${msg.message || t('mapView.noText')}</div>
+      <button onclick="window.__pmDeleteLocation(${msg.id})" style="margin-top:6px;padding:2px 8px;font-size:0.7rem;font-family:monospace;cursor:pointer;border-radius:4px;border:1px solid #ff444466;background:transparent;color:#ff6666;">${t('mapView.deleteLocation')}</button>
     </div>`;
 
     if (markersRef.current[msg.id]) {
@@ -432,10 +434,10 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
       <div style={{ padding:'0.6rem 0.75rem', borderBottom:'1px solid var(--border)',
         fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace',
         display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.5rem' }}>
-        <span>📍 {total} location{total!==1?'s':''}</span>
+        <span>📍 {t('mapView.locationCount', { count: total })}</span>
         <div style={{ display:'flex', gap:'0.5rem' }}>
-          {geocoding && <span style={{ color:'var(--accent-amber)' }}>geocoding…</span>}
-          {loading   && <span>loading…</span>}
+          {geocoding && <span style={{ color:'var(--accent-amber)' }}>{t('mapView.geocoding')}</span>}
+          {loading   && <span>{t('mapView.loading')}</span>}
         </div>
       </div>
 
@@ -458,16 +460,16 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
               color: geoState === 'active' ? '#3b82f6' : 'var(--text-2)',
             }}>
             {geoState === 'asking'
-              ? <><Loader size={11} style={{ animation:'spin 1s linear infinite' }}/> Locating…</>
-              : <><LocateFixed size={11}/> {geoState === 'active' ? 'Sharing location' : 'Share my location'}</>}
+              ? <><Loader size={11} style={{ animation:'spin 1s linear infinite' }}/> {t('mapView.locating')}</>
+              : <><LocateFixed size={11}/> {geoState === 'active' ? t('mapView.sharingLocation') : t('mapView.shareMyLocation')}</>}
           </button>
         ) : (
-          <span style={{ fontSize:'0.68rem', color:'var(--accent-amber)', fontFamily:'monospace' }}>Location blocked</span>
+          <span style={{ fontSize:'0.68rem', color:'var(--accent-amber)', fontFamily:'monospace' }}>{t('mapView.locationBlocked')}</span>
         )}
         {isAdmin && (
           <button
             onClick={() => setShowUsers(s => !s)}
-            title="Show online users on map"
+            title={t('mapView.showUsersTitle')}
             style={{
               display:'flex', alignItems:'center', gap:'0.3rem',
               padding:'0.22rem 0.5rem', borderRadius:'0.35rem', fontSize:'0.72rem',
@@ -480,7 +482,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
                 : 'var(--bg-3)',
               color: showUsers ? 'var(--accent-amber)' : 'var(--text-2)',
             }}>
-            <Users size={11}/> Users
+            <Users size={11}/> {t('mapView.users')}
           </button>
         )}
       </div>
@@ -500,7 +502,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
             borderRadius:'0.3rem', colorScheme:'dark' }} />
         {(dateFrom || dateTo) && (
           <button onClick={() => { setDateFrom(''); setDateTo(''); }}
-            title="Reset to default range"
+            title={t('mapView.resetRange')}
             style={{ flexShrink:0, fontSize:'0.7rem', padding:'0.2rem 0.4rem', borderRadius:'0.3rem',
               background:'transparent', border:'1px solid var(--border)', color:'var(--text-2)',
               cursor:'pointer', fontFamily:'monospace', lineHeight:1 }}>×</button>
@@ -509,19 +511,19 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
       <div style={{ padding:'0.2rem 0.5rem 0.3rem', fontSize:'0.65rem', color:'var(--text-3)',
         fontFamily:'monospace', borderBottom:'1px solid var(--border)' }}>
         {dateFrom && dateTo
-          ? 'Date range: up to 5000 pins'
-          : 'Default view: up to 2000 pins · use dates for more'}
+          ? t('mapView.rangeUpTo5000')
+          : t('mapView.defaultUpTo2000')}
       </div>
       <div style={{ flex:1, overflowY:'auto' }}>
         {mapMessages.length === 0 && !loading ? (
           <div style={{ padding:'1.5rem 1rem', color:'var(--text-3)', fontSize:'0.8rem',
             fontFamily:'monospace', textAlign:'center', lineHeight:1.7 }}>
-            No messages with coordinates yet.<br/>
-            Messages containing<br/>
+            {t('mapView.noneYet')}<br/>
+            {t('mapView.messagesContaining')}<br/>
             <code style={{ color:'var(--accent-amber)' }}>46.0569,14.5058</code><br/>
-            or addresses like<br/>
+            {t('mapView.orAddressesLike')}<br/>
             <code style={{ color:'var(--accent-amber)' }}>Dunajska cesta 5</code><br/>
-            will appear here.
+            {t('mapView.willAppearHere')}
           </div>
         ) : mapMessages.map(msg => (
           <div key={msg.id} onClick={() => flyTo(msg)} style={{
@@ -540,7 +542,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
             </div>
             <div style={{ fontFamily:'monospace', fontSize:'0.78rem', color:'var(--text-1)',
               overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-              {msg.message || '(no text)'}
+              {msg.message || t('mapView.noText')}
             </div>
             <div style={{ fontFamily:'monospace', fontSize:'0.65rem', color:'var(--text-3)', marginTop:'0.15rem' }}>
               {msg.lat?.toFixed(6)}, {msg.lng?.toFixed(6)}
@@ -573,13 +575,13 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
             border:'1px solid var(--border)', borderRadius:'0.5rem',
             padding:'0.25rem', boxShadow:'0 2px 8px rgba(0,0,0,0.3)' }}>
             {[
-              { id:'markers', label:'📍',   title:'Individual markers' },
+              { id:'markers', label:'📍',   title:t('mapView.individualMarkers') },
               { id:'cluster', label:<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
                   <circle cx="9.5" cy="9.5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
                   <circle cx="4" cy="10" r="2" fill="currentColor" opacity="0.4"/>
-                </svg>, title:'Clustered markers', disabled: !window.L?.markerClusterGroup },
-              { id:'heat',    label:'🌡',   title:'Heatmap density',   disabled: !window.L?.heatLayer },
+                </svg>, title:t('mapView.clusteredMarkers'), disabled: !window.L?.markerClusterGroup },
+              { id:'heat',    label:'🌡',   title:t('mapView.heatmapDensity'),   disabled: !window.L?.heatLayer },
             ].map(({ id, label, title, disabled }) => (
               <button key={id} onClick={() => !disabled && setLayerMode(id)} title={title}
                 disabled={disabled}
@@ -608,7 +610,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
               fontSize:'0.75rem', fontFamily:'monospace', boxShadow:'0 2px 8px rgba(0,0,0,0.3)',
               alignItems:'center', gap:'0.35rem' }}>
             {sidebarOpen ? <ChevronLeft size={14}/> : <ChevronRight size={14}/>}
-            {sidebarOpen ? 'Hide list' : `📍 ${total}`}
+            {sidebarOpen ? t('mapView.hideList') : `📍 ${total}`}
           </button>
         </div>
 

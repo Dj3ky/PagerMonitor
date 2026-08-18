@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag, Siren, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -13,13 +14,16 @@ const api  = (m, p, b) => fetch(`${BASE}${p}`, {
   body: b ? JSON.stringify(b) : undefined,
 }).then(r => r.json());
 
-const MODES = [
-  { id:'all',      label:'All messages',    desc:'Get notified for every decoded message' },
-  { id:'groups',   label:'By group',        desc:'Only messages from selected groups' },
-  { id:'aliases',  label:'By alias',        desc:'Only messages from selected aliases' },
-  { id:'capcodes', label:'By capcode',      desc:'Only specific capcodes' },
-  { id:'keywords', label:'By keyword',      desc:'Only messages containing keywords' },
-];
+function useModes() {
+  const { t } = useTranslation();
+  return [
+    { id:'all',      label:t('userProfile.modes.all.label'),      desc:t('userProfile.modes.all.desc') },
+    { id:'groups',   label:t('userProfile.modes.groups.label'),   desc:t('userProfile.modes.groups.desc') },
+    { id:'aliases',  label:t('userProfile.modes.aliases.label'),  desc:t('userProfile.modes.aliases.desc') },
+    { id:'capcodes', label:t('userProfile.modes.capcodes.label'), desc:t('userProfile.modes.capcodes.desc') },
+    { id:'keywords', label:t('userProfile.modes.keywords.label'), desc:t('userProfile.modes.keywords.desc') },
+  ];
+}
 
 function Flash({ msg }) {
   if (!msg) return null;
@@ -32,6 +36,8 @@ function Flash({ msg }) {
 }
 
 export default function UserProfile({ onClose }) {
+  const { t } = useTranslation();
+  const MODES = useModes();
   const { user } = useAuth();
   const [email, setEmail]   = useState('');
   const [prefs, setPrefs]   = useState({
@@ -79,7 +85,7 @@ export default function UserProfile({ onClose }) {
 
   const saveEmail = async () => {
     setSaving(true);
-    try { await api('PUT', '/auth/me/email', { email }); flashEmail('ok', 'Email saved'); }
+    try { await api('PUT', '/auth/me/email', { email }); flashEmail('ok', t('userProfile.emailSaved')); }
     catch (e) { flashEmail('err', e.message); }
     finally { setSaving(false); }
   };
@@ -89,21 +95,21 @@ export default function UserProfile({ onClose }) {
     try {
       await api('PUT', '/auth/me/notif-prefs', prefs);
       window.dispatchEvent(new CustomEvent('pm:notif-prefs-updated', { detail: { alias_color_from_group: !!prefs.alias_color_from_group } }));
-      flashPref('ok', 'Preferences saved');
+      flashPref('ok', t('userProfile.preferencesSaved'));
     }
     catch (e) { flashPref('err', e.message); }
     finally { setSaving(false); }
   };
 
   const changePassword = async () => {
-    if (!pw.current) return flashPw('err', 'Enter current password');
-    if (pw.next.length < 6) return flashPw('err', 'New password must be at least 6 characters');
-    if (pw.next !== pw.confirm) return flashPw('err', 'Passwords do not match');
+    if (!pw.current) return flashPw('err', t('userProfile.enterCurrentPassword'));
+    if (pw.next.length < 6) return flashPw('err', t('userProfile.newPasswordTooShort'));
+    if (pw.next !== pw.confirm) return flashPw('err', t('userProfile.passwordsMismatch'));
     setPwSaving(true);
     try {
       const r = await api('POST', '/auth/change-password', { current: pw.current, next: pw.next });
-      if (r.ok) { flashPw('ok', 'Password changed'); setPw({ current:'', next:'', confirm:'' }); }
-      else flashPw('err', r.error || 'Failed');
+      if (r.ok) { flashPw('ok', t('userProfile.passwordChanged')); setPw({ current:'', next:'', confirm:'' }); }
+      else flashPw('err', r.error || t('userProfile.failed'));
     } catch (e) { flashPw('err', e.message); }
     finally { setPwSaving(false); }
   };
@@ -120,10 +126,10 @@ export default function UserProfile({ onClose }) {
       if (r.ok) {
         // Refresh subscription count (stale endpoints get pruned during the test send)
         api('GET', '/api/push/subscriptions/count').then(d => setPushCount(d.count ?? null)).catch(() => {});
-        if (r.sent === 0) flashTest('err', 'No active subscriptions found — re-enable push on your devices');
-        else flashTest('ok', `Test sent to ${r.sent} device${r.sent === 1 ? '' : 's'} — did you get it on all of them?`);
+        if (r.sent === 0) flashTest('err', t('userProfile.noActiveSubscriptions'));
+        else flashTest('ok', t('userProfile.testSentToDevices', { count: r.sent }));
       } else {
-        flashTest('err', r.error || 'Failed to send');
+        flashTest('err', r.error || t('userProfile.failedToSend'));
       }
     } catch (e) { flashTest('err', e.message); }
     finally { setTesting(false); }
@@ -142,7 +148,7 @@ export default function UserProfile({ onClose }) {
           <div style={{ flex:1 }}>
             <div style={{ fontWeight:700, color:'var(--text-1)' }}>{user?.username}</div>
             <div style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>
-              {user?.role}{user?.orgName ? ` · ${user.orgName}` : ''}{user?.isPlatformAdmin ? ' · platform admin' : ''}
+              {user?.role}{user?.orgName ? ` · ${user.orgName}` : ''}{user?.isPlatformAdmin ? ` · ${t('userProfile.platformAdmin')}` : ''}
             </div>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer',
@@ -153,9 +159,9 @@ export default function UserProfile({ onClose }) {
 
           {/* Email */}
           <div className="pm-card">
-            <div className="pm-section-title"><Mail size={13}/> Email address</div>
+            <div className="pm-section-title"><Mail size={13}/> {t('userProfile.emailAddress')}</div>
             <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.6rem', lineHeight:1.5 }}>
-              Used for message notifications and password reset.
+              {t('userProfile.emailHint')}
             </p>
             <input className="pm-input" type="email" value={email}
               onChange={e => setEmail(e.target.value)} placeholder="you@example.com"
@@ -163,26 +169,26 @@ export default function UserProfile({ onClose }) {
             <Flash msg={emailMsg} />
             <button className="pm-btn pm-btn-primary" onClick={saveEmail} disabled={saving}
               style={{ marginTop:'0.5rem' }}>
-              <Save size={13}/> Save email
+              <Save size={13}/> {t('userProfile.saveEmail')}
             </button>
           </div>
 
 	          {/* Notification prefs */}
           <div className="pm-card">
-            <div className="pm-section-title"><Bell size={13}/> Email notification preferences</div>
+            <div className="pm-section-title"><Bell size={13}/> {t('userProfile.emailNotifPrefs')}</div>
             <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
-              Requires email address above and SMTP configured by admin.
+              {t('userProfile.emailNotifHint')}
             </p>
 
             <label style={{ display:'flex', alignItems:'center', gap:'0.5rem',
               fontSize:'0.85rem', cursor:'pointer', marginBottom:'0.75rem' }}>
               <input type="checkbox" checked={prefs.enabled}
                 onChange={e => setPrefs(p => ({ ...p, enabled: e.target.checked }))} />
-              Enable email notifications
+              {t('userProfile.enableEmailNotifs')}
             </label>
 
             <div style={{ opacity: prefs.enabled ? 1 : 0.45, transition:'opacity 0.2s' }}>
-              <label className="pm-label">Notify for</label>
+              <label className="pm-label">{t('userProfile.notifyFor')}</label>
               <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem', marginBottom:'0.75rem' }}>
                 {MODES.map(m => (
                   <button key={m.id} onClick={() => setPrefs(p => ({ ...p, mode: m.id }))}
@@ -200,7 +206,7 @@ export default function UserProfile({ onClose }) {
 
               {prefs.mode === 'aliases' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Select aliases</label>
+                  <label className="pm-label">{t('userProfile.selectAliases')}</label>
                   <div style={{ maxHeight:'160px', overflowY:'auto', border:'1px solid var(--border)',
                     borderRadius:'0.4rem', padding:'0.35rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
                     {aliases.map(a => (
@@ -220,14 +226,14 @@ export default function UserProfile({ onClose }) {
                         <span style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.68rem' }}>{a.capcode}</span>
                       </label>
                     ))}
-                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No aliases defined</span>}
+                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noAliasesDefined')}</span>}
                   </div>
                 </div>
               )}
 
               {prefs.mode === 'groups' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Select groups</label>
+                  <label className="pm-label">{t('userProfile.selectGroups')}</label>
                   <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem' }}>
                     {groups.map(g => (
                       <label key={g.id} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
@@ -244,14 +250,14 @@ export default function UserProfile({ onClose }) {
                         <span style={{ color: g.color }}>{g.name}</span>
                       </label>
                     ))}
-                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No groups defined</span>}
+                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noGroupsDefined')}</span>}
                   </div>
                 </div>
               )}
 
               {prefs.mode === 'capcodes' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Capcodes (one per line)</label>
+                  <label className="pm-label">{t('userProfile.capcodesOnePerLine')}</label>
                   <textarea className="pm-input" rows={3}
                     value={prefs.capcodes.join('\n')}
                     onChange={e => setListField('capcodes', e.target.value)}
@@ -262,7 +268,7 @@ export default function UserProfile({ onClose }) {
 
               {prefs.mode === 'keywords' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Keywords (one per line)</label>
+                  <label className="pm-label">{t('userProfile.keywordsOnePerLine')}</label>
                   <textarea className="pm-input" rows={3}
                     value={prefs.keywords.join('\n')}
                     onChange={e => setListField('keywords', e.target.value)}
@@ -275,16 +281,15 @@ export default function UserProfile({ onClose }) {
             <Flash msg={prefMsg} />
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.25rem' }}>
-              <Save size={13}/> Save preferences
+              <Save size={13}/> {t('userProfile.savePreferences')}
             </button>
           </div>
 
           {/* Push notification prefs */}
           <div className="pm-card">
-            <div className="pm-section-title"><Smartphone size={13}/> Push notification preferences</div>
+            <div className="pm-section-title"><Smartphone size={13}/> {t('userProfile.pushNotifPrefs')}</div>
             <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
-              Controls which messages send a push notification to your browser or installed PWA.
-              Requires the bell icon to be enabled.
+              {t('userProfile.pushNotifHint')}
             </p>
 
             {/* Device subscription status + test button */}
@@ -293,15 +298,15 @@ export default function UserProfile({ onClose }) {
               border:'1px solid var(--border)', flexWrap:'wrap' }}>
               <Smartphone size={12} style={{ color: pushCount > 0 ? 'var(--accent-green)' : 'var(--text-3)' }} />
               <span style={{ fontSize:'0.75rem', color:'var(--text-2)', flex:1 }}>
-                {pushCount === null ? 'Checking…'
-                  : pushCount === 0 ? 'No devices subscribed — enable push via the 🔔 bell in the header'
-                  : `${pushCount} device${pushCount === 1 ? '' : 's'} subscribed`}
+                {pushCount === null ? t('userProfile.checking')
+                  : pushCount === 0 ? t('userProfile.noDevicesSubscribed')
+                  : t('userProfile.devicesSubscribed', { count: pushCount })}
               </span>
               {pushCount > 0 && (
                 <button className="pm-btn" onClick={sendTestPush} disabled={testing}
-                  title="Send a test push to all your subscribed devices"
+                  title={t('userProfile.sendTestPushTitle')}
                   style={{ fontSize:'0.72rem', padding:'0.15rem 0.45rem' }}>
-                  <Send size={11}/> {testing ? 'Sending…' : 'Test push'}
+                  <Send size={11}/> {testing ? t('userProfile.sending') : t('userProfile.testPush')}
                 </button>
               )}
             </div>
@@ -311,11 +316,11 @@ export default function UserProfile({ onClose }) {
               fontSize:'0.85rem', cursor:'pointer', marginBottom:'0.75rem' }}>
               <input type="checkbox" checked={prefs.push_enabled}
                 onChange={e => setPrefs(p => ({ ...p, push_enabled: e.target.checked }))} />
-              Enable push notifications
+              {t('userProfile.enablePushNotifs')}
             </label>
 
             <div style={{ opacity: prefs.push_enabled ? 1 : 0.45, transition:'opacity 0.2s' }}>
-              <label className="pm-label">Notify for</label>
+              <label className="pm-label">{t('userProfile.notifyFor')}</label>
               <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem', marginBottom:'0.75rem' }}>
                 {MODES.map(m => (
                   <button key={m.id} onClick={() => setPrefs(p => ({ ...p, push_mode: m.id }))}
@@ -333,7 +338,7 @@ export default function UserProfile({ onClose }) {
 
               {prefs.push_mode === 'aliases' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Select aliases</label>
+                  <label className="pm-label">{t('userProfile.selectAliases')}</label>
                   <div style={{ maxHeight:'160px', overflowY:'auto', border:'1px solid var(--border)',
                     borderRadius:'0.4rem', padding:'0.35rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
                     {aliases.map(a => (
@@ -353,14 +358,14 @@ export default function UserProfile({ onClose }) {
                         <span style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.68rem' }}>{a.capcode}</span>
                       </label>
                     ))}
-                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No aliases defined</span>}
+                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noAliasesDefined')}</span>}
                   </div>
                 </div>
               )}
 
               {prefs.push_mode === 'groups' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Select groups</label>
+                  <label className="pm-label">{t('userProfile.selectGroups')}</label>
                   <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem' }}>
                     {groups.map(g => (
                       <label key={g.id} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
@@ -377,14 +382,14 @@ export default function UserProfile({ onClose }) {
                         <span style={{ color: g.color }}>{g.name}</span>
                       </label>
                     ))}
-                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No groups defined</span>}
+                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noGroupsDefined')}</span>}
                   </div>
                 </div>
               )}
 
               {prefs.push_mode === 'capcodes' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Capcodes (one per line)</label>
+                  <label className="pm-label">{t('userProfile.capcodesOnePerLine')}</label>
                   <textarea className="pm-input" rows={3}
                     value={(prefs.push_capcodes || []).join('\n')}
                     onChange={e => setListField('push_capcodes', e.target.value)}
@@ -395,7 +400,7 @@ export default function UserProfile({ onClose }) {
 
               {prefs.push_mode === 'keywords' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Keywords (one per line)</label>
+                  <label className="pm-label">{t('userProfile.keywordsOnePerLine')}</label>
                   <textarea className="pm-input" rows={3}
                     value={(prefs.push_keywords || []).join('\n')}
                     onChange={e => setListField('push_keywords', e.target.value)}
@@ -407,27 +412,27 @@ export default function UserProfile({ onClose }) {
 
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.25rem' }}>
-              <Save size={13}/> Save preferences
+              <Save size={13}/> {t('userProfile.savePreferences')}
             </button>
           </div>
 
           {/* Alias creation prefs */}
           <div className="pm-card">
-            <div className="pm-section-title"><Tag size={13}/> Alias creation</div>
+            <div className="pm-section-title"><Tag size={13}/> {t('userProfile.aliasCreation')}</div>
             <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
-              Controls how the alias form behaves when you create a new alias in the admin area.
+              {t('userProfile.aliasCreationHint')}
             </p>
 
             <label style={{ display:'flex', alignItems:'flex-start', gap:'0.5rem',
               fontSize:'0.82rem', cursor:'pointer', color:'var(--text-1)', lineHeight:1.45 }}>
               <input type="checkbox" checked={!!prefs.alias_color_from_group}
                 onChange={e => setPrefs(p => ({ ...p, alias_color_from_group: e.target.checked }))} />
-              <span>Automatically use the selected group's colour and keep it in sync while the group changes.</span>
+              <span>{t('userProfile.aliasColorSync')}</span>
             </label>
 
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.75rem' }}>
-              <Save size={13}/> Save preferences
+              <Save size={13}/> {t('userProfile.savePreferences')}
             </button>
           </div>
 
@@ -436,11 +441,9 @@ export default function UserProfile({ onClose }) {
               rather than reusing the push filter above (e.g. every message vs just the
               ones you'd want to be woken up for). */}
           <div className="pm-card">
-            <div className="pm-section-title"><Siren size={13}/> Alert notification preferences</div>
+            <div className="pm-section-title"><Siren size={13}/> {t('userProfile.alertNotifPrefs')}</div>
             <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.75rem', lineHeight:1.5 }}>
-              A separate, higher-priority tier that can break through silent mode/Do Not Disturb —
-              Android app only. Pick only what's urgent enough to wake you up; everything else still
-              reaches you through the regular push notifications above.
+              {t('userProfile.alertNotifHint')}
             </p>
 
             {isNative && (
@@ -451,14 +454,14 @@ export default function UserProfile({ onClose }) {
                   ? <ShieldCheck size={12} style={{ color:'var(--accent-green)' }} />
                   : <ShieldAlert size={12} style={{ color:'var(--accent-red)' }} />}
                 <span style={{ fontSize:'0.75rem', color:'var(--text-2)', flex:1 }}>
-                  {dndGranted === null ? 'Checking…'
-                    : dndGranted ? 'Do Not Disturb access granted — alerts can break through silent mode'
-                    : 'Do Not Disturb access not granted — alerts will use the regular volume/silent rules until you allow it'}
+                  {dndGranted === null ? t('userProfile.checking')
+                    : dndGranted ? t('userProfile.dndGranted')
+                    : t('userProfile.dndNotGranted')}
                 </span>
                 {dndGranted === false && (
                   <button className="pm-btn" onClick={() => AlertChannel.requestDndAccess()}
                     style={{ fontSize:'0.72rem', padding:'0.15rem 0.45rem' }}>
-                    Grant access
+                    {t('userProfile.grantAccess')}
                   </button>
                 )}
               </div>
@@ -468,11 +471,11 @@ export default function UserProfile({ onClose }) {
               fontSize:'0.85rem', cursor:'pointer', marginBottom:'0.75rem' }}>
               <input type="checkbox" checked={prefs.alert_enabled}
                 onChange={e => setPrefs(p => ({ ...p, alert_enabled: e.target.checked }))} />
-              Enable alert notifications
+              {t('userProfile.enableAlertNotifs')}
             </label>
 
             <div style={{ opacity: prefs.alert_enabled ? 1 : 0.45, transition:'opacity 0.2s' }}>
-              <label className="pm-label">Notify for</label>
+              <label className="pm-label">{t('userProfile.notifyFor')}</label>
               <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem', marginBottom:'0.75rem' }}>
                 {MODES.map(m => (
                   <button key={m.id} onClick={() => setPrefs(p => ({ ...p, alert_mode: m.id }))}
@@ -490,7 +493,7 @@ export default function UserProfile({ onClose }) {
 
               {prefs.alert_mode === 'aliases' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Select aliases</label>
+                  <label className="pm-label">{t('userProfile.selectAliases')}</label>
                   <div style={{ maxHeight:'160px', overflowY:'auto', border:'1px solid var(--border)',
                     borderRadius:'0.4rem', padding:'0.35rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
                     {aliases.map(a => (
@@ -510,14 +513,14 @@ export default function UserProfile({ onClose }) {
                         <span style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.68rem' }}>{a.capcode}</span>
                       </label>
                     ))}
-                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No aliases defined</span>}
+                    {!aliases.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noAliasesDefined')}</span>}
                   </div>
                 </div>
               )}
 
               {prefs.alert_mode === 'groups' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Select groups</label>
+                  <label className="pm-label">{t('userProfile.selectGroups')}</label>
                   <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem' }}>
                     {groups.map(g => (
                       <label key={g.id} style={{ display:'flex', alignItems:'center', gap:'0.3rem',
@@ -534,14 +537,14 @@ export default function UserProfile({ onClose }) {
                         <span style={{ color: g.color }}>{g.name}</span>
                       </label>
                     ))}
-                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No groups defined</span>}
+                    {!groups.length && <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>{t('userProfile.noGroupsDefined')}</span>}
                   </div>
                 </div>
               )}
 
               {prefs.alert_mode === 'capcodes' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Capcodes (one per line)</label>
+                  <label className="pm-label">{t('userProfile.capcodesOnePerLine')}</label>
                   <textarea className="pm-input" rows={3}
                     value={(prefs.alert_capcodes || []).join('\n')}
                     onChange={e => setListField('alert_capcodes', e.target.value)}
@@ -552,7 +555,7 @@ export default function UserProfile({ onClose }) {
 
               {prefs.alert_mode === 'keywords' && (
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pm-label">Keywords (one per line)</label>
+                  <label className="pm-label">{t('userProfile.keywordsOnePerLine')}</label>
                   <textarea className="pm-input" rows={3}
                     value={(prefs.alert_keywords || []).join('\n')}
                     onChange={e => setListField('alert_keywords', e.target.value)}
@@ -564,18 +567,18 @@ export default function UserProfile({ onClose }) {
 
             <button className="pm-btn pm-btn-primary" onClick={savePrefs} disabled={saving}
               style={{ marginTop:'0.25rem' }}>
-              <Save size={13}/> Save preferences
+              <Save size={13}/> {t('userProfile.savePreferences')}
             </button>
           </div>
 
           {/* Change password */}
           <div className="pm-card">
-            <div className="pm-section-title"><Lock size={13}/> Change password</div>
+            <div className="pm-section-title"><Lock size={13}/> {t('userProfile.changePassword')}</div>
             <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
               {[
-                { label:'Current password', key:'current' },
-                { label:'New password',     key:'next'    },
-                { label:'Confirm new',      key:'confirm' },
+                { label:t('userProfile.currentPassword'), key:'current' },
+                { label:t('userProfile.newPassword'),     key:'next'    },
+                { label:t('userProfile.confirmNew'),      key:'confirm' },
               ].map(f => (
                 <div key={f.key}>
                   <label className="pm-label">{f.label}</label>
@@ -587,7 +590,7 @@ export default function UserProfile({ onClose }) {
             <Flash msg={pwMsg} />
             <button className="pm-btn pm-btn-primary" onClick={changePassword} disabled={pwSaving}
               style={{ marginTop:'0.5rem' }}>
-              <Lock size={13}/> {pwSaving ? 'Saving…' : 'Change password'}
+              <Lock size={13}/> {pwSaving ? t('userProfile.saving') : t('userProfile.changePassword')}
             </button>
           </div>
 

@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { LogIn, UserPlus, Eye, EyeOff, Radio } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSite } from '../context/SiteContext.jsx';
 
 export default function LoginPage({ onCancel }) {
+  const { t } = useTranslation();
   const { login, needsSetup, setNeedsSetup } = useAuth();
   const { siteName, siteDescription }        = useSite();
   const isSetup = needsSetup;
@@ -34,7 +36,7 @@ export default function LoginPage({ onCancel }) {
         body: JSON.stringify({ username: forgotUser }),
       });
       setForgotSent(true);
-    } catch { setForgotMsg('Failed to send. Check server connection.'); }
+    } catch { setForgotMsg(t('loginPage.forgotFailed')); }
   };
 
   if (showForgot) return (
@@ -42,36 +44,36 @@ export default function LoginPage({ onCancel }) {
       background:'var(--bg-0)', padding:'1rem' }}>
       <div style={{ width:'100%', maxWidth:'360px' }}>
         <div style={{ textAlign:'center', marginBottom:'1.5rem' }}>
-          <div style={{ fontSize:'1.3rem', fontWeight:700, color:'var(--text-1)' }}>Reset password</div>
+          <div style={{ fontSize:'1.3rem', fontWeight:700, color:'var(--text-1)' }}>{t('loginPage.resetPassword')}</div>
           <div style={{ fontSize:'0.82rem', color:'var(--text-3)', marginTop:'0.25rem' }}>
-            Enter your username — we'll email you a reset link.
+            {t('loginPage.resetPasswordHint')}
           </div>
         </div>
         {forgotSent ? (
           <div style={{ textAlign:'center', color:'var(--accent-green)', fontSize:'0.9rem', lineHeight:1.6 }}>
-            ✓ If this account has an email, a reset link has been sent.<br/>
+            ✓ {t('loginPage.resetLinkSent')}<br/>
             <button onClick={() => setShowForgot(false)}
               style={{ marginTop:'1rem', background:'none', border:'none', cursor:'pointer',
                 color:'var(--text-3)', textDecoration:'underline', fontSize:'0.82rem' }}>
-              ← Back to login
+              ← {t('loginPage.backToLogin')}
             </button>
           </div>
         ) : (
           <>
             <input className="pm-input" value={forgotUser} onChange={e => setForgotUser(e.target.value)}
-              placeholder="Username" style={{ width:'100%', marginBottom:'0.5rem', boxSizing:'border-box' }}
+              placeholder={t('loginPage.username')} style={{ width:'100%', marginBottom:'0.5rem', boxSizing:'border-box' }}
               onKeyDown={e => e.key === 'Enter' && sendForgot()} />
             {forgotMsg && <div style={{ color:'var(--accent-red)', fontSize:'0.78rem', marginBottom:'0.5rem' }}>{forgotMsg}</div>}
             <button onClick={sendForgot} style={{ width:'100%', padding:'0.6rem', borderRadius:'0.5rem',
               background:'color-mix(in srgb,var(--accent-green) 18%,transparent)',
               border:'1px solid color-mix(in srgb,var(--accent-green) 40%,transparent)',
               color:'var(--accent-green)', fontWeight:600, cursor:'pointer', marginBottom:'0.5rem' }}>
-              Send reset link
+              {t('loginPage.sendResetLink')}
             </button>
             <button onClick={() => setShowForgot(false)} style={{ width:'100%', padding:'0.4rem',
               background:'none', border:'none', cursor:'pointer',
               color:'var(--text-3)', textDecoration:'underline', fontSize:'0.82rem' }}>
-              ← Back to login
+              ← {t('loginPage.backToLogin')}
             </button>
           </>
         )}
@@ -80,9 +82,9 @@ export default function LoginPage({ onCancel }) {
   );
 
   const validate = () => {
-    if (!form.username || form.username.length < 2) { setError('Username must be at least 2 characters'); return false; }
-    if (!form.password || form.password.length < 6) { setError('Password must be at least 6 characters'); return false; }
-    if (isSetup && form.password !== form.confirm)  { setError('Passwords do not match'); return false; }
+    if (!form.username || form.username.length < 2) { setError(t('loginPage.usernameTooShort')); return false; }
+    if (!form.password || form.password.length < 6) { setError(t('loginPage.passwordTooShort')); return false; }
+    if (isSetup && form.password !== form.confirm)  { setError(t('loginPage.passwordsMismatch')); return false; }
     return true;
   };
 
@@ -128,7 +130,7 @@ export default function LoginPage({ onCancel }) {
             {namePrefix}<span style={{ color:'var(--accent-green)' }}>{nameSuffix}</span>
           </div>
           <div style={{ color:'var(--text-3)', fontSize:'0.83rem' }}>
-            {isSetup ? 'Create your admin account to get started' : (siteDescription || 'Sign in to continue')}
+            {isSetup ? t('loginPage.createAdminHint') : (siteDescription || t('loginPage.signInToContinue'))}
           </div>
         </div>
 
@@ -136,19 +138,19 @@ export default function LoginPage({ onCancel }) {
         <div className="pm-card" style={{ padding:'1.5rem' }}>
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom:'1rem' }}>
-              <label className="pm-label">Username</label>
+              <label className="pm-label">{t('loginPage.username')}</label>
               <input className="pm-input" type="text" autoFocus autoComplete="username"
                 value={form.username} onChange={e => set('username', e.target.value)}
-                placeholder="Enter username" />
+                placeholder={t('loginPage.enterUsername')} />
             </div>
 
             <div style={{ marginBottom: isSetup ? '1rem' : '1.5rem' }}>
-              <label className="pm-label">Password</label>
+              <label className="pm-label">{t('loginPage.password')}</label>
               <div style={{ position:'relative' }}>
                 <input className="pm-input" type={showPw ? 'text' : 'password'}
                   autoComplete={isSetup ? 'new-password' : 'current-password'}
                   value={form.password} onChange={e => set('password', e.target.value)}
-                  placeholder={isSetup ? 'Min. 6 characters' : 'Enter password'}
+                  placeholder={isSetup ? t('loginPage.min6chars') : t('loginPage.enterPassword')}
                   style={{ paddingRight:'2.5rem' }} />
                 <button type="button" onClick={() => setShowPw(s => !s)} style={{
                   position:'absolute', right:'0.5rem', top:'50%', transform:'translateY(-50%)',
@@ -160,11 +162,11 @@ export default function LoginPage({ onCancel }) {
 
             {isSetup && (
               <div style={{ marginBottom:'1.5rem' }}>
-                <label className="pm-label">Confirm password</label>
+                <label className="pm-label">{t('loginPage.confirmPassword')}</label>
                 <input className="pm-input" type={showPw ? 'text' : 'password'}
                   autoComplete="new-password"
                   value={form.confirm} onChange={e => set('confirm', e.target.value)}
-                  placeholder="Repeat password" />
+                  placeholder={t('loginPage.repeatPassword')} />
               </div>
             )}
 
@@ -186,7 +188,7 @@ export default function LoginPage({ onCancel }) {
               color:'var(--accent-green)', transition:'all 0.15s',
             }}>
               {loading ? <Spinner /> : isSetup ? <UserPlus size={16} /> : <LogIn size={16} />}
-              {loading ? (isSetup ? 'Creating…' : 'Signing in…') : isSetup ? 'Create admin account' : 'Sign in'}
+              {loading ? (isSetup ? t('loginPage.creating') : t('loginPage.signingIn')) : isSetup ? t('loginPage.createAdminAccount') : t('loginPage.signIn')}
             </button>
 
             {onCancel && (
@@ -195,7 +197,7 @@ export default function LoginPage({ onCancel }) {
                 fontSize:'0.85rem', cursor:'pointer', border:'1px solid var(--border)',
                 background:'transparent', color:'var(--text-3)', transition:'all 0.15s',
               }}>
-                ← Back to feed
+                ← {t('loginPage.backToFeed')}
               </button>
             )}
 
@@ -204,7 +206,7 @@ export default function LoginPage({ onCancel }) {
                 style={{ background:'none', border:'none', cursor:'pointer',
                   color:'var(--text-3)', fontSize:'0.75rem', marginTop:'0.25rem',
                   textDecoration:'underline', padding:0 }}>
-                Forgot password?
+                {t('loginPage.forgotPassword')}
               </button>
             )}
           </form>
@@ -212,7 +214,7 @@ export default function LoginPage({ onCancel }) {
 
         {isSetup && (
           <p style={{ color:'var(--text-3)', fontSize:'0.75rem', textAlign:'center', marginTop:'1rem' }}>
-            First-run setup. This account will be the administrator.
+            {t('loginPage.firstRunSetup')}
           </p>
         )}
       </div>

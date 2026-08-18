@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Radio, Play, Square, Loader2, AlertCircle } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { fetchVoiceChannels, fetchActiveVoiceChannels } from '../utils/api.js';
@@ -47,6 +48,7 @@ const PLAY_AHEAD_SEC = 0.2; // small scheduling cushion so the first frame doesn
 // pointing an <audio> element at an Icecast stream — gives sub-second latency instead of
 // being at the mercy of the browser's built-in buffering heuristic for live streams.
 export default function LiveChannels() {
+  const { t } = useTranslation();
   const [channels, setChannels]   = useState([]);
   const [open, setOpen]           = useState(false);
   const [playingId, setPlayingId] = useState(null);
@@ -172,14 +174,14 @@ export default function LiveChannels() {
         wsUrl: nativeWsUrl(),
         restBase: BACKEND_URL,
         token: localStorage.getItem('pm_token') || '',
-        channelsJson: JSON.stringify(channels.map(c => ({ id: c.id, description: c.description || 'Live channel' }))),
+        channelsJson: JSON.stringify(channels.map(c => ({ id: c.id, description: c.description || t('liveChannels.liveChannel') }))),
       }).catch(() => {});
     } else if (!autoListen) {
       if (playingId != null) {
         // Something was already playing via auto-listen — pin to it (stop future
         // auto-switching) instead of cutting audio off just because the toggle flipped.
         const ch = channels.find(c => c.id === playingId);
-        LiveAudio.start({ wsUrl: nativeWsUrl(), channelId: playingId, description: ch?.description || 'Live channel' }).catch(() => {});
+        LiveAudio.start({ wsUrl: nativeWsUrl(), channelId: playingId, description: ch?.description || t('liveChannels.liveChannel') }).catch(() => {});
       } else {
         LiveAudio.stop().catch(() => {});
       }
@@ -268,7 +270,7 @@ export default function LiveChannels() {
       setPlayingId(ch.id);
       setStatus('connecting');
       setKeepAwake(true);
-      LiveAudio.start({ wsUrl: nativeWsUrl(), channelId: ch.id, description: ch.description || 'Live channel' })
+      LiveAudio.start({ wsUrl: nativeWsUrl(), channelId: ch.id, description: ch.description || t('liveChannels.liveChannel') })
         .catch(() => setStatus('error'));
       return;
     }
@@ -309,7 +311,7 @@ export default function LiveChannels() {
       setStatus(s => {
         if (s === 'playing') return s;
         if ('mediaSession' in navigator) {
-          navigator.mediaSession.metadata = new MediaMetadata({ title: ch.description || 'Live channel', artist: 'PagerMonitor' });
+          navigator.mediaSession.metadata = new MediaMetadata({ title: ch.description || t('liveChannels.liveChannel'), artist: 'PagerMonitor' });
           navigator.mediaSession.playbackState = 'playing';
           navigator.mediaSession.setActionHandler('play',  () => userAction(() => play(ch)));
           navigator.mediaSession.setActionHandler('pause', () => userAction(() => stop()));
@@ -354,10 +356,10 @@ export default function LiveChannels() {
         </span>
       )}
       <button title={
-          status === 'playing' ? 'Listening — tap to view channels'
-          : armed ? 'Auto-listen armed — waiting for activity'
-          : activeChannels.size > 0 ? 'Live voice channels — someone is transmitting'
-          : 'Live voice channels'
+          status === 'playing' ? t('liveChannels.listeningTapToView')
+          : armed ? t('liveChannels.autoArmed')
+          : activeChannels.size > 0 ? t('liveChannels.someoneTransmitting')
+          : t('liveChannels.liveVoiceChannels')
         }
         onClick={() => setOpen(o => !o)} style={{
         position:'relative', display:'flex', alignItems:'center', justifyContent:'center',
@@ -393,11 +395,11 @@ export default function LiveChannels() {
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.3rem 0.4rem' }}>
             <span style={{ fontSize:'0.68rem', fontWeight:600, color:'var(--text-3)',
               textTransform:'uppercase', letterSpacing:'0.05em' }}>
-              Live channels
+              {t('liveChannels.liveChannels')}
             </span>
             <button
-              title={autoListen ? 'Auto-listen is on — automatically tunes to whichever channel is active. Tap to turn off.'
-                : 'Auto-listen is off. Tap to automatically tune to whichever channel is active.'}
+              title={autoListen ? t('liveChannels.autoOnTooltip')
+                : t('liveChannels.autoOffTooltip')}
               onClick={() => setAutoListen(a => !a)}
               style={{
                 padding:'0.15rem 0.45rem', borderRadius:'999px', border:'1px solid var(--border)',
@@ -405,7 +407,7 @@ export default function LiveChannels() {
                 background: autoListen ? 'color-mix(in srgb, var(--accent-green) 15%, transparent)' : 'var(--bg-3)',
                 color: autoListen ? 'var(--accent-green)' : 'var(--text-3)',
               }}>
-              Auto {autoListen ? 'on' : 'off'}
+              {t('liveChannels.auto')} {autoListen ? t('liveChannels.on') : t('liveChannels.off')}
             </button>
           </div>
           {channels.map(ch => {
@@ -433,13 +435,13 @@ export default function LiveChannels() {
                   {ch.description}
                 </span>
                 {activeChannels.has(ch.id) && (
-                  <span title="Transmitting now" className="animate-blink" style={{
+                  <span title={t('liveChannels.transmittingNow')} className="animate-blink" style={{
                     width:'7px', height:'7px', borderRadius:'50%',
                     background:'var(--accent-green)', flexShrink:0,
                   }} />
                 )}
                 {chStatus === 'error' && (
-                  <span style={{ fontSize:'0.68rem', color:'var(--accent-amber)' }}>retry</span>
+                  <span style={{ fontSize:'0.68rem', color:'var(--accent-amber)' }}>{t('liveChannels.retry')}</span>
                 )}
               </button>
             );

@@ -1,17 +1,19 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 
 export default function PasswordResetPage({ token }) {
+  const { t } = useTranslation();
   const [pw, setPw]       = useState({ next:'', confirm:'' });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg]     = useState(null);
   const [done, setDone]   = useState(false);
 
   const submit = async () => {
-    if (pw.next.length < 6) return setMsg({ type:'err', text:'Password must be at least 6 characters' });
-    if (pw.next !== pw.confirm) return setMsg({ type:'err', text:'Passwords do not match' });
+    if (pw.next.length < 6) return setMsg({ type:'err', text: t('passwordResetPage.tooShort') });
+    if (pw.next !== pw.confirm) return setMsg({ type:'err', text: t('passwordResetPage.mismatch') });
     setSaving(true);
     try {
       const r = await fetch(`${BASE}/auth/reset-password`, {
@@ -24,7 +26,7 @@ export default function PasswordResetPage({ token }) {
         // Clear token from URL
         window.history.replaceState({}, '', '/');
       } else {
-        setMsg({ type:'err', text: d.error || 'Reset failed' });
+        setMsg({ type:'err', text: d.error || t('passwordResetPage.resetFailed') });
       }
     } catch (e) { setMsg({ type:'err', text: e.message }); }
     finally { setSaving(false); }
@@ -36,17 +38,17 @@ export default function PasswordResetPage({ token }) {
       <div style={{ width:'100%', maxWidth:'360px' }}>
         <div style={{ textAlign:'center', marginBottom:'1.5rem' }}>
           <Lock size={32} style={{ color:'var(--accent-green)', marginBottom:'0.5rem' }} />
-          <div style={{ fontSize:'1.3rem', fontWeight:700, color:'var(--text-1)' }}>Set new password</div>
+          <div style={{ fontSize:'1.3rem', fontWeight:700, color:'var(--text-1)' }}>{t('passwordResetPage.title')}</div>
         </div>
 
         {done ? (
           <div style={{ textAlign:'center', color:'var(--accent-green)', lineHeight:1.7 }}>
-            ✓ Password changed successfully!<br/>
-            <a href="/" style={{ color:'var(--accent-blue)', fontSize:'0.85rem' }}>Go to login →</a>
+            ✓ {t('passwordResetPage.success')}<br/>
+            <a href="/" style={{ color:'var(--accent-blue)', fontSize:'0.85rem' }}>{t('passwordResetPage.goToLogin')} →</a>
           </div>
         ) : (
           <>
-            {[{ label:'New password', key:'next' }, { label:'Confirm password', key:'confirm' }].map(f => (
+            {[{ label:t('passwordResetPage.newPassword'), key:'next' }, { label:t('passwordResetPage.confirmPassword'), key:'confirm' }].map(f => (
               <div key={f.key} style={{ marginBottom:'0.75rem' }}>
                 <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>{f.label}</label>
                 <input type="password" value={pw[f.key]} onChange={e => setPw(p => ({ ...p, [f.key]: e.target.value }))}
@@ -61,7 +63,7 @@ export default function PasswordResetPage({ token }) {
               background:'color-mix(in srgb,var(--accent-green) 18%,transparent)',
               border:'1px solid color-mix(in srgb,var(--accent-green) 40%,transparent)',
               color:'var(--accent-green)' }}>
-              {saving ? 'Saving…' : 'Set new password'}
+              {saving ? t('passwordResetPage.saving') : t('passwordResetPage.title')}
             </button>
           </>
         )}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { UserPlus } from 'lucide-react';
 import { authJoin } from '../utils/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -7,6 +8,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 // joining puts the new account straight into that org, seeing its existing groups/
 // aliases/feed filter immediately (a live-shared workspace, not a one-time copy).
 export default function JoinPage({ code }) {
+  const { t } = useTranslation();
   const { login } = useAuth();
   const [form, setForm]     = useState({ username:'', password:'', email:'' });
   const [saving, setSaving] = useState(false);
@@ -14,7 +16,7 @@ export default function JoinPage({ code }) {
 
   const submit = async () => {
     if (!form.username || form.password.length < 6) {
-      setMsg({ type:'err', text:'Username required, password must be at least 6 characters' });
+      setMsg({ type:'err', text: t('joinPage.validationError') });
       return;
     }
     setSaving(true);
@@ -36,25 +38,25 @@ export default function JoinPage({ code }) {
       <div style={{ width:'100%', maxWidth:'360px' }}>
         <div style={{ textAlign:'center', marginBottom:'1.5rem' }}>
           <UserPlus size={32} style={{ color:'var(--accent-green)', marginBottom:'0.5rem' }} />
-          <div style={{ fontSize:'1.3rem', fontWeight:700, color:'var(--text-1)' }}>Join organization</div>
+          <div style={{ fontSize:'1.3rem', fontWeight:700, color:'var(--text-1)' }}>{t('joinPage.title')}</div>
           <div style={{ fontSize:'0.8rem', color:'var(--text-3)', marginTop:'0.25rem' }}>
-            You've been invited — create your account to get instant access.
+            {t('joinPage.subtitle')}
           </div>
         </div>
 
         <div style={{ marginBottom:'0.75rem' }}>
-          <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>Username</label>
+          <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>{t('joinPage.username')}</label>
           <input value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
             className="pm-input" style={{ width:'100%', boxSizing:'border-box' }} />
         </div>
         <div style={{ marginBottom:'0.75rem' }}>
-          <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>Password (min 6 characters)</label>
+          <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>{t('joinPage.passwordMin6')}</label>
           <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
             className="pm-input" style={{ width:'100%', boxSizing:'border-box' }}
             onKeyDown={e => e.key === 'Enter' && submit()} />
         </div>
         <div style={{ marginBottom:'0.75rem' }}>
-          <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>Email (optional)</label>
+          <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>{t('joinPage.emailOptional')}</label>
           <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
             className="pm-input" style={{ width:'100%', boxSizing:'border-box' }} />
         </div>
@@ -66,7 +68,7 @@ export default function JoinPage({ code }) {
           background:'color-mix(in srgb,var(--accent-green) 18%,transparent)',
           border:'1px solid color-mix(in srgb,var(--accent-green) 40%,transparent)',
           color:'var(--accent-green)' }}>
-          {saving ? 'Joining…' : 'Create account & join'}
+          {saving ? t('joinPage.joining') : t('joinPage.createAndJoin')}
         </button>
       </div>
     </div>
