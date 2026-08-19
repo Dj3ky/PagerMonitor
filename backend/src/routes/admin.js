@@ -412,8 +412,12 @@ router.delete('/aliases/:capcode', (req, res) => {
 router.get('/aliases/export', (req, res) => {
   try {
     const aliases = getAliases(req.session.orgId);
-    const csv = ['capcode;name;color;notes;group_id;row_color;row_sound',
-      ...aliases.map(a => `"${a.capcode}";"${(a.name||'').replace(/"/g,'""')}";"${a.color||''}";"${(a.notes||'').replace(/"/g,'""')}";"${a.group_id||''}";"${a.row_color||''}";"${a.row_sound||''}"`),
+    // group_name, not the raw id — an id only means anything on the instance it was
+    // exported from, and re-importing it elsewhere (or after groups were recreated, which
+    // reassigns ids) trips the aliases.group_id foreign key. Name is portable and matches
+    // how the groups CSV already references parent_name instead of parent_id.
+    const csv = ['capcode;name;color;notes;group_name;row_color;row_sound',
+      ...aliases.map(a => `"${a.capcode}";"${(a.name||'').replace(/"/g,'""')}";"${a.color||''}";"${(a.notes||'').replace(/"/g,'""')}";"${(a.group_name||'').replace(/"/g,'""')}";"${a.row_color||''}";"${a.row_sound||''}"`),
     ].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="aliases.csv"');
@@ -428,15 +432,28 @@ router.post('/aliases/import', express.text({ type: 'text/csv', limit: '1mb' }),
     const header = lines[0].toLowerCase();
     if (!header.includes('capcode')) return res.status(400).json({ error: 'CSV must have capcode column' });
     const cols = header.split(';').map(c => c.replace(/"/g,'').trim());
+    const effOrgId = effectiveOrgId(req);
+
+    // Resolve group_name (current export format) or a legacy raw group_id column to a group
+    // actually visible in this scope; anything that doesn't resolve becomes ungrouped instead
+    // of failing the whole import with a foreign-key error. Global groups are looked up first
+    // so an org's own same-named group wins on collision, matching getAliases' precedence.
+    const visibleGroups = getDb().prepare('SELECT id, name FROM groups WHERE org_id = ? OR org_id IS NULL ORDER BY (org_id IS NULL) DESC').all(effOrgId);
+    const nameToId = {}; const validIds = new Set();
+    for (const g of visibleGroups) { nameToId[g.name] = g.id; validIds.add(g.id); }
+
     const rows = []; let skipped = 0;
     for (const line of lines.slice(1)) {
       const vals = parseCsvLine(line);
       const row  = {};
       cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
-      if (row.capcode) rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'', group_id: row.group_id||null, row_color: row.row_color||null, row_sound: row.row_sound||null });
-      else skipped++;
+      if (!row.capcode) { skipped++; continue; }
+      let group_id = null;
+      if (row.group_name) group_id = nameToId[row.group_name] || null;
+      else if (row.group_id) { const gid = parseInt(row.group_id, 10); if (validIds.has(gid)) group_id = gid; }
+      rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'', group_id, row_color: row.row_color||null, row_sound: row.row_sound||null });
     }
-    bulkUpsertAliases(effectiveOrgId(req), rows);
+    bulkUpsertAliases(effOrgId, rows);
     res.json({ ok: true, imported: rows.length, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

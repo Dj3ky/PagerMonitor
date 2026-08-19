@@ -295,7 +295,7 @@ export default function AliasManager() {
 
       <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginBottom:'0.75rem',
         padding:'0.4rem 0.6rem', background:'var(--bg-2)', borderRadius:'0.35rem', border:'1px solid var(--border)' }}>
-        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>capcode;name;color;notes;group_id;row_color;row_sound</span>
+        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>capcode;name;color;notes;group_name;row_color;row_sound</span> — group_name must match an existing group exactly; unmatched or blank leaves the alias ungrouped
       </div>
 
       {aliases.length > 0 && (
