@@ -749,15 +749,28 @@ function bulkUpsertGroups(orgId, rows) {
   const nameToId = {};
   for (const g of db.prepare(`SELECT id, name FROM groups WHERE ${scopeSql}`).all(...scopeParams)) nameToId[g.name] = g.id;
 
-  const insert    = db.prepare('INSERT INTO groups (org_id, name, color, row_color, row_sound) VALUES (?, ?, ?, ?, ?)');
-  const update    = db.prepare('UPDATE groups SET color=?, row_color=?, row_sound=? WHERE id=?');
-  const setParent = db.prepare('UPDATE groups SET parent_id=? WHERE id=?');
+  const insert       = db.prepare('INSERT INTO groups (org_id, name, color, row_color, row_sound) VALUES (?, ?, ?, ?, ?)');
+  const insertWithId = db.prepare('INSERT INTO groups (id, org_id, name, color, row_color, row_sound) VALUES (?, ?, ?, ?, ?, ?)');
+  const update       = db.prepare('UPDATE groups SET color=?, row_color=?, row_sound=? WHERE id=?');
+  const setParent    = db.prepare('UPDATE groups SET parent_id=? WHERE id=?');
+  const idTaken       = db.prepare('SELECT 1 FROM groups WHERE id=?');
 
   db.transaction(rows => {
     for (const r of rows) {
-      const id = nameToId[r.name];
-      if (id) update.run(r.color || '#4ade80', r.row_color || null, r.row_sound || null, id);
-      else nameToId[r.name] = insert.run(orgId ?? null, r.name, r.color || '#4ade80', r.row_color || null, r.row_sound || null).lastInsertRowid;
+      const existingId = nameToId[r.name];
+      if (existingId) {
+        update.run(r.color || '#4ade80', r.row_color || null, r.row_sound || null, existingId);
+        continue;
+      }
+      // Honor an explicit id from the CSV's own id column when it's free, so a groups
+      // export/import round-trip keeps the same ids a paired aliases CSV's group_id
+      // column was matched against — otherwise ids are auto-assigned as before.
+      if (r.id && !idTaken.get(r.id)) {
+        insertWithId.run(r.id, orgId ?? null, r.name, r.color || '#4ade80', r.row_color || null, r.row_sound || null);
+        nameToId[r.name] = r.id;
+      } else {
+        nameToId[r.name] = insert.run(orgId ?? null, r.name, r.color || '#4ade80', r.row_color || null, r.row_sound || null).lastInsertRowid;
+      }
     }
     for (const r of rows) {
       if (!r.parent_name) continue;

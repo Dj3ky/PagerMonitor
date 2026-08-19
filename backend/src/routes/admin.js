@@ -342,8 +342,9 @@ router.get('/groups/export', (req, res) => {
     const groups = getGroups(req.session.orgId);
     const nameById = {};
     groups.forEach(g => { nameById[g.id] = g.name; });
-    // id is exported so it can be cross-referenced against the group_id column in the
-    // aliases CSV — it's ignored on import (groups are matched/created by name instead).
+    // id lets a paired aliases CSV's group_id column keep working across a delete-all +
+    // reimport cycle: existing groups are still matched by name on import, but a genuinely
+    // new group keeps this id if nothing already occupies it (see bulkUpsertGroups).
     const csv = ['id;name;color;parent_name;row_color;row_sound',
       ...groups.map(g => `"${g.id}";"${(g.name||'').replace(/"/g,'""')}";"${g.color||''}";"${(g.parent_id ? nameById[g.parent_id]||'' : '').replace(/"/g,'""')}";"${g.row_color||''}";"${g.row_sound||''}"`),
     ].join('\r\n');
@@ -365,7 +366,7 @@ router.post('/groups/import', express.text({ type: 'text/csv', limit: '1mb' }), 
       const vals = parseCsvLine(line);
       const row  = {};
       cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
-      if (row.name) rows.push({ name: row.name, color: row.color||'#4ade80', parent_name: row.parent_name||null, row_color: row.row_color||null, row_sound: row.row_sound||null });
+      if (row.name) rows.push({ id: row.id ? parseInt(row.id, 10) : null, name: row.name, color: row.color||'#4ade80', parent_name: row.parent_name||null, row_color: row.row_color||null, row_sound: row.row_sound||null });
       else skipped++;
     }
     bulkUpsertGroups(effectiveOrgId(req), rows);
