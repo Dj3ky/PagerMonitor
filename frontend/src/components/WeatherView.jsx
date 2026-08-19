@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Wind, CloudRain, Thermometer, Cloud, Radar, LocateFixed, Loader, Gauge, MapPin, Droplet, Activity } from 'lucide-react';
 import { useSite } from '../context/SiteContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
@@ -7,28 +8,29 @@ import SmokWaterPanel from './SmokWaterPanel.jsx';
 import QuakePanel from './QuakePanel.jsx';
 
 // Iframe embed layers (radar is real-time data, works great in iframe mode)
-const LAYERS = [
-  { id: 'radar',  label: 'Radar',  icon: <Radar size={13}/>,       desc: 'Precipitation radar' },
-  { id: 'rain',   label: 'Rain',   icon: <CloudRain size={13}/>,   desc: 'Rain forecast' },
-  { id: 'wind',   label: 'Wind',   icon: <Wind size={13}/>,        desc: 'Wind speed & direction' },
-  { id: 'temp',   label: 'Temp',   icon: <Thermometer size={13}/>, desc: 'Surface temperature' },
-  { id: 'clouds', label: 'Clouds', icon: <Cloud size={13}/>,       desc: 'Cloud cover' },
-];
-
-// Windy API key only exposes these three overlays (confirmed via api.store.getAllowed).
-const API_LAYERS = [
-  { id: 'wind',     label: 'Wind',     icon: <Wind size={13}/>,        desc: 'Wind speed & direction' },
-  { id: 'temp',     label: 'Temp',     icon: <Thermometer size={13}/>, desc: 'Surface temperature' },
-  { id: 'pressure', label: 'Pressure', icon: <Gauge size={13}/>,       desc: 'Surface pressure' },
-];
-
-// Only relevant when the instance is configured for Slovenia — backed by ARSO's
-// own station network, forecast & warning feeds rather than Windy.
-const ARSO_LAYER  = { id: 'arso',  label: 'ARSO',  icon: <MapPin size={13}/>,  desc: 'Live Slovenia stations, forecast & warnings' };
-// SMOK (Uprava RS za zascito in resevanje) river/water-level monitoring network.
-const WATER_LAYER = { id: 'water', label: 'Water', icon: <Droplet size={13}/>, desc: 'Live Slovenia river & water level stations' };
-// ARSO seismology — recent earthquakes in and around Slovenia.
-const QUAKE_LAYER = { id: 'quakes', label: 'Quakes', icon: <Activity size={13}/>, desc: 'Recent earthquakes near Slovenia' };
+function useLayers(t) {
+  const LAYERS = [
+    { id: 'radar',  label: t('weatherView.layers.radar.label'),  icon: <Radar size={13}/>,       desc: t('weatherView.layers.radar.desc') },
+    { id: 'rain',   label: t('weatherView.layers.rain.label'),   icon: <CloudRain size={13}/>,   desc: t('weatherView.layers.rain.desc') },
+    { id: 'wind',   label: t('weatherView.layers.wind.label'),   icon: <Wind size={13}/>,        desc: t('weatherView.layers.wind.desc') },
+    { id: 'temp',   label: t('weatherView.layers.temp.label'),   icon: <Thermometer size={13}/>, desc: t('weatherView.layers.temp.desc') },
+    { id: 'clouds', label: t('weatherView.layers.clouds.label'), icon: <Cloud size={13}/>,       desc: t('weatherView.layers.clouds.desc') },
+  ];
+  // Windy API key only exposes these three overlays (confirmed via api.store.getAllowed).
+  const API_LAYERS = [
+    { id: 'wind',     label: t('weatherView.layers.wind.label'),     icon: <Wind size={13}/>,        desc: t('weatherView.layers.wind.desc') },
+    { id: 'temp',     label: t('weatherView.layers.temp.label'),     icon: <Thermometer size={13}/>, desc: t('weatherView.layers.temp.desc') },
+    { id: 'pressure', label: t('weatherView.layers.pressure.label'), icon: <Gauge size={13}/>,       desc: t('weatherView.layers.pressure.desc') },
+  ];
+  // Only relevant when the instance is configured for Slovenia — backed by ARSO's
+  // own station network, forecast & warning feeds rather than Windy.
+  const ARSO_LAYER  = { id: 'arso',  label: 'ARSO',  icon: <MapPin size={13}/>,  desc: t('weatherView.layers.arso.desc') };
+  // SMOK (Uprava RS za zascito in resevanje) river/water-level monitoring network.
+  const WATER_LAYER = { id: 'water', label: t('weatherView.layers.water.label'), icon: <Droplet size={13}/>, desc: t('weatherView.layers.water.desc') };
+  // ARSO seismology — recent earthquakes in and around Slovenia.
+  const QUAKE_LAYER = { id: 'quakes', label: t('weatherView.layers.quakes.label'), icon: <Activity size={13}/>, desc: t('weatherView.layers.quakes.desc') };
+  return { LAYERS, API_LAYERS, ARSO_LAYER, WATER_LAYER, QUAKE_LAYER };
+}
 
 // Module-level refs — survive component remounts and cross-effect communication.
 // Captures are done once; cleared on page reload.
@@ -59,13 +61,14 @@ function buildWindyUrl(lat, lon, zoom, overlay, userLat, userLon) {
 
 // Shared toolbar used by both API and iframe modes
 function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing, layers, showLocation = true, credit }) {
+  const { t } = useTranslation();
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: '0.4rem',
       padding: '0.4rem 0.75rem', borderBottom: '1px solid var(--border)',
       background: 'var(--bg-1)', flexShrink: 0, flexWrap: 'wrap',
     }}>
-      <span style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginRight: '0.2rem', whiteSpace: 'nowrap' }}>Layer:</span>
+      <span style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginRight: '0.2rem', whiteSpace: 'nowrap' }}>{t('weatherView.layer')}:</span>
       {layers.map(l => (
         <button key={l.id} title={l.desc} onClick={() => onOverlayChange(l.id)}
           style={{
@@ -85,11 +88,11 @@ function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing,
       ))}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         {showLocation && (geoState === 'denied' ? (
-          <span style={{ fontSize: '0.68rem', color: 'var(--accent-amber)' }}>Location blocked</span>
+          <span style={{ fontSize: '0.68rem', color: 'var(--accent-amber)' }}>{t('weatherView.locationBlocked')}</span>
         ) : (
           <button
             onClick={geoState === 'idle' ? locationSharing?.start : undefined}
-            title={userPos ? 'Centered on your location' : 'Center on my location'}
+            title={userPos ? t('weatherView.centeredOnLocation') : t('weatherView.centerOnLocation')}
             style={{
               display: 'flex', alignItems: 'center', gap: '0.3rem',
               padding: '0.25rem 0.55rem', borderRadius: '0.4rem', fontSize: '0.72rem',
@@ -104,12 +107,12 @@ function Toolbar({ overlay, onOverlayChange, geoState, userPos, locationSharing,
               color: userPos ? 'var(--accent-green)' : 'var(--text-2)',
             }}>
             {geoState === 'asking'
-              ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }}/> Locating…</>
-              : <><LocateFixed size={12}/> {userPos ? 'My location' : 'Use my location'}</>}
+              ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }}/> {t('weatherView.locating')}</>
+              : <><LocateFixed size={12}/> {userPos ? t('weatherView.myLocation') : t('weatherView.useMyLocation')}</>}
           </button>
         ))}
         <span style={{ fontSize: '0.68rem', color: 'var(--text-3)' }}>
-          Powered by <a href={credit?.url ?? 'https://www.windy.com'} target="_blank" rel="noopener noreferrer"
+          {t('weatherView.poweredBy')} <a href={credit?.url ?? 'https://www.windy.com'} target="_blank" rel="noopener noreferrer"
             style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}>{credit?.label ?? 'Windy'}</a>
         </span>
       </div>
@@ -251,6 +254,7 @@ function ApiMap({ windyApiKey, userPos, countryCenter, overlay, visible, onInitF
 
 // ── Iframe embed fallback — used when no API key is configured ────────────────
 function IframeEmbed({ visible, userPos, geoState, countryCenter, overlay }) {
+  const { t } = useTranslation();
   const [iframeSrc, setIframeSrc] = useState(null);
   const loadedPosRef = useRef(null);
 
@@ -281,11 +285,11 @@ function IframeEmbed({ visible, userPos, geoState, countryCenter, overlay }) {
       <div style={{ width:'24px', height:'24px', borderRadius:'50%',
         border:'3px solid var(--bg-4)', borderTopColor:'var(--accent-green)',
         animation:'spin 0.8s linear infinite' }} />
-      Waiting for location…
+      {t('weatherView.waitingForLocation')}
     </div>
   );
   return (
-    <iframe key={iframeSrc} src={iframeSrc} title="Windy weather radar"
+    <iframe key={iframeSrc} src={iframeSrc} title={t('weatherView.windyRadarTitle')}
       allow="geolocation; fullscreen"
       style={{ flex:1, width:'100%', border:'none', display:'block' }} />
   );
@@ -293,6 +297,8 @@ function IframeEmbed({ visible, userPos, geoState, countryCenter, overlay }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function WeatherView({ visible, locationSharing }) {
+  const { t } = useTranslation();
+  const { LAYERS, API_LAYERS, ARSO_LAYER, WATER_LAYER, QUAKE_LAYER } = useLayers(t);
   const { geocodeCountry, windyApiKey, settingsLoaded, enableArsoWeather } = useSite();
   const [overlay, setOverlay]       = useState('radar');
   // Persist API failure within the session — avoids re-trying (and blinking) on refresh.

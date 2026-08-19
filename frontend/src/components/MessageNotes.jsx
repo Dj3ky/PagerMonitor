@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StickyNote, Lock, Globe, Trash2, Plus, Loader } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSite } from '../context/SiteContext.jsx';
@@ -13,6 +14,7 @@ function fmtTime(ts, locale, hour12) {
 }
 
 export default function MessageNotes({ messageId, onCountChange }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { locale, hour12 } = useSite();
   const [notes, setNotes]     = useState([]);
@@ -71,14 +73,14 @@ export default function MessageNotes({ messageId, onCountChange }) {
       {loading && (
         <div style={{ display:'flex', alignItems:'center', gap:'0.4rem',
           color:'var(--text-3)', fontSize:'0.75rem', marginBottom:'0.5rem' }}>
-          <Loader size={12} style={{ animation:'spin 1s linear infinite' }}/> Loading notes…
+          <Loader size={12} style={{ animation:'spin 1s linear infinite' }}/> {t('messageNotes.loading')}
         </div>
       )}
 
       {!loading && notes.length === 0 && (
         <div style={{ color:'var(--text-3)', fontSize:'0.75rem', fontStyle:'italic',
           marginBottom:'0.5rem' }}>
-          No notes yet — be the first to annotate this message.
+          {t('messageNotes.noneYet')}
         </div>
       )}
 
@@ -93,7 +95,7 @@ export default function MessageNotes({ messageId, onCountChange }) {
             : 'var(--border-soft)'}`,
         }}>
           {/* Private/shared indicator */}
-          <span title={n.is_private ? 'Private — only you see this' : 'Shared — visible to all'}
+          <span title={n.is_private ? t('messageNotes.privateTooltip') : t('messageNotes.sharedTooltip')}
             style={{ flexShrink:0, marginTop:'2px' }}>
             {n.is_private
               ? <Lock size={11} style={{ color:'var(--accent-amber)' }}/>
@@ -109,12 +111,12 @@ export default function MessageNotes({ messageId, onCountChange }) {
               fontFamily:'monospace' }}>
               <span style={{ color:'var(--accent-blue)', fontWeight:600 }}>{n.username}</span>
               {' · '}{fmtTime(n.created_at, locale, hour12)}
-              {n.is_private && <span style={{ color:'var(--accent-amber)', marginLeft:'0.3rem' }}>private</span>}
+              {n.is_private && <span style={{ color:'var(--accent-amber)', marginLeft:'0.3rem' }}>{t('messageNotes.privateTag')}</span>}
             </div>
           </div>
 
           {canDelete(n) && (
-            <button onClick={() => remove(n.id, !!n.is_private)} title="Delete note"
+            <button onClick={() => remove(n.id, !!n.is_private)} title={t('messageNotes.deleteNote')}
               style={{ flexShrink:0, background:'none', border:'none', cursor:'pointer',
                 color:'var(--text-3)', padding:'0.1rem', opacity:0.5,
                 transition:'opacity 0.15s' }}
@@ -131,7 +133,7 @@ export default function MessageNotes({ messageId, onCountChange }) {
         <div style={{ marginTop:'0.5rem', display:'flex', gap:'0.4rem', alignItems:'flex-start' }}>
           <textarea ref={textRef} value={text} onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); }}
-            placeholder="Add a note… (Ctrl+Enter to save)"
+            placeholder={t('messageNotes.addPlaceholder')}
             rows={2}
             style={{ flex:1, background:'var(--bg-2)', border:'1px solid var(--border)',
               borderRadius:'0.4rem', color:'var(--text-1)', fontSize:'0.8rem',
@@ -146,9 +148,9 @@ export default function MessageNotes({ messageId, onCountChange }) {
                 border:'1px solid color-mix(in srgb, var(--accent-green) 35%, transparent)',
                 color:'var(--accent-green)', opacity: (!text.trim() || saving) ? 0.5 : 1 }}>
               {saving ? <Loader size={11} style={{ animation:'spin 1s linear infinite' }}/> : <Plus size={11}/>}
-              Save
+              {t('messageNotes.save')}
             </button>
-            <button onClick={() => setIsPrivate(p => !p)} title={isPrivate ? 'Private — click to make shared' : 'Shared — click to make private'}
+            <button onClick={() => setIsPrivate(p => !p)} title={isPrivate ? t('messageNotes.clickToShare') : t('messageNotes.clickToPrivate')}
               style={{ display:'flex', alignItems:'center', gap:'0.25rem',
                 padding:'0.25rem 0.5rem', borderRadius:'0.4rem', fontSize:'0.68rem',
                 cursor:'pointer', border:'1px solid',
@@ -159,14 +161,14 @@ export default function MessageNotes({ messageId, onCountChange }) {
                   ? 'color-mix(in srgb, var(--accent-amber) 30%, transparent)'
                   : 'var(--border)',
                 color: isPrivate ? 'var(--accent-amber)' : 'var(--text-3)' }}>
-              {isPrivate ? <><Lock size={10}/> Private</> : <><Globe size={10}/> Shared</>}
+              {isPrivate ? <><Lock size={10}/> {t('messageNotes.private')}</> : <><Globe size={10}/> {t('messageNotes.shared')}</>}
             </button>
           </div>
         </div>
       )}
       {(!user || user.isGuest) && (
         <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontStyle:'italic', marginTop:'0.4rem' }}>
-          Log in to add notes.
+          {t('messageNotes.loginToAdd')}
         </div>
       )}
     </div>

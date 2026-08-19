@@ -5,7 +5,7 @@
  * Called after each message — checks each user's preferences and sends email if they match.
  */
 
-const { getAllUsersWithPrefs, normCapcode } = require('./database');
+const { getAllUsersWithPrefs, normCapcode, groupMatchesSelection } = require('./database');
 const { sendEmail, getEmailConfig } = require('./email');
 const { formatTs } = require('../utils/time');
 const logger = require('../utils/logger');
@@ -15,8 +15,7 @@ function messageMatchesPrefs(msg, prefs) {
   if (prefs.mode === 'all') return true;
 
   if (prefs.mode === 'groups') {
-    const gid = msg.group_id;
-    return gid && prefs.group_ids.includes(Number(gid));
+    return groupMatchesSelection(msg.group_id, prefs.group_ids);
   }
 
   if (prefs.mode === 'aliases') {

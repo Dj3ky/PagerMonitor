@@ -10,7 +10,7 @@ const { requireAdmin, requireEditor, requirePlatformAdmin } = require('../servic
 const { startSdrPipeline, stopSdrPipeline, restartSdrPipeline, getStatus, getLogs } = require('../services/sdr');
 const { listAttachedDongles } = require('../services/rtlDevices');
 const { getDb, getStats, getMessageStats,
-        getGroups, createGroup, updateGroup, deleteGroup,
+        getGroups, createGroup, updateGroup, deleteGroup, deleteAllGroups, bulkUpsertGroups,
         getAliases, upsertAlias, deleteAlias, bulkUpsertAliases,
         getHighlightRules, upsertHighlightRule, deleteHighlightRule,
         getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
@@ -101,6 +101,7 @@ router.put('/sdr/dongles',  platformOnly, (req, res)  => {
     saveDongleConfigs(dongles.length > 0 ? dongles : null);
     // Don't restart here — caller will restart after setting all configs
     addAuditLog(req.session?.username||'admin', 'sdr.dongles', `count=${dongles.length}`);
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
     res.json({ ok: true });
   } catch(e){ res.status(500).json({error:e.message}); }
 });
@@ -324,6 +325,51 @@ router.delete('/groups/:id', (req, res) => {
   }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// Deletes only the caller's own org's groups — never the global library or another org's.
+router.delete('/groups', adminOnly, (req, res) => {
+  try {
+    const deleted = deleteAllGroups(req.session.orgId);
+    addAuditLog(req.session?.username||'admin', 'group.delete_all', `count=${deleted}`, req.session.orgId);
+    res.json({ ok: true, deleted });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Group CSV export
+router.get('/groups/export', (req, res) => {
+  try {
+    const groups = getGroups(req.session.orgId);
+    const nameById = {};
+    groups.forEach(g => { nameById[g.id] = g.name; });
+    // id is exported so it can be cross-referenced against the group_id column in the
+    // aliases CSV — it's ignored on import (groups are matched/created by name instead).
+    const csv = ['id;name;color;parent_name;row_color;row_sound',
+      ...groups.map(g => `"${g.id}";"${(g.name||'').replace(/"/g,'""')}";"${g.color||''}";"${(g.parent_id ? nameById[g.parent_id]||'' : '').replace(/"/g,'""')}";"${g.row_color||''}";"${g.row_sound||''}"`),
+    ].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="groups.csv"');
+    res.send('﻿' + csv);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Group CSV import
+router.post('/groups/import', express.text({ type: 'text/csv', limit: '1mb' }), (req, res) => {
+  try {
+    const lines = req.body.replace(/^﻿/, '').replace(/\r/g, '').split('\n').filter(Boolean);
+    const header = lines[0].toLowerCase();
+    if (!header.includes('name')) return res.status(400).json({ error: 'CSV must have name column' });
+    const cols = header.split(';').map(c => c.replace(/"/g,'').trim());
+    const rows = []; let skipped = 0;
+    for (const line of lines.slice(1)) {
+      const vals = parseCsvLine(line);
+      const row  = {};
+      cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
+      if (row.name) rows.push({ name: row.name, color: row.color||'#4ade80', parent_name: row.parent_name||null, row_color: row.row_color||null, row_sound: row.row_sound||null });
+      else skipped++;
+    }
+    bulkUpsertGroups(effectiveOrgId(req), rows);
+    res.json({ ok: true, imported: rows.length, skipped });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ── Aliases (admin — with group_id support; org-scoped like groups) ───────────
 router.get('/aliases', (req, res) => { try { res.json(getAliases(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); } });
@@ -357,8 +403,8 @@ router.delete('/aliases/:capcode', (req, res) => {
 router.get('/aliases/export', (req, res) => {
   try {
     const aliases = getAliases(req.session.orgId);
-    const csv = ['capcode,name,color,notes,group_id',
-      ...aliases.map(a => `"${a.capcode}","${(a.name||'').replace(/"/g,'""')}","${a.color||''}","${(a.notes||'').replace(/"/g,'""')}","${a.group_id||''}"`),
+    const csv = ['capcode;name;color;notes;group_id',
+      ...aliases.map(a => `"${a.capcode}";"${(a.name||'').replace(/"/g,'""')}";"${a.color||''}";"${(a.notes||'').replace(/"/g,'""')}";"${a.group_id||''}"`),
     ].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="aliases.csv"');
@@ -372,7 +418,7 @@ router.post('/aliases/import', express.text({ type: 'text/csv', limit: '1mb' }),
     const lines = req.body.replace(/^﻿/, '').replace(/\r/g, '').split('\n').filter(Boolean);
     const header = lines[0].toLowerCase();
     if (!header.includes('capcode')) return res.status(400).json({ error: 'CSV must have capcode column' });
-    const cols = header.split(',').map(c => c.replace(/"/g,'').trim());
+    const cols = header.split(';').map(c => c.replace(/"/g,'').trim());
     const rows = []; let skipped = 0;
     for (const line of lines.slice(1)) {
       const vals = parseCsvLine(line);
@@ -404,11 +450,13 @@ router.delete('/rules/:id', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Semicolon-delimited (not comma) — Excel in European locales (e.g. Slovenian) uses ','
+// as the decimal separator, so it defaults to splitting CSV columns on ';' instead.
 function parseCsvLine(line) {
   const result = []; let cur = '', inQ = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
-    if (c === '"') { inQ = !inQ; } else if (c === ',' && !inQ) { result.push(cur); cur = ''; } else cur += c;
+    if (c === '"') { inQ = !inQ; } else if (c === ';' && !inQ) { result.push(cur); cur = ''; } else cur += c;
   }
   result.push(cur);
   return result;
@@ -556,11 +604,18 @@ router.delete('/keyword-alerts/:id', (req,res) => {
 // channels out for its own users — see the /voice-channel-visibility routes further down,
 // which are the ones regular org admins use. ──────────────────────────────────────────────
 router.get('/voice-channels',        platformOnly, (_req,res) => { try{ res.json(getAllVoiceChannels()); } catch(e){ res.status(500).json({error:e.message}); }});
-router.put('/voice-channels',        platformOnly, (req,res) => { try{ const { id } = upsertVoiceChannel(req.body); res.json({ok:true,id}); } catch(e){ res.status(500).json({error:e.message}); }});
+router.put('/voice-channels',        platformOnly, (req,res) => {
+  try{
+    const { id } = upsertVoiceChannel(req.body);
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
+    res.json({ok:true,id});
+  } catch(e){ res.status(500).json({error:e.message}); }
+});
 router.delete('/voice-channels/:id', platformOnly, (req,res) => {
   try {
     const changes = deleteVoiceChannel(parseInt(req.params.id));
     if (!changes) return res.status(404).json({ error: 'Channel not found' });
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
     res.json({ok:true});
   } catch(e){ res.status(500).json({error:e.message}); }
 });
@@ -604,6 +659,7 @@ router.get('/voice-channel-visibility', adminOnly, (req, res) => {
 router.put('/voice-channel-visibility/:id', adminOnly, (req, res) => {
   try {
     setVoiceChannelHidden(req.session.orgId, parseInt(req.params.id), !!req.body.hidden);
+    require('../services/websocket').broadcastToOrg(req.session.orgId, { type: 'voice_channels_changed' });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -833,6 +889,7 @@ router.delete('/sdr-clients/:id', platformOnly, (req, res) => {
     const id = decodeURIComponent(req.params.id);
     resetClient(id);
     unregisterSource(id);   // clear dead-air tracking for removed client
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
     res.json({ ok: true });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -853,6 +910,7 @@ router.put('/sdr-clients/:id/config', platformOnly, (req, res) => {
       return res.status(409).json({ error: describeChannelConflicts(conflicts), conflicts });
     }
     const version = saveClientConfig(clientId, req.body);
+    require('../services/websocket').broadcast({ type: 'voice_channels_changed' });
     res.json({ ok: true, version });
   }
   catch (e) { res.status(500).json({ error: e.message }); }

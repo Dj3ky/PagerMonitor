@@ -1,4 +1,5 @@
 import { Filter, Pause, Play, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const S = {
   bar:    { flexShrink:0, background:'var(--bg-1)', borderBottom:'1px solid var(--border)' },
@@ -37,6 +38,7 @@ function ActiveBadge({ label, color, onRemove }) {
 
 export default function FilterBar({ filters, onChange, paused, onTogglePause, newCount,
   pageSize, onPageSize, pageOptions, page, totalPages, onPage, totalMessages }) {
+  const { t } = useTranslation();
 
   const hasText = filters.capcode || filters.keyword;
   const hasAlias = filters.alias;
@@ -48,27 +50,27 @@ export default function FilterBar({ filters, onChange, paused, onTogglePause, ne
       <div style={S.row1}>
         <Filter size={13} style={{ color:'var(--text-3)', flexShrink:0 }} />
 
-        <input style={{ ...S.input, width:'110px', minWidth:'50px' }} placeholder="Capcode…"
+        <input style={{ ...S.input, width:'110px', minWidth:'50px' }} placeholder={t('filterBar.capcodePlaceholder')}
           value={filters.capcode} onChange={e => onChange({ ...filters, capcode: e.target.value })} />
 
-        <input style={{ ...S.input, width:'140px', minWidth:'60px' }} placeholder="Keyword / regex…"
+        <input style={{ ...S.input, width:'140px', minWidth:'60px' }} placeholder={t('filterBar.keywordPlaceholder')}
           value={filters.keyword} onChange={e => onChange({ ...filters, keyword: e.target.value })} />
 
         {(hasText || hasAlias || hasGroup) && (
           <button onClick={() => onChange({ capcode:'', keyword:'', alias:'', group:'' })}
             style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.15rem', flexShrink:0 }}
-            title="Clear all filters">
+            title={t('filterBar.clearAll')}>
             <X size={13} />
           </button>
         )}
 
         {/* Active alias/group badges */}
         {hasAlias && (
-          <ActiveBadge label={`alias: ${filters.alias}`} color="var(--accent-green)"
+          <ActiveBadge label={t('filterBar.aliasBadge', { value: filters.alias })} color="var(--accent-green)"
             onRemove={() => onChange({ ...filters, alias:'' })} />
         )}
         {hasGroup && (
-          <ActiveBadge label={`group: ${filters.group}`} color="var(--accent-purple)"
+          <ActiveBadge label={t('filterBar.groupBadge', { value: filters.group })} color="var(--accent-purple)"
             onRemove={() => onChange({ ...filters, group:'' })} />
         )}
 
@@ -82,7 +84,7 @@ export default function FilterBar({ filters, onChange, paused, onTogglePause, ne
           color: paused ? 'var(--accent-amber)' : 'var(--text-2)',
         }}>
           {paused ? <Play size={11}/> : <Pause size={11}/>}
-          {paused ? 'Resume' : 'Pause'}
+          {paused ? t('filterBar.resume') : t('filterBar.pause')}
           {paused && newCount > 0 && (
             <span style={{ background:'var(--accent-amber)', color:'var(--bg-0)', borderRadius:'0.25rem',
               padding:'0.05rem 0.35rem', fontSize:'0.68rem', fontWeight:800 }}>+{newCount}</span>
@@ -92,14 +94,14 @@ export default function FilterBar({ filters, onChange, paused, onTogglePause, ne
 
       {/* Row 2 — pagination */}
       <div style={{ ...S.row, paddingTop:0, paddingBottom:'0.4rem', gap:'0.5rem' }}>
-        <span style={S.label}>Show</span>
+        <span style={S.label}>{t('filterBar.show')}</span>
         <select style={S.select} value={pageSize} onChange={e => onPageSize(Number(e.target.value))}>
           {pageOptions.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
-        <span style={S.label}>/ page</span>
+        <span style={S.label}>{t('filterBar.perPage')}</span>
         <div style={{ flex:1 }} />
         <span style={{ ...S.label, minWidth:'80px', textAlign:'right' }}>
-          {totalMessages === 0 ? '0' : `${page*pageSize+1}–${Math.min((page+1)*pageSize, totalMessages)}`} of {totalMessages}
+          {t('filterBar.rangeOfTotal', { range: totalMessages === 0 ? '0' : `${page*pageSize+1}–${Math.min((page+1)*pageSize, totalMessages)}`, total: totalMessages })}
         </span>
         <button style={{ ...S.pgBtn, opacity: page===0 ? 0.4 : 1 }}
           onClick={() => onPage(p => Math.max(0, p-1))} disabled={page===0}>

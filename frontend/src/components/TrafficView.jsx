@@ -14,10 +14,10 @@ const EVENT_COLOR = '#a855f7'; // fallback for event categories that don't match
 const VMS_COLOR = '#14b8a6';
 
 const LAYERS = [
-  { id: 'cameras',   label: 'Cameras',    icon: <CameraIcon size={13}/> },
-  { id: 'roadworks', label: 'Road works', icon: <TriangleAlert size={13}/> },
-  { id: 'events',    label: 'Events',     icon: <Siren size={13}/> },
-  { id: 'vms',       label: 'Signs',      icon: <Monitor size={13}/> },
+  { id: 'cameras',   label: 'Kamere',    icon: <CameraIcon size={13}/> },
+  { id: 'roadworks', label: 'Dela na cesti', icon: <TriangleAlert size={13}/> },
+  { id: 'events',    label: 'Dogodki',     icon: <Siren size={13}/> },
+  { id: 'vms',       label: 'Prometni znaki',      icon: <Monitor size={13}/> },
 ];
 
 function escAttr(s) {
@@ -39,13 +39,13 @@ function fmtDate(iso) {
 function buildCameraPopupHtml(feature) {
   const group = feature.properties?.group || {};
   const items = feature.properties?.items || [];
-  const groupTitle = group.title_slo || group.name || 'Camera';
+  const groupTitle = group.title_slo || group.name || 'Kamera';
   const body = items.map(it => {
     const label = it.text_slo || it.title_slo || groupTitle;
     return `
     <div style="margin-top:0.4rem">
       ${items.length > 1 ? `<div style="color:var(--text-3);font-size:0.68rem;margin-bottom:0.2rem">${label}</div>` : ''}
-      ${it.image ? `<img class="pm-cam-img" data-src="${it.image}" data-title="${escAttr(label)}" src="${it.image}?t=${Date.now()}" loading="lazy" title="Click to enlarge" style="width:100%;max-width:260px;border-radius:4px;display:block;cursor:zoom-in" onclick="window.__pmOpenImage && window.__pmOpenImage(this.dataset.src, this.dataset.title)" onerror="this.style.display='none'"/>` : ''}
+      ${it.image ? `<img class="pm-cam-img" data-src="${it.image}" data-title="${escAttr(label)}" src="${it.image}?t=${Date.now()}" loading="lazy" title="Klikni za povečavo" style="width:100%;max-width:260px;border-radius:4px;display:block;cursor:zoom-in" onclick="window.__pmOpenImage && window.__pmOpenImage(this.dataset.src, this.dataset.title)" onerror="this.style.display='none'"/>` : ''}
     </div>`;
   }).join('');
   return `
@@ -76,12 +76,12 @@ function buildRoadworkPopupHtml(feature) {
   const p = feature.properties || {};
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:220px;max-width:280px;color:var(--text-1)">
-      <div style="font-weight:700;color:${ROADWORK_COLOR}">${p.cesta || 'Road works'}</div>
+      <div style="font-weight:700;color:${ROADWORK_COLOR}">${p.cesta || 'Delo na cesti'}</div>
       <div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">
-        ${p.kategorija || ''}${p.kategorija && p.vzrok ? ' · ' : ''}${p.vzrok || ''}${p.IsConfirmed === false ? ' · unconfirmed' : ''}
+        ${p.kategorija || ''}${p.kategorija && p.vzrok ? ' · ' : ''}${p.vzrok || ''}${p.IsConfirmed === false ? ' · nepotrjeno' : ''}
       </div>
       ${p.opis ? `<div style="margin-top:0.4rem;line-height:1.4">${p.opis}</div>` : ''}
-      ${p.updated ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">Updated ${fmtDate(p.updated)}</div>` : ''}
+      ${p.updated ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">Posodobljeno ${fmtDate(p.updated)}</div>` : ''}
     </div>`;
 }
 
@@ -109,12 +109,12 @@ function buildEventPopupHtml(feature) {
   const color = eventColor(p.vzrok);
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:220px;max-width:280px;color:var(--text-1)">
-      <div style="font-weight:700;color:${color}">${p.vzrok || 'Event'} — ${p.cesta || ''}</div>
+      <div style="font-weight:700;color:${color}">${p.vzrok || 'Dogodek'} — ${p.cesta || ''}</div>
       <div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">
-        ${p.kategorija || ''}${p.IsConfirmed === false ? ' · unconfirmed' : ''}
+        ${p.kategorija || ''}${p.IsConfirmed === false ? ' · nepotrjeno' : ''}
       </div>
       ${p.opis ? `<div style="margin-top:0.4rem;line-height:1.4">${p.opis}</div>` : ''}
-      ${p.updated ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">Updated ${fmtDate(p.updated)}</div>` : ''}
+      ${p.updated ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">Posodobljeno ${fmtDate(p.updated)}</div>` : ''}
     </div>`;
 }
 
@@ -136,15 +136,15 @@ function buildVmsPopupHtml(feature) {
   const km = p.distanceAlong != null ? (p.distanceAlong / 1000).toFixed(2) : null;
   const images = p.images || [];
   const body = images.map((src, i) => `
-    <img class="pm-vms-img" data-title="${escAttr(`Sign ${p.id} — page ${i + 1}`)}" src="${src}"
-      title="Click to enlarge" style="width:100%;max-width:220px;border-radius:4px;display:block;margin-top:0.3rem;cursor:zoom-in;background:#fff"
+    <img class="pm-vms-img" data-title="${escAttr(`Znak ${p.id} — stran ${i + 1}`)}" src="${src}"
+      title="Klikni za povečavo" style="width:100%;max-width:220px;border-radius:4px;display:block;margin-top:0.3rem;cursor:zoom-in;background:#fff"
       onclick="window.__pmOpenImage && window.__pmOpenImage(this.src, this.dataset.title)"/>`).join('');
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:200px;color:var(--text-1)">
-      <div style="font-weight:700;color:${VMS_COLOR}">${p.id || 'Sign'}</div>
-      ${p.roadId ? `<div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">Segment ${p.roadId}${km ? ` · km ${km}` : ''}</div>` : ''}
-      ${body || `<div style="color:var(--text-3);font-size:0.72rem;margin-top:0.3rem">No message currently displayed</div>`}
-      ${p.updated ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">Updated ${fmtDate(p.updated)}</div>` : ''}
+      <div style="font-weight:700;color:${VMS_COLOR}">${p.id || 'Znak'}</div>
+      ${p.roadId ? `<div style="color:var(--text-3);font-size:0.68rem;margin-top:0.15rem">Odsek ${p.roadId}${km ? ` · km ${km}` : ''}</div>` : ''}
+      ${body || `<div style="color:var(--text-3);font-size:0.72rem;margin-top:0.3rem">Trenutno ni prikazanega sporočila</div>`}
+      ${p.updated ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.4rem">Posodobljeno ${fmtDate(p.updated)}</div>` : ''}
     </div>`;
 }
 
@@ -186,7 +186,7 @@ function ImageLightbox({ image, onClose }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#fff',
           fontFamily: 'monospace', fontSize: '0.85rem' }}>
           <span>{image.title}</span>
-          <button onClick={onClose} title="Close" style={{ display: 'flex', padding: '0.2rem',
+          <button onClick={onClose} title="Zapri" style={{ display: 'flex', padding: '0.2rem',
             border: '1px solid rgba(255,255,255,0.3)', borderRadius: '0.3rem', background: 'transparent',
             color: '#fff', cursor: 'pointer' }}><X size={14} /></button>
         </div>
@@ -360,19 +360,19 @@ export default function TrafficView({ visible }) {
       {!data.configured && !loading && (
         <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', padding: '0.5rem 0.75rem',
           fontSize: '0.78rem', color: 'var(--accent-amber)', fontFamily: 'monospace' }}>
-          No NAP credentials configured — set them in Admin → Traffic Data (NAP)
+          Podatki za NAP niso nastavljeni — nastavi jih v Skrbništvo → Podatki o prometu (NAP)
         </div>
       )}
       {loading && !loadedOnce.current ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
           <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} />
-          Loading traffic data…
+          Nalaganje prometnih podatkov…
         </div>
       ) : error && !data.features?.length ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--accent-red)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-          Failed to load traffic data: {error}
+          Nalaganje prometnih podatkov ni uspelo: {error}
         </div>
       ) : (
         <TrafficMap layer={activeLayer} features={data.features || []} visible={visible} updatedAt={data.updatedAt}

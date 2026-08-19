@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import i18n from '../i18n.js';
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -26,7 +27,7 @@ export default class ErrorBoundary extends Component {
         <AlertTriangle size={32} style={{ color: 'var(--accent-amber)' }} />
         <div>
           <div style={{ fontWeight: 700, color: 'var(--text-1)', marginBottom: '0.4rem' }}>
-            Something went wrong in {this.props.name || 'this panel'}
+            {i18n.t('errorBoundary.somethingWrong', { name: this.props.name || i18n.t('errorBoundary.thisPanel') })}
           </div>
           <div style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--accent-red)',
             background: 'color-mix(in srgb, var(--accent-red) 8%, transparent)',
@@ -45,7 +46,7 @@ export default class ErrorBoundary extends Component {
             border: '1px solid color-mix(in srgb, var(--accent-green) 30%, transparent)',
             color: 'var(--accent-green)', fontSize: '0.85rem', fontWeight: 500,
           }}>
-          <RefreshCw size={14} /> Try again
+          <RefreshCw size={14} /> {i18n.t('errorBoundary.tryAgain')}
         </button>
       </div>
     );

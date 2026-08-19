@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { useTranslation } from 'react-i18next';
 import { Radio, Search, Volume2, VolumeX, Settings, Rss, Sun, Moon, LogOut, User, Menu, X, Bell, BellOff, Map, Archive, CloudRain, Plane, Camera, Siren } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useAuth }  from '../context/AuthContext.jsx';
@@ -9,6 +10,7 @@ import LiveChannels from './LiveChannels.jsx';
 const isNative = Capacitor.isNativePlatform();
 
 export default function Header({ wsStatus, soundEnabled, onToggleSound, browserNotif, onSearch, searching, view, setView, isGuest, onGuestLogin, onProfileOpen, menuOpen: menuOpenProp, onMenuOpenChange }) {
+  const { t } = useTranslation();
   const [query, setQuery]       = useState('');
   const [menuOpenState, setMenuOpenState] = useState(false);
   // Controlled by App.jsx on native (so BottomNav's "More" tab can drive the same
@@ -93,7 +95,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
               <div style={{ position:'relative' }}>
                 <Search size={12} style={{ position:'absolute', left:'0.55rem', top:'50%',
                   transform:'translateY(-50%)', color:'var(--text-3)', pointerEvents:'none' }} />
-                <input type="text" placeholder="Search…" value={query}
+                <input type="text" placeholder={t('header.searchPlaceholder')} value={query}
                   onChange={e => setQuery(e.target.value)}
                   className="pm-input" style={{ paddingLeft:'1.8rem', fontSize:'0.8rem' }} />
                 {searching && (
@@ -106,35 +108,35 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             </form>
 
             {/* Nav */}
-            <NavBtn active={view==='feed'}    onClick={() => nav('feed')}    icon={<Rss size={13}/>}     label="Feed" />
-            <NavBtn active={view==='map'}     onClick={() => nav('map')}     icon={<Map size={13}/>}     label="Map" />
-            <NavBtn active={view==='archive'} onClick={() => nav('archive')} icon={<Archive size={13}/>} label="Archive" />
-            <NavBtn active={view==='weather'} onClick={() => nav('weather')} icon={<CloudRain size={13}/>} label="Weather" />
+            <NavBtn active={view==='feed'}    onClick={() => nav('feed')}    icon={<Rss size={13}/>}     label={t('header.nav.feed')} />
+            <NavBtn active={view==='map'}     onClick={() => nav('map')}     icon={<Map size={13}/>}     label={t('header.nav.map')} />
+            <NavBtn active={view==='archive'} onClick={() => nav('archive')} icon={<Archive size={13}/>} label={t('header.nav.archive')} />
+            <NavBtn active={view==='weather'} onClick={() => nav('weather')} icon={<CloudRain size={13}/>} label={t('header.nav.weather')} />
             {showAircraft && (
-              <NavBtn active={view==='aircraft'} onClick={() => nav('aircraft')} icon={<Plane size={13}/>} label="Aircraft" />
+              <NavBtn active={view==='aircraft'} onClick={() => nav('aircraft')} icon={<Plane size={13}/>} label={t('header.nav.aircraft')} />
             )}
             {showTraffic && (
-              <NavBtn active={view==='traffic'} onClick={() => nav('traffic')} icon={<Camera size={13}/>} label="Traffic" />
+              <NavBtn active={view==='traffic'} onClick={() => nav('traffic')} icon={<Camera size={13}/>} label={t('header.nav.traffic')} />
             )}
             {showInterventions && (
               <NavBtn active={view==='interventions'} onClick={() => nav('interventions')} icon={<Siren size={13}/>} label="SPIN" />
             )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
-              <NavBtn active={view==='admin'} onClick={() => nav('admin')} icon={<Settings size={13}/>} label="Settings" />
+              <NavBtn active={view==='admin'} onClick={() => nav('admin')} icon={<Settings size={13}/>} label={t('header.nav.settings')} />
             )}
 
             {/* Sound + browser notifications + theme */}
-            <IconBtn title={soundEnabled ? 'Mute sound alerts' : 'Enable sound alerts'} onClick={onToggleSound} active={soundEnabled}>
+            <IconBtn title={soundEnabled ? t('header.muteSound') : t('header.enableSound')} onClick={onToggleSound} active={soundEnabled}>
               {soundEnabled ? <Volume2 size={14}/> : <VolumeX size={14}/>}
             </IconBtn>
             {browserNotif.supported && (
               <IconBtn
                 title={
                   browserNotif.permission === 'denied'
-                    ? 'Browser/push notifications blocked — allow in browser settings'
+                    ? t('header.notifBlocked')
                     : browserNotif.enabled
-                      ? 'Browser/push notifications ON — click to disable'
-                      : 'Enable browser/push notifications (OS popups)'
+                      ? t('header.notifOn')
+                      : t('header.notifOff')
                 }
                 onClick={browserNotif.toggle}
                 active={browserNotif.enabled}
@@ -142,22 +144,22 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
                 {browserNotif.enabled ? <Bell size={14}/> : <BellOff size={14}/>}
               </IconBtn>
             )}
-            <IconBtn title="Toggle dark/light theme" onClick={toggleTheme}>
+            <IconBtn title={t('header.toggleTheme')} onClick={toggleTheme}>
               {theme==='dark' ? <Sun size={14}/> : <Moon size={14}/>}
             </IconBtn>
 
             {/* Username / login */}
             {isGuest ? (
-              <button onClick={onGuestLogin} title="Click to log in for full access"
+              <button onClick={onGuestLogin} title={t('header.loginClickTitle')}
                 style={{ display:'flex', alignItems:'center', gap:'0.3rem',
                   fontSize:'0.72rem', color:'var(--accent-blue)', fontFamily:'monospace',
                   padding:'0.2rem 0.5rem', borderRadius:'0.3rem', cursor:'pointer',
                   background:'color-mix(in srgb,var(--accent-blue) 10%,transparent)',
                   border:'1px solid color-mix(in srgb,var(--accent-blue) 30%,transparent)' }}>
-                <User size={11}/> Log in
+                <User size={11}/> {t('header.login')}
               </button>
             ) : (
-              <button onClick={onProfileOpen} title={user?.orgName ? `Profile & notification settings — ${user.orgName}` : 'Profile & notification settings'}
+              <button onClick={onProfileOpen} title={user?.orgName ? t('header.profileTitleOrg', { org: user.orgName }) : t('header.profileTitle')}
                 style={{ display:'flex', alignItems:'center', gap:'0.3rem',
                   fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace',
                   padding:'0.2rem 0.5rem', borderRadius:'0.3rem', cursor:'pointer',
@@ -171,14 +173,14 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
                 {user?.role === 'editor' && (
                   <span style={{ fontSize:'0.6rem', padding:'0.05rem 0.3rem', borderRadius:'0.25rem',
                     background:'color-mix(in srgb,var(--accent-amber) 15%,transparent)',
-                    color:'var(--accent-amber)', marginLeft:'0.2rem' }}>editor</span>
+                    color:'var(--accent-amber)', marginLeft:'0.2rem' }}>{t('header.editorBadge')}</span>
                 )}
               </button>
             )}
 
             {/* Logout — only for logged-in users */}
             {!isGuest && (
-              <IconBtn title="Sign out" onClick={logout}>
+              <IconBtn title={t('header.signOut')} onClick={logout}>
                 <LogOut size={14}/>
               </IconBtn>
             )}
@@ -224,7 +226,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
                 <div style={{ position:'relative' }}>
                   <Search size={14} style={{ position:'absolute', left:'0.65rem', top:'50%',
                     transform:'translateY(-50%)', color:'var(--text-3)', pointerEvents:'none' }} />
-                  <input type="text" placeholder="Search messages…" value={query}
+                  <input type="text" placeholder={t('header.searchPlaceholderLong')} value={query}
                     onChange={e => setQuery(e.target.value)} autoFocus
                     className="pm-input" style={{ paddingLeft:'2.1rem', fontSize:'0.9rem' }} />
                 </div>
@@ -234,27 +236,27 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             {/* Feed/Map/Archive/Weather live in BottomNav on native — redundant here */}
             {!isNative && (
               <>
-                <MenuRow icon={<Rss size={16}/>}     label="Feed"    active={view==='feed'}    onClick={() => nav('feed')} />
-                <MenuRow icon={<Map size={16}/>}     label="Map"     active={view==='map'}     onClick={() => nav('map')} />
-                <MenuRow icon={<Archive size={16}/>} label="Archive" active={view==='archive'} onClick={() => nav('archive')} />
-                <MenuRow icon={<CloudRain size={16}/>} label="Weather" active={view==='weather'} onClick={() => nav('weather')} />
+                <MenuRow icon={<Rss size={16}/>}     label={t('header.nav.feed')}    active={view==='feed'}    onClick={() => nav('feed')} />
+                <MenuRow icon={<Map size={16}/>}     label={t('header.nav.map')}     active={view==='map'}     onClick={() => nav('map')} />
+                <MenuRow icon={<Archive size={16}/>} label={t('header.nav.archive')} active={view==='archive'} onClick={() => nav('archive')} />
+                <MenuRow icon={<CloudRain size={16}/>} label={t('header.nav.weather')} active={view==='weather'} onClick={() => nav('weather')} />
               </>
             )}
             {showAircraft && (
-              <MenuRow icon={<Plane size={16}/>} label="Aircraft" active={view==='aircraft'} onClick={() => nav('aircraft')} />
+              <MenuRow icon={<Plane size={16}/>} label={t('header.nav.aircraft')} active={view==='aircraft'} onClick={() => nav('aircraft')} />
             )}
             {showTraffic && (
-              <MenuRow icon={<Camera size={16}/>} label="Traffic" active={view==='traffic'} onClick={() => nav('traffic')} />
+              <MenuRow icon={<Camera size={16}/>} label={t('header.nav.traffic')} active={view==='traffic'} onClick={() => nav('traffic')} />
             )}
             {showInterventions && (
               <MenuRow icon={<Siren size={16}/>} label="SPIN" active={view==='interventions'} onClick={() => nav('interventions')} />
             )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (
-              <MenuRow icon={<Settings size={16}/>} label="Settings" active={view==='admin'} onClick={() => nav('admin')} />
+              <MenuRow icon={<Settings size={16}/>} label={t('header.nav.settings')} active={view==='admin'} onClick={() => nav('admin')} />
             )}
             <div style={{ height:'1px', background:'var(--border-soft)' }} />
             <MenuRow icon={soundEnabled ? <Volume2 size={16}/> : <VolumeX size={16}/>}
-              label={soundEnabled ? 'Sound: ON' : 'Sound: OFF'}
+              label={soundEnabled ? t('header.mobileMenu.soundOn') : t('header.mobileMenu.soundOff')}
               accent={soundEnabled ? 'var(--accent-green)' : null}
               onClick={onToggleSound} />
             {browserNotif.supported && (
@@ -262,29 +264,29 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
                 icon={browserNotif.enabled ? <Bell size={16}/> : <BellOff size={16}/>}
                 label={
                   browserNotif.permission === 'denied'
-                    ? 'Notifications: blocked in browser'
+                    ? t('header.mobileMenu.notifBlocked')
                     : browserNotif.enabled
-                      ? 'Browser notifications: ON'
-                      : 'Browser notifications: OFF'
+                      ? t('header.mobileMenu.notifOn')
+                      : t('header.mobileMenu.notifOff')
                 }
                 accent={browserNotif.enabled ? 'var(--accent-green)' : null}
                 onClick={browserNotif.permission === 'denied' ? undefined : browserNotif.toggle} />
             )}
             <MenuRow icon={theme==='dark' ? <Sun size={16}/> : <Moon size={16}/>}
-              label={theme==='dark' ? 'Light theme' : 'Dark theme'}
+              label={theme==='dark' ? t('header.mobileMenu.lightTheme') : t('header.mobileMenu.darkTheme')}
               onClick={toggleTheme} />
             <div style={{ height:'1px', background:'var(--border-soft)' }} />
             {isGuest ? (
-              <MenuRow icon={<User size={16}/>} label="Log in for full access"
+              <MenuRow icon={<User size={16}/>} label={t('header.mobileMenu.loginFull')}
                 accent="var(--accent-blue)" onClick={() => { onGuestLogin(); setMenuOpen(false); }} />
             ) : (
               <>
                 {user && (
                   <MenuRow icon={<User size={16}/>}
-                    label={`Profile & notifications (${user.username})`}
+                    label={t('header.mobileMenu.profileWithUser', { username: user.username })}
                     onClick={() => { onProfileOpen(); setMenuOpen(false); }} />
                 )}
-                <MenuRow icon={<LogOut size={16}/>} label="Sign out"
+                <MenuRow icon={<LogOut size={16}/>} label={t('header.mobileMenu.signOut')}
                   accent="var(--accent-red)" onClick={() => { logout(); setMenuOpen(false); }} />
               </>
             )}

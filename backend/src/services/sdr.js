@@ -763,7 +763,7 @@ function spawnDonglePipeline(dongle, label, myGen) {
       const t = line.trim(); if (!t) continue;
       const msg = parseLine(t); if (!msg) continue;
       state.lastMessage = new Date().toISOString();
-      logger.info(`${label} [${msg.protocol}] ${msg.capcode}: ${msg.message.substring(0,60)}`);
+      logger.info(`${label} [${msg.protocol}] ${msg.capcode}: ${msg.message}`);
       handleDecodedMessage(msg, dongleSourceId);
     }
   });

@@ -7,7 +7,7 @@ const BASEMAP_STORAGE_KEY = 'pm_smok_basemap';
 const TILE_URL  = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const STATUS_HEX   = { alarm: '#f85149', rising: '#f0883e', steady: '#3fb950', falling: '#58a6ff', noData: '#8b949e', unknown: '#8b949e' };
-const STATUS_LABEL = { alarm: 'Alarm', rising: 'Rising', steady: 'Steady', falling: 'Falling', noData: 'No data', unknown: 'Unknown' };
+const STATUS_LABEL = { alarm: 'Alarm', rising: 'Naraščanje', steady: 'Stabilno', falling: 'Upadanje', noData: 'Ni podatkov', unknown: 'Neznano' };
 
 function fmtDelta(v, digits = 0) {
   if (v == null) return '';
@@ -27,26 +27,26 @@ function statRow(label, value, unit, delta, deltaDigits) {
 function buildPopupHtml(st) {
   const color = STATUS_HEX[st.status] || STATUS_HEX.unknown;
   const rows = [
-    statRow('Water level', st.waterLevelCm, ' cm', st.waterLevelDeltaCm, 0),
-    statRow('Flow', st.flowM3s, ' m³/s', st.flowDeltaM3s, 3),
-    statRow('Temperature', st.tempC, '°C', st.tempDeltaC, 1),
+    statRow('Vodostaj', st.waterLevelCm, ' cm', st.waterLevelDeltaCm, 0),
+    statRow('Pretok', st.flowM3s, ' m³/s', st.flowDeltaM3s, 3),
+    statRow('Temperatura', st.tempC, '°C', st.tempDeltaC, 1),
   ].filter(Boolean).join('');
 
   const alarmRow = (st.actualAlarmLevel || st.statisticalAlarmLevel)
     ? `<div style="display:flex;justify-content:space-between;gap:0.75rem;color:var(--accent-red);font-weight:600">
-        <span>Alarm level</span><span>actual ${st.actualAlarmLevel ?? '—'} · statistical ${st.statisticalAlarmLevel ?? '—'}</span>
+        <span>Alarmna stopnja</span><span>dejanska ${st.actualAlarmLevel ?? '—'} · statistična ${st.statisticalAlarmLevel ?? '—'}</span>
       </div>`
     : '';
 
   return `
     <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.78rem;min-width:200px;color:var(--text-1)">
-      <div style="font-weight:700;font-size:0.9rem">${st.name || `Station ${st.id}`}</div>
+      <div style="font-weight:700;font-size:0.9rem">${st.name || `Postaja ${st.id}`}</div>
       ${st.river ? `<div style="color:var(--text-3);font-size:0.72rem;margin-bottom:0.3rem">${st.river}</div>` : ''}
       <span style="display:inline-block;font-size:0.62rem;font-weight:700;padding:0.08rem 0.45rem;border-radius:0.6rem;color:${color};background:${color}22;margin-bottom:0.4rem">${STATUS_LABEL[st.status] || st.status}</span>
       <div style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.72rem">
-        ${rows || '<div style="color:var(--text-3)">No current readings</div>'}
+        ${rows || '<div style="color:var(--text-3)">Ni trenutnih odčitkov</div>'}
         ${alarmRow}
-        ${st.dataAgeText ? `<div style="display:flex;justify-content:space-between;gap:0.75rem;margin-top:0.2rem"><span style="color:var(--text-3)">Data age</span><span style="color:var(--text-1)">${st.dataAgeText}</span></div>` : ''}
+        ${st.dataAgeText ? `<div style="display:flex;justify-content:space-between;gap:0.75rem;margin-top:0.2rem"><span style="color:var(--text-3)">Starost podatkov</span><span style="color:var(--text-1)">${st.dataAgeText}</span></div>` : ''}
       </div>
     </div>
   `;
@@ -64,7 +64,7 @@ function AlarmBanner({ stations }) {
       color: 'var(--accent-red)', fontSize: '0.8rem', fontWeight: 600,
     }}>
       <AlertTriangle size={15} />
-      {alarms.length} station{alarms.length > 1 ? 's' : ''} in alarm: {alarms.map(a => a.name).filter(Boolean).join(', ')}
+      {alarms.length} {alarms.length > 1 ? 'postaj' : 'postaja'} v alarmnem stanju: {alarms.map(a => a.name).filter(Boolean).join(', ')}
     </div>
   );
 }
@@ -155,12 +155,12 @@ export default function SmokWaterPanel({ visible }) {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
           <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} />
-          Loading SMOK station data…
+          Nalaganje podatkov SMOK…
         </div>
       ) : error && !data.stations.length ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--accent-red)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-          Failed to load SMOK data: {error}
+          Nalaganje podatkov SMOK ni uspelo: {error}
         </div>
       ) : (
         <StationMap stations={data.stations} visible={visible} updatedAt={data.updatedAt} />

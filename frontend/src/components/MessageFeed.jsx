@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import MessageRow from './MessageRow.jsx';
 import { useSite } from '../context/SiteContext.jsx';
 import { fetchLastSeen, saveLastSeen } from '../utils/api.js';
@@ -8,6 +9,7 @@ const BADGE_COL_WIDTH = '130px';
 const SOURCE_COL_WIDTH = '120px';
 
 function FeedHeader() {
+  const { t } = useTranslation();
   const cell = (label, style) => (
     <span style={{ fontFamily:'monospace', fontSize:'0.6rem', fontWeight:700,
       textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-3)', ...style }}>
@@ -22,16 +24,17 @@ function FeedHeader() {
       borderBottom:'1px solid var(--border)', borderLeft:'3px solid transparent',
       position:'sticky', top:0, zIndex:2 }}>
       <span style={{ width:'12px', flexShrink:0 }} />
-      {cell('Date / Time',   { flexShrink:0, minWidth:'62px', textAlign:'right' })}
-      {cell('Source',        { flexShrink:0, width: SOURCE_COL_WIDTH, textAlign:'center' })}
-      {cell('Capcode',       { flexShrink:0, minWidth:'70px', textAlign:'center' })}
-      {cell('Alias / Group', { flexShrink:0, width: BADGE_COL_WIDTH, textAlign:'center' })}
-      {cell('Message',       { flex:1 })}
+      {cell(t('messageFeed.dateTime'),   { flexShrink:0, minWidth:'62px', textAlign:'right' })}
+      {cell(t('messageFeed.source'),        { flexShrink:0, width: SOURCE_COL_WIDTH, textAlign:'center' })}
+      {cell(t('messageFeed.capcode'),       { flexShrink:0, minWidth:'70px', textAlign:'center' })}
+      {cell(t('messageFeed.aliasGroup'), { flexShrink:0, width: BADGE_COL_WIDTH, textAlign:'center' })}
+      {cell(t('messageFeed.message'),       { flex:1 })}
     </div>
   );
 }
 
 export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete, wsStatus, onRefresh }) {
+  const { t } = useTranslation();
   // settingsLoaded is true once the /api/site-settings fetch has resolved (success or fail).
   // We must NOT start the badge timer until then — otherwise a slow mobile network causes
   // the timer to fire with the hard-coded default (10 s) before the real configured value
@@ -136,7 +139,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center',
         justifyContent:'center', height:'100%', color:'var(--text-3)', gap:'0.5rem' }}>
         <div style={{ fontSize:'3rem', opacity:0.2 }}>📟</div>
-        <p style={{ fontFamily:'monospace', fontSize:'0.85rem', margin:0 }}>Waiting for transmissions…</p>
+        <p style={{ fontFamily:'monospace', fontSize:'0.85rem', margin:0 }}>{t('messageFeed.waiting')}</p>
       </div>
     );
   }
@@ -183,7 +186,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
               border:'1px solid color-mix(in srgb,var(--accent-green) 25%,transparent)',
               color: loadingMore ? 'var(--text-3)' : 'var(--accent-green)',
               transition:'all 0.15s' }}>
-            {loadingMore ? 'Loading…' : `Load more  (${totalLoaded} of ${totalInDb} loaded)`}
+            {loadingMore ? t('messageFeed.loading') : t('messageFeed.loadMore', { loaded: totalLoaded, total: totalInDb })}
           </button>
         </div>
       )}

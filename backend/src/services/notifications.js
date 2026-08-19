@@ -2,7 +2,7 @@
 
 const logger = require('../utils/logger');
 const { getNotifConfig, saveNotifConfig, getNotifFilter } = require('./config');
-const { normCapcode } = require('./database');
+const { normCapcode, groupMatchesSelection } = require('./database');
 const { formatTs } = require('../utils/time');
 const { sendMqtt, disconnectMqtt } = require('./mqtt');
 
@@ -52,7 +52,7 @@ function passesFilter(msg, orgId) {
     const filter = getNotifFilter(orgId);
     if (!filter || filter.mode === 'all') return true;
     if (filter.mode === 'groups') {
-      return msg.group_id != null && filter.group_ids.includes(Number(msg.group_id));
+      return groupMatchesSelection(msg.group_id, filter.group_ids);
     }
     if (filter.mode === 'aliases' || filter.mode === 'capcodes') {
       return filter.capcodes.includes(normCapcode(String(msg.capcode)));

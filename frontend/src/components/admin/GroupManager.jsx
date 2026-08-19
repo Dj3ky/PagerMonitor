@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import { Layers, Plus, Trash2, Pencil, X, Save } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Layers, Plus, Trash2, Pencil, X, Save, Upload, Download, Search, ChevronRight, ChevronDown } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
-import { adminFetchGroups, adminSaveGroup, adminDeleteGroup } from '../../utils/api.js';
+import { adminFetchGroups, adminSaveGroup, adminDeleteGroup, adminDeleteAllGroups,
+         adminExportGroupsCsv, adminImportGroupsCsv,
+         adminFetchAliases, adminSaveAlias } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -19,21 +21,100 @@ function Flash({ msg }) {
   );
 }
 
+// One group's alias roster, plus a search-and-add picker limited to ungrouped aliases —
+// an alias can only belong to one group at a time, so an already-grouped alias is never
+// offered here; move it by removing it from its current group first.
+function GroupAliasPanel({ group, allAliases, onAssign, onUnassign }) {
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const available = allAliases.filter(a => !a.group_id && (!q || a.name?.toLowerCase().includes(q) || a.capcode?.includes(q)));
+
+  return (
+    <div style={{ marginLeft:'1.9rem', marginBottom:'0.4rem', padding:'0.55rem 0.7rem',
+      background:'var(--bg-1)', border:'1px solid var(--border)', borderRadius:'0.4rem' }}>
+      <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginBottom:'0.35rem' }}>Aliases in this group</div>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:'0.3rem', marginBottom:'0.6rem' }}>
+        {group.aliases?.length > 0
+          ? group.aliases.map(a => (
+            <span key={a.capcode} style={{ display:'flex', alignItems:'center', gap:'0.25rem', fontSize:'0.72rem',
+              padding:'0.15rem 0.3rem 0.15rem 0.5rem', borderRadius:'0.75rem',
+              color: a.color || 'var(--accent-green)', background:(a.color||'#4ade80')+'22',
+              border:`1px solid ${(a.color||'#4ade80')}44` }}>
+              {a.name}
+              <button onClick={() => onUnassign(a)} title="Remove from group"
+                style={{ background:'none', border:'none', cursor:'pointer', color:'inherit', padding:0, display:'flex' }}>
+                <X size={11} />
+              </button>
+            </span>
+          ))
+          : <span style={{ fontSize:'0.72rem', color:'var(--text-3)' }}>No aliases in this group yet.</span>}
+      </div>
+
+      <div style={{ fontSize:'0.68rem', color:'var(--text-3)', marginBottom:'0.3rem' }}>Add an ungrouped alias</div>
+      <input className="pm-input" placeholder="Search ungrouped aliases…" value={search}
+        onChange={e => setSearch(e.target.value)} style={{ fontSize:'0.75rem', marginBottom:'0.35rem' }} />
+      <div style={{ maxHeight:'140px', overflowY:'auto', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
+        {available.map(a => (
+          <button key={a.capcode} className="pm-btn" onClick={() => onAssign(a)} style={{ fontSize:'0.7rem' }}>
+            + {a.name} <span style={{ color:'var(--text-3)', fontFamily:'monospace' }}>{a.capcode}</span>
+          </button>
+        ))}
+        {!available.length && (
+          <span style={{ fontSize:'0.72rem', color:'var(--text-3)' }}>
+            {q ? 'No matches' : 'All aliases are already assigned to a group.'}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function GroupManager({ onGroupsChange }) {
   const { user } = useAuth();
   const isPlatformAdmin = !!user?.isPlatformAdmin;
   const { data: raw, loading, reload } = useAdminFetch(adminFetchGroups, []);
   const groups = Array.isArray(raw) ? raw : [];
+  const { data: aliasesRaw, reload: reloadAliases } = useAdminFetch(adminFetchAliases, []);
+  const aliases = Array.isArray(aliasesRaw) ? aliasesRaw : [];
 
   const [form, setForm]       = useState({ ...EMPTY });
   const [editing, setEditing] = useState(null); // group id
   const [originalIsGlobal, setOriginalIsGlobal] = useState(false); // scope at the time editing started
   const [msg, setMsg]         = useState(null);
+  const [importAsGlobal, setImportAsGlobal] = useState(false);
+  const [search, setSearch]   = useState('');
+  const [expandedAliasGroupIds, setExpandedAliasGroupIds] = useState(() => new Set());
+  const fileRef                = useRef();
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 3500); };
 
   const topLevel = groups.filter(g => !g.parent_id);
   const subOf    = (parentId) => groups.filter(g => g.parent_id === parentId);
+
+  const searchQ = search.trim().toLowerCase();
+  const filteredTopLevel = !searchQ ? topLevel
+    : topLevel.filter(g => g.name.toLowerCase().includes(searchQ) || subOf(g.id).some(c => c.name.toLowerCase().includes(searchQ)));
+
+  const toggleAliasPanel = id => setExpandedAliasGroupIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const handleAssignAlias = async (alias, groupId) => {
+    try {
+      await adminSaveAlias(alias.capcode, { name: alias.name, color: alias.color, notes: alias.notes,
+        group_id: groupId, row_color: alias.row_color || null, row_sound: alias.row_sound || null });
+      reload(); reloadAliases();
+    } catch (e) { flash('err', e.message); }
+  };
+  const handleUnassignAlias = async alias => {
+    try {
+      await adminSaveAlias(alias.capcode, { name: alias.name, color: alias.color, notes: alias.notes,
+        group_id: null, row_color: alias.row_color || null, row_sound: alias.row_sound || null });
+      reload(); reloadAliases();
+    } catch (e) { flash('err', e.message); }
+  };
 
   const startEdit = g => {
     const isGlobal = g.org_id == null;
@@ -69,9 +150,41 @@ export default function GroupManager({ onGroupsChange }) {
     } catch (e) { flash('err', e.message); }
   };
 
+  const handleExport = () => adminExportGroupsCsv().catch(e => flash('err', e.message));
+
+  const handleDeleteAll = async () => {
+    if (!confirm(`Delete all ${groups.length} groups? Aliases and subgroups in them will become ungrouped. This cannot be undone.`)) return;
+    try {
+      const r = await adminDeleteAllGroups();
+      flash('ok', `Deleted ${r.deleted} groups`);
+      reload();
+      onGroupsChange?.([]);
+    } catch (e) { flash('err', e.message); }
+  };
+
+  const handleImport = async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const r = await adminImportGroupsCsv(text, isPlatformAdmin && importAsGlobal);
+      const skipNote = r.skipped ? `, ${r.skipped} skipped (empty name)` : '';
+      flash('ok', `Imported ${r.imported ?? 0} groups${skipNote}`);
+      reload();
+      onGroupsChange?.([]);
+    } catch (e) { flash('err', e.message); }
+    e.target.value = '';
+  };
+
   const GroupRow = ({ g, indent = 0 }) => {
-    const isGlobal = g.org_id == null;
-    const locked   = isGlobal && !isPlatformAdmin;
+    const isGlobal        = g.org_id == null;
+    const locked          = isGlobal && !isPlatformAdmin;
+    const aliasPanelOpen  = expandedAliasGroupIds.has(g.id);
+    const allChildren     = subOf(g.id);
+    // While searching, only descend into children that themselves match — unless this
+    // group's own name already matched, in which case show all of them.
+    const children = !searchQ ? allChildren
+      : (g.name.toLowerCase().includes(searchQ) ? allChildren : allChildren.filter(c => c.name.toLowerCase().includes(searchQ)));
     return (
     <>
       <div style={{
@@ -90,11 +203,13 @@ export default function GroupManager({ onGroupsChange }) {
             global
           </span>
         )}
-        {g.aliases?.length > 0 && (
-          <span style={{ fontSize:'0.68rem', color:'var(--text-3)', fontFamily:'monospace' }}>
-            {g.aliases.length} alias{g.aliases.length!==1?'es':''}
-          </span>
-        )}
+        <button onClick={() => toggleAliasPanel(g.id)} title="View and manage aliases in this group"
+          style={{ display:'flex', alignItems:'center', gap:'0.15rem', fontSize:'0.68rem', fontFamily:'monospace',
+            color: aliasPanelOpen ? 'var(--accent-purple)' : 'var(--text-3)',
+            background:'none', border:'none', cursor:'pointer', padding:'0.15rem 0.3rem', flexShrink:0 }}>
+          {aliasPanelOpen ? <ChevronDown size={11}/> : <ChevronRight size={11}/>}
+          {g.aliases?.length || 0} alias{(g.aliases?.length||0)!==1?'es':''}
+        </button>
         <button onClick={() => startEdit(g)} disabled={locked} title={locked ? 'Only the platform admin can edit shared defaults' : undefined}
           style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--text-3)', padding:'0.2rem' }}>
           <Pencil size={13} />
@@ -104,16 +219,35 @@ export default function GroupManager({ onGroupsChange }) {
           <Trash2 size={13} />
         </button>
       </div>
-      {subOf(g.id).map(sub => <GroupRow key={sub.id} g={sub} indent={indent+1} />)}
+      {aliasPanelOpen && (
+        <GroupAliasPanel group={g} allAliases={aliases}
+          onAssign={a => handleAssignAlias(a, g.id)} onUnassign={handleUnassignAlias} />
+      )}
+      {children.map(sub => <GroupRow key={sub.id} g={sub} indent={indent+1} />)}
     </>
     );
   };
 
   return (
     <div style={{ maxWidth:'600px' }}>
-      <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', marginBottom:'1rem', display:'flex', alignItems:'center', gap:'0.5rem' }}>
-        <Layers size={16} style={{ color:'var(--accent-purple)' }} /> Groups
-      </h2>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.5rem' }}>
+        <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', display:'flex', alignItems:'center', gap:'0.5rem', margin:0 }}>
+          <Layers size={16} style={{ color:'var(--accent-purple)' }} /> Groups
+        </h2>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+          {isPlatformAdmin && (
+            <label style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.72rem', color:'var(--text-3)', cursor:'pointer' }}
+              title="New imports become global/shared defaults instead of belonging to your own org">
+              <input type="checkbox" checked={importAsGlobal} onChange={e => setImportAsGlobal(e.target.checked)} />
+              Import as global
+            </label>
+          )}
+          <button className="pm-btn" onClick={handleExport} style={{ fontSize:'0.75rem' }}><Download size={12} /> Export CSV</button>
+          <button className="pm-btn" onClick={() => fileRef.current?.click()} style={{ fontSize:'0.75rem' }}><Upload size={12} /> Import CSV</button>
+          {groups.length > 0 && <button className="pm-btn" onClick={handleDeleteAll} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}><Trash2 size={12} /> Delete All</button>}
+          <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={handleImport} />
+        </div>
+      </div>
       <p style={{ fontSize:'0.82rem', color:'var(--text-3)', marginBottom:'1rem' }}>
         Organise aliases into groups and subgroups. Groups appear as badges in the message feed.
       </p>
@@ -225,12 +359,35 @@ export default function GroupManager({ onGroupsChange }) {
         </button>
       </div>
 
+      <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginBottom:'0.75rem',
+        padding:'0.4rem 0.6rem', background:'var(--bg-2)', borderRadius:'0.35rem', border:'1px solid var(--border)' }}>
+        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>id;name;color;parent_name;row_color;row_sound</span> — id is exported for cross-referencing the aliases CSV's group_id column; it's ignored on import
+      </div>
+
+      {groups.length > 0 && (
+        <div style={{ position:'relative', marginBottom:'0.75rem' }}>
+          <Search size={13} style={{ position:'absolute', left:'0.6rem', top:'50%', transform:'translateY(-50%)', color:'var(--text-3)' }} />
+          <input className="pm-input" placeholder="Search groups by name…"
+            value={search} onChange={e => setSearch(e.target.value)}
+            style={{ paddingLeft:'1.9rem' }} />
+          {search && (
+            <button onClick={() => setSearch('')} title="Clear search"
+              style={{ position:'absolute', right:'0.5rem', top:'50%', transform:'translateY(-50%)',
+                background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.2rem' }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Group list */}
       {loading
         ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem' }}>Loading…</div>
         : groups.length === 0
           ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem', padding:'1.5rem', textAlign:'center' }}>No groups yet.</div>
-          : topLevel.map(g => <GroupRow key={g.id} g={g} />)
+          : filteredTopLevel.length === 0
+            ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem', padding:'1.5rem', textAlign:'center' }}>No groups match "{search}".</div>
+            : filteredTopLevel.map(g => <GroupRow key={g.id} g={g} />)
       }
 
       {/* Recent group activity */}

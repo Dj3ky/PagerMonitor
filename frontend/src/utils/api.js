@@ -64,6 +64,7 @@ export const adminSaveRule        = rule => A('PUT', '/admin/rules', rule);
 export const adminDeleteRule      = id   => A('DELETE', `/admin/rules/${id}`);
 export const adminSaveGroup       = (id, body) => id ? A('PUT', `/admin/groups/${id}`, body) : A('POST', '/admin/groups', body);
 export const adminDeleteGroup     = id   => A('DELETE', `/admin/groups/${id}`);
+export const adminDeleteAllGroups = () => A('DELETE', '/admin/groups');
 export const adminSaveAlias       = (capcode, body) => A('PUT', `/admin/aliases/${capcode}`, body);
 export const adminDeleteAlias     = capcode => A('DELETE', `/admin/aliases/${capcode}`);
 export const adminDeleteAllAliases = () => A('DELETE', '/admin/aliases');
@@ -82,6 +83,7 @@ function authDownload(path, filename) {
     });
 }
 export const adminExportAliasesCsv  = () => authDownload('/admin/aliases/export', 'aliases.csv');
+export const adminExportGroupsCsv   = () => authDownload('/admin/groups/export', 'groups.csv');
 export const adminExportMessagesCsv = () => authDownload('/admin/db/export', `pagermonitor-${Date.now()}.csv`);
 
 export const adminSetUserEmail       = (id, email) => A('PUT', `/admin/users/${id}/email`, { email });
@@ -92,6 +94,15 @@ export const adminSaveMsgNorm        = rules => A('PUT', '/admin/message-normali
 export const adminImportAliasesCsv = (csvText, asGlobal = false) => {
   const t = getToken();
   return fetch(`${BASE}/admin/aliases/import${asGlobal ? '?global=1' : ''}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/csv', Authorization: `Bearer ${t}` },
+    body: csvText,
+  }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d; });
+};
+
+export const adminImportGroupsCsv = (csvText, asGlobal = false) => {
+  const t = getToken();
+  return fetch(`${BASE}/admin/groups/import${asGlobal ? '?global=1' : ''}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/csv', Authorization: `Bearer ${t}` },
     body: csvText,

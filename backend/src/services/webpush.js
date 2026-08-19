@@ -1,7 +1,7 @@
 'use strict';
 
 const logger = require('../utils/logger');
-const { getSetting, setSetting, getDb, normCapcode } = require('./database');
+const { getSetting, setSetting, getDb, normCapcode, groupMatchesSelection } = require('./database');
 
 let webpush = null;
 try { webpush = require('web-push'); } catch (_) {
@@ -86,7 +86,7 @@ function _matchesPrefs(msg, sub, prefix, defaultWhenUnset) {
   if (mode === 'all') return true;
   if (mode === 'groups') {
     const ids = JSON.parse(sub[`${prefix}group_ids`] || '[]').map(Number);
-    return msg.group_id != null && ids.includes(Number(msg.group_id));
+    return groupMatchesSelection(msg.group_id, ids);
   }
   if (mode === 'aliases' || mode === 'capcodes') {
     const caps = JSON.parse(sub[`${prefix}capcodes`] || '[]').map(normCapcode);

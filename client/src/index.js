@@ -928,7 +928,7 @@ function createPipeline(baseCfg, index) {
           if (!t) continue;
           const msg = parseLine(t);
           if (msg) {
-            log('info', `${label} [${msg.protocol}] ${msg.capcode}: ${msg.message.substring(0, 60)}`);
+            log('info', `${label} [${msg.protocol}] ${msg.capcode}: ${msg.message}`);
             sendToServer(msg, cfg);
           }
         }

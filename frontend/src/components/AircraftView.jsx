@@ -13,11 +13,11 @@ function fmtAge(iso) {
   if (!iso) return null;
   const ms = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(ms / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1) return 'pravkar';
+  if (mins < 60) return `pred ${mins} min`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return `pred ${hours}h`;
+  return `pred ${Math.floor(hours / 24)}d`;
 }
 
 function statusColor(a) {
@@ -27,10 +27,10 @@ function statusColor(a) {
 }
 
 function statusLabel(a) {
-  if (a.live && !a.onGround) return 'Airborne';
-  if (a.live && a.onGround) return 'On ground';
-  if (a.lastSeen) return `Last seen ${fmtAge(a.lastSeen)}`;
-  return 'Not seen recently';
+  if (a.live && !a.onGround) return 'V zraku';
+  if (a.live && a.onGround) return 'Na tleh';
+  if (a.lastSeen) return `Nazadnje zaznano ${fmtAge(a.lastSeen)}`;
+  return 'Ni bilo zaznano v zadnjem času';
 }
 
 function buildPopupHtml(a) {
@@ -39,11 +39,11 @@ function buildPopupHtml(a) {
       <div style="font-weight:700;font-size:0.9rem">${a.reg}</div>
       <div style="color:var(--text-3);font-size:0.68rem;margin-bottom:0.45rem">${statusLabel(a)}</div>
       <div style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.72rem">
-        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Altitude</span><span style="color:var(--text-1)">${a.altitude != null ? `${Math.round(a.altitude)} m` : '—'}</span></div>
-        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Speed</span><span style="color:var(--text-1)">${a.velocity != null ? `${Math.round(a.velocity * 3.6)} km/h` : '—'}</span></div>
-        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Heading</span><span style="color:var(--text-1)">${a.heading != null ? `${Math.round(a.heading)}°` : '—'}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Višina</span><span style="color:var(--text-1)">${a.altitude != null ? `${Math.round(a.altitude)} m` : '—'}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Hitrost</span><span style="color:var(--text-1)">${a.velocity != null ? `${Math.round(a.velocity * 3.6)} km/h` : '—'}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:0.75rem"><span style="color:var(--text-3)">Smer</span><span style="color:var(--text-1)">${a.heading != null ? `${Math.round(a.heading)}°` : '—'}</span></div>
       </div>
-      ${a.track && a.track.length > 1 ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.45rem">Click marker to toggle flight path</div>` : ''}
+      ${a.track && a.track.length > 1 ? `<div style="color:var(--text-3);font-size:0.65rem;margin-top:0.45rem">Klikni oznako za prikaz poti leta</div>` : ''}
     </div>
   `;
 }
@@ -74,7 +74,7 @@ function StatusStrip({ aircraft }) {
       color: '#3fb950', fontSize: '0.8rem', fontWeight: 600,
     }}>
       <Plane size={14} />
-      {airborne.length} Fire Boss aircraft airborne — {airborne.map(a => a.reg).join(', ')}
+      {airborne.length} letal Fire Boss v zraku — {airborne.map(a => a.reg).join(', ')}
     </div>
   );
 }
@@ -184,12 +184,12 @@ export default function AircraftView({ visible }) {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
           <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} />
-          Loading aircraft data…
+          Nalaganje podatkov o letalih…
         </div>
       ) : error && !data.aircraft.length ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--accent-red)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-          Failed to load aircraft data: {error}
+          Nalaganje podatkov o letalih ni uspelo: {error}
         </div>
       ) : (
         <AircraftMap aircraft={data.aircraft} visible={visible} updatedAt={data.updatedAt} />

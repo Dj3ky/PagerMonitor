@@ -18,9 +18,9 @@ const OSM_ATTR   = '© <a href="https://www.openstreetmap.org/copyright">OpenStr
 const CARTO_ATTR = `${OSM_ATTR} © <a href="https://carto.com/attributions">CARTO</a>`;
 
 export const BASEMAPS = {
-  streets: { label: 'Streets', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR },
-  dark:    { label: 'Dark',    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  attr: CARTO_ATTR },
-  light:   { label: 'Light',   url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: CARTO_ATTR },
+  streets: { label: 'Ceste', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR },
+  dark:    { label: 'Temna',    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  attr: CARTO_ATTR },
+  light:   { label: 'Svetla',   url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: CARTO_ATTR },
 };
 
 export function useBasemap(storageKey, defaultBasemap = 'dark') {
@@ -70,7 +70,7 @@ export function LastUpdated({ updatedAt }) {
       background: 'var(--bg-1)', border: '1px solid var(--border)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
       color: 'var(--text-2)', whiteSpace: 'nowrap',
     }}>
-      Updated {fmtUpdatedAt(updatedAt)}
+      Posodobljeno {fmtUpdatedAt(updatedAt)}
     </div>
   );
 }
