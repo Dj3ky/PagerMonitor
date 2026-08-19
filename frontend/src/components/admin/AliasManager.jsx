@@ -8,6 +8,50 @@ import { useAuth } from '../../context/AuthContext.jsx';
 
 const EMPTY = { capcode:'', name:'', color:'#00ff9d', notes:'', group_id:'', row_color:'', row_sound:'', is_global:false };
 
+// Searchable replacement for a plain <select> of groups — with dozens/hundreds of groups a
+// native dropdown means scrolling through everything to find one by eye. Typing filters by
+// name; picking an option (or clicking "— No group —") sets the value and closes.
+// onMouseDown+preventDefault on the options fires the pick before the input's onBlur would
+// otherwise close the list first and swallow the click.
+function GroupSelect({ groups, value, onChange }) {
+  const [open, setOpen]     = useState(false);
+  const [search, setSearch] = useState('');
+  const selected = groups.find(g => String(g.id) === String(value));
+  const q        = search.trim().toLowerCase();
+  const filtered = !q ? groups : groups.filter(g => g.name.toLowerCase().includes(q));
+
+  const pick = id => { onChange(id); setOpen(false); setSearch(''); };
+
+  return (
+    <div style={{ position:'relative' }}>
+      <input className="pm-input" placeholder="— No group —"
+        value={open ? search : (selected ? selected.name : '')}
+        onFocus={() => { setOpen(true); setSearch(''); }}
+        onChange={e => setSearch(e.target.value)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && (
+        <div style={{ position:'absolute', zIndex:10, top:'100%', left:0, right:0, marginTop:'0.2rem',
+          maxHeight:'220px', overflowY:'auto', background:'var(--bg-1)', border:'1px solid var(--border)',
+          borderRadius:'0.4rem', boxShadow:'0 4px 12px rgba(0,0,0,0.3)' }}>
+          <div onMouseDown={e => { e.preventDefault(); pick(''); }}
+            style={{ padding:'0.35rem 0.6rem', fontSize:'0.8rem', cursor:'pointer', color:'var(--text-3)' }}>
+            — No group —
+          </div>
+          {filtered.map(g => (
+            <div key={g.id} onMouseDown={e => { e.preventDefault(); pick(String(g.id)); }}
+              style={{ padding:'0.35rem 0.6rem', fontSize:'0.8rem', cursor:'pointer',
+                display:'flex', alignItems:'center', gap:'0.3rem', color: g.color || 'var(--text-1)' }}>
+              {g.parent_id ? <span style={{ color:'var(--text-3)' }}>↳</span> : null}
+              {g.name}
+            </div>
+          ))}
+          {!filtered.length && <div style={{ padding:'0.35rem 0.6rem', fontSize:'0.78rem', color:'var(--text-3)' }}>No matches</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Flash({ msg }) {
   if (!msg) return null;
   const ok = msg.type === 'ok';
@@ -203,12 +247,7 @@ export default function AliasManager() {
           </div>
           <div>
             <label className="pm-label">Group (optional)</label>
-            <select className="pm-input" value={form.group_id||''} onChange={e => applyGroupSelection(e.target.value)}>
-              <option value="">— No group —</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.id}>{g.parent_id ? '  ↳ ' : ''}{g.name}</option>
-              ))}
-            </select>
+            <GroupSelect groups={groups} value={form.group_id} onChange={applyGroupSelection} />
           </div>
           <div>
             <label className="pm-label">Notes (optional)</label>
