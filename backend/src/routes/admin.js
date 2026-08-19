@@ -402,7 +402,8 @@ router.delete('/aliases', adminOnly, (req, res) => {
 });
 router.delete('/aliases/:capcode', (req, res) => {
   try {
-    deleteAlias(effectiveOrgId(req), req.session.isPlatformAdmin, req.params.capcode);
+    const changes = deleteAlias(effectiveOrgId(req), req.session.isPlatformAdmin, req.params.capcode);
+    if (!changes) return res.status(404).json({ error: 'Alias not found, or not yours to delete' });
     addAuditLog(req.session?.username||'admin', 'alias.delete', `capcode=${normCapcode(req.params.capcode)}`, req.session.orgId);
     res.json({ ok: true });
   }

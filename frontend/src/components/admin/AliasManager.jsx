@@ -157,9 +157,9 @@ export default function AliasManager() {
   };
   const cancelEdit = () => { setForm({ ...EMPTY }); setEditing(null); setOverriding(false); };
 
-  const handleDelete = async capcode => {
-    if (!confirm(`Delete alias for ${capcode}?`)) return;
-    try { await adminDeleteAlias(capcode); flash('ok', `Deleted ${capcode}`); reload(); }
+  const handleDelete = async (capcode, isGlobal = false) => {
+    if (!confirm(`Delete ${isGlobal ? 'GLOBAL ' : ''}alias for ${capcode}${isGlobal ? '? This affects every organization on this instance.' : '?'}`)) return;
+    try { await adminDeleteAlias(capcode, isGlobal); flash('ok', `Deleted ${capcode}`); reload(); }
     catch (e) { flash('err', e.message); }
   };
 
@@ -389,7 +389,7 @@ export default function AliasManager() {
                   <div style={{ display:'flex', gap:'0.3rem', flexShrink:0 }}>
                     <button onClick={() => startEdit(a)} title={locked ? 'Create your organization\'s own version of this alias' : undefined}
                       style={{ background:'none', border:'none', cursor:'pointer', color: locked ? 'var(--accent-blue)' : 'var(--text-3)', padding:'0.2rem' }}><Pencil size={13}/></button>
-                    <button onClick={() => handleDelete(a.capcode)} disabled={locked} title={locked ? 'Only the platform admin can delete shared defaults' : undefined}
+                    <button onClick={() => handleDelete(a.capcode, isGlobal)} disabled={locked} title={locked ? 'Only the platform admin can delete shared defaults' : undefined}
                       style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--accent-red)', padding:'0.2rem' }}><Trash2 size={13}/></button>
                   </div>
                 </div>
