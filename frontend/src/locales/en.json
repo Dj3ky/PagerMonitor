@@ -330,6 +330,8 @@
     "on": "on",
     "off": "off",
     "transmittingNow": "Transmitting now",
-    "retry": "retry"
+    "retry": "retry",
+    "muteTooltip": "Mute this channel — hides it from the activity dot and skips it for auto-listen (interference/false triggers). You can still tap to listen manually.",
+    "unmuteTooltip": "Unmute this channel"
   }
 }
