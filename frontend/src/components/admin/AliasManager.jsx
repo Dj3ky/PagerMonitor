@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { Tag, Trash2, Save, Pencil, X, Upload, Download, Search } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
-import { adminFetchAliases, adminSaveAlias, adminDeleteAlias, adminDeleteAllAliases,
+import { adminFetchAliases, adminSaveAlias, adminDeleteAlias, adminDeleteAllAliases, adminDeleteAllGlobalAliases,
          adminFetchGroups, adminExportAliasesCsv, adminImportAliasesCsv } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -127,6 +127,13 @@ export default function AliasManager() {
     catch (e) { flash('err', e.message); }
   };
 
+  const globalAliasCount = aliases.filter(a => a.org_id == null).length;
+  const handleDeleteAllGlobal = async () => {
+    if (!confirm(`Delete all ${globalAliasCount} GLOBAL aliases? This affects every organization on this instance, not just yours. This cannot be undone.`)) return;
+    try { const r = await adminDeleteAllGlobalAliases(); flash('ok', `Deleted ${r.deleted} global aliases`); reload(); }
+    catch (e) { flash('err', e.message); }
+  };
+
   const handleImport = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -157,6 +164,12 @@ export default function AliasManager() {
           <button className="pm-btn" onClick={handleExport} style={{ fontSize:'0.75rem' }}><Download size={12} /> Export CSV</button>
           <button className="pm-btn" onClick={() => fileRef.current?.click()} style={{ fontSize:'0.75rem' }}><Upload size={12} /> Import CSV</button>
           {aliases.length > 0 && <button className="pm-btn" onClick={handleDeleteAll} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}><Trash2 size={12} /> Delete All</button>}
+          {isPlatformAdmin && globalAliasCount > 0 && (
+            <button className="pm-btn" onClick={handleDeleteAllGlobal} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}
+              title="Deletes the shared global alias library — affects every organization on this instance">
+              <Trash2 size={12} /> Delete Global
+            </button>
+          )}
           <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={handleImport} />
         </div>
       </div>
@@ -282,7 +295,7 @@ export default function AliasManager() {
 
       <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginBottom:'0.75rem',
         padding:'0.4rem 0.6rem', background:'var(--bg-2)', borderRadius:'0.35rem', border:'1px solid var(--border)' }}>
-        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>capcode;name;color;notes;group_id</span>
+        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>capcode;name;color;notes;group_id;row_color;row_sound</span>
       </div>
 
       {aliases.length > 0 && (

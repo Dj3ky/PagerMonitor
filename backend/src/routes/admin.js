@@ -324,11 +324,14 @@ router.delete('/groups/:id', (req, res) => {
   }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-// Deletes only the caller's own org's groups — never the global library or another org's.
+// Deletes the caller's own org's groups by default; a platform admin passing ?global=1
+// deletes the global/shared-default groups instead — same reasoning as aliases above.
 router.delete('/groups', adminOnly, (req, res) => {
   try {
-    const deleted = deleteAllGroups(req.session.orgId);
-    addAuditLog(req.session?.username||'admin', 'group.delete_all', `count=${deleted}`, req.session.orgId);
+    const wantsGlobal = req.query.global === '1';
+    if (wantsGlobal && !req.session.isPlatformAdmin) return res.status(403).json({ error: 'Only the platform admin can delete the global group library' });
+    const deleted = deleteAllGroups(wantsGlobal ? null : req.session.orgId);
+    addAuditLog(req.session?.username||'admin', wantsGlobal ? 'group.delete_all_global' : 'group.delete_all', `count=${deleted}`, req.session.orgId);
     res.json({ ok: true, deleted });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -381,11 +384,18 @@ router.put('/aliases/:capcode', (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// Deletes only the caller's own org's aliases — never the global library or another org's.
+// Deletes the caller's own org's aliases by default — never the global library or another
+// org's. A platform admin passing ?global=1 instead deletes the global/shared-default
+// library itself (affects every org on the instance), which is why that branch re-checks
+// isPlatformAdmin explicitly rather than trusting adminOnly's org-scoped role check.
 router.delete('/aliases', adminOnly, (req, res) => {
   try {
-    const info = getDb().prepare('DELETE FROM aliases WHERE org_id=?').run(req.session.orgId);
-    addAuditLog(req.session?.username||'admin', 'alias.delete_all', `count=${info.changes}`, req.session.orgId);
+    const wantsGlobal = req.query.global === '1';
+    if (wantsGlobal && !req.session.isPlatformAdmin) return res.status(403).json({ error: 'Only the platform admin can delete the global alias library' });
+    const info = wantsGlobal
+      ? getDb().prepare('DELETE FROM aliases WHERE org_id IS NULL').run()
+      : getDb().prepare('DELETE FROM aliases WHERE org_id=?').run(req.session.orgId);
+    addAuditLog(req.session?.username||'admin', wantsGlobal ? 'alias.delete_all_global' : 'alias.delete_all', `count=${info.changes}`, req.session.orgId);
     res.json({ ok: true, deleted: info.changes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -402,8 +412,8 @@ router.delete('/aliases/:capcode', (req, res) => {
 router.get('/aliases/export', (req, res) => {
   try {
     const aliases = getAliases(req.session.orgId);
-    const csv = ['capcode;name;color;notes;group_id',
-      ...aliases.map(a => `"${a.capcode}";"${(a.name||'').replace(/"/g,'""')}";"${a.color||''}";"${(a.notes||'').replace(/"/g,'""')}";"${a.group_id||''}"`),
+    const csv = ['capcode;name;color;notes;group_id;row_color;row_sound',
+      ...aliases.map(a => `"${a.capcode}";"${(a.name||'').replace(/"/g,'""')}";"${a.color||''}";"${(a.notes||'').replace(/"/g,'""')}";"${a.group_id||''}";"${a.row_color||''}";"${a.row_sound||''}"`),
     ].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="aliases.csv"');
@@ -423,7 +433,7 @@ router.post('/aliases/import', express.text({ type: 'text/csv', limit: '1mb' }),
       const vals = parseCsvLine(line);
       const row  = {};
       cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
-      if (row.capcode) rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'', group_id: row.group_id||null });
+      if (row.capcode) rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'', group_id: row.group_id||null, row_color: row.row_color||null, row_sound: row.row_sound||null });
       else skipped++;
     }
     bulkUpsertAliases(effectiveOrgId(req), rows);

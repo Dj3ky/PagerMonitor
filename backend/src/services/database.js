@@ -841,15 +841,15 @@ function deleteAlias(orgId, isPlatformAdmin, capcode) {
 }
 function bulkUpsertAliases(orgId, rows) {
   const stmt = orgId == null
-    ? getDb().prepare(`INSERT INTO aliases (org_id, capcode, name, color, notes, group_id) VALUES (NULL, ?, ?, ?, ?, ?)
-        ON CONFLICT(capcode) WHERE org_id IS NULL DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes, group_id=excluded.group_id`)
-    : getDb().prepare(`INSERT INTO aliases (org_id, capcode, name, color, notes, group_id) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(org_id, capcode) WHERE org_id IS NOT NULL DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes, group_id=excluded.group_id`);
+    ? getDb().prepare(`INSERT INTO aliases (org_id, capcode, name, color, notes, group_id, row_color, row_sound) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(capcode) WHERE org_id IS NULL DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes, group_id=excluded.group_id, row_color=excluded.row_color, row_sound=excluded.row_sound`)
+    : getDb().prepare(`INSERT INTO aliases (org_id, capcode, name, color, notes, group_id, row_color, row_sound) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(org_id, capcode) WHERE org_id IS NOT NULL DO UPDATE SET name=excluded.name, color=excluded.color, notes=excluded.notes, group_id=excluded.group_id, row_color=excluded.row_color, row_sound=excluded.row_sound`);
   getDb().transaction(rows => {
     for (const r of rows) {
       const cap = normCapcode(r.capcode);
-      if (orgId == null) stmt.run(cap, r.name, r.color || '#4ade80', r.notes || null, r.group_id || null);
-      else stmt.run(orgId, cap, r.name, r.color || '#4ade80', r.notes || null, r.group_id || null);
+      if (orgId == null) stmt.run(cap, r.name, r.color || '#4ade80', r.notes || null, r.group_id || null, r.row_color || null, r.row_sound || null);
+      else stmt.run(orgId, cap, r.name, r.color || '#4ade80', r.notes || null, r.group_id || null, r.row_color || null, r.row_sound || null);
     }
   })(rows);
 }

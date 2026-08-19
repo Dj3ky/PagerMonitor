@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { Layers, Plus, Trash2, Pencil, X, Save, Upload, Download, Search, ChevronRight, ChevronDown } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
-import { adminFetchGroups, adminSaveGroup, adminDeleteGroup, adminDeleteAllGroups,
+import { adminFetchGroups, adminSaveGroup, adminDeleteGroup, adminDeleteAllGroups, adminDeleteAllGlobalGroups,
          adminExportGroupsCsv, adminImportGroupsCsv,
          adminFetchAliases, adminSaveAlias } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
@@ -162,6 +162,17 @@ export default function GroupManager({ onGroupsChange }) {
     } catch (e) { flash('err', e.message); }
   };
 
+  const globalGroupCount = groups.filter(g => g.org_id == null).length;
+  const handleDeleteAllGlobal = async () => {
+    if (!confirm(`Delete all ${globalGroupCount} GLOBAL groups? This affects every organization on this instance, not just yours. Aliases and subgroups in them will become ungrouped. This cannot be undone.`)) return;
+    try {
+      const r = await adminDeleteAllGlobalGroups();
+      flash('ok', `Deleted ${r.deleted} global groups`);
+      reload();
+      onGroupsChange?.([]);
+    } catch (e) { flash('err', e.message); }
+  };
+
   const handleImport = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -229,7 +240,7 @@ export default function GroupManager({ onGroupsChange }) {
   };
 
   return (
-    <div style={{ maxWidth:'600px' }}>
+    <div style={{ maxWidth:'720px' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.5rem' }}>
         <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', display:'flex', alignItems:'center', gap:'0.5rem', margin:0 }}>
           <Layers size={16} style={{ color:'var(--accent-purple)' }} /> Groups
@@ -245,6 +256,12 @@ export default function GroupManager({ onGroupsChange }) {
           <button className="pm-btn" onClick={handleExport} style={{ fontSize:'0.75rem' }}><Download size={12} /> Export CSV</button>
           <button className="pm-btn" onClick={() => fileRef.current?.click()} style={{ fontSize:'0.75rem' }}><Upload size={12} /> Import CSV</button>
           {groups.length > 0 && <button className="pm-btn" onClick={handleDeleteAll} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}><Trash2 size={12} /> Delete All</button>}
+          {isPlatformAdmin && globalGroupCount > 0 && (
+            <button className="pm-btn" onClick={handleDeleteAllGlobal} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}
+              title="Deletes the shared global group library — affects every organization on this instance">
+              <Trash2 size={12} /> Delete Global
+            </button>
+          )}
           <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={handleImport} />
         </div>
       </div>
