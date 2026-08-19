@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Radio, Play, Square, Loader2, AlertCircle } from 'lucide-react';
+import { Radio, Play, Square, Loader2, AlertCircle, Volume2, VolumeX } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { fetchVoiceChannels, fetchActiveVoiceChannels } from '../utils/api.js';
 import { sendWsMessage, subscribeWsAudio, subscribeWsMessages } from '../hooks/useWebSocket.js';
@@ -55,6 +55,14 @@ export default function LiveChannels() {
   const [status, setStatus]       = useState(null); // 'connecting' | 'playing' | 'error'
   const [activeChannels, setActiveChannels] = useState(() => new Set()); // channel ids currently transmitting (any listener or none)
   const [autoListen, setAutoListen] = useState(() => localStorage.getItem('pm_auto_listen') === '1');
+  // Per-user, browser-local — some channels get occasional RF interference that reads as
+  // "activity" (false RMS trigger) without being real traffic. Muting keeps it out of the
+  // dot/auto-listen so it stops grabbing attention, without hiding it from the org (that's
+  // Channel Visibility, an admin-level, org-wide setting — this is personal and instant).
+  const [mutedChannels, setMutedChannels] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('pm_muted_channels') || '[]')); }
+    catch (_) { return new Set(); }
+  });
 
   const audioCtxRef  = useRef(null);
   const nextTimeRef  = useRef(0);
@@ -70,6 +78,7 @@ export default function LiveChannels() {
   const activeChannelsRef = useRef(activeChannels); activeChannelsRef.current = activeChannels;
   const playingIdRef = useRef(playingId); playingIdRef.current = playingId;
   const autoListenRef = useRef(autoListen); autoListenRef.current = autoListen;
+  const mutedChannelsRef = useRef(mutedChannels); mutedChannelsRef.current = mutedChannels;
 
   useEffect(() => {
     const refetch = () => fetchVoiceChannels().then(r => setChannels(Array.isArray(r) ? r : [])).catch(() => {});
@@ -118,6 +127,17 @@ export default function LiveChannels() {
   }, [open]);
 
   useEffect(() => { localStorage.setItem('pm_auto_listen', autoListen ? '1' : '0'); }, [autoListen]);
+  useEffect(() => { localStorage.setItem('pm_muted_channels', JSON.stringify([...mutedChannels])); }, [mutedChannels]);
+
+  const toggleMute = (id) => {
+    const willMute = !mutedChannels.has(id);
+    setMutedChannels(prev => {
+      const next = new Set(prev);
+      if (willMute) next.add(id); else next.delete(id);
+      return next;
+    });
+    if (willMute && playingId === id) stop(); // don't let a channel you just muted keep playing
+  };
 
   // Auto-listen: while enabled, keeps you tuned to whichever channel is transmitting,
   // switching or stopping as activity changes. Manual play/stop (see userAction below)
@@ -155,17 +175,18 @@ export default function LiveChannels() {
           const curActive = activeChannelsRef.current;
           if (curId != null && curActive.has(curId)) return; // resumed just before the timer fired
           stop();
-          const next = channelsRef.current.find(c => curActive.has(c.id));
+          const curMuted = mutedChannelsRef.current;
+          const next = channelsRef.current.find(c => curActive.has(c.id) && !curMuted.has(c.id));
           if (next) play(next);
         }, AUTO_SWITCH_GRACE_MS);
       }
       return;
     }
 
-    // Nothing playing — jump straight to any active channel, no grace period needed here.
-    const next = channels.find(c => activeChannels.has(c.id));
+    // Nothing playing — jump straight to any active, unmuted channel, no grace period needed here.
+    const next = channels.find(c => activeChannels.has(c.id) && !mutedChannels.has(c.id));
     if (next) play(next);
-  }, [autoListen, activeChannels, playingId, channels]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [autoListen, activeChannels, playingId, channels, mutedChannels]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Native equivalent of the effect above: instead of deciding which channel to play here
   // in JS, just tell LiveAudioService whether auto-listen is on at all and let it make (and
@@ -177,11 +198,19 @@ export default function LiveChannels() {
   useEffect(() => {
     if (!isNative) return;
     if (autoListen && channels.length > 0) {
+      // Muted channels are simply left out of the list the native side ever considers —
+      // no separate "muted" concept needed over there. mutedChannels is deliberately *not*
+      // a dependency of this effect: connectAutoWatch() on the native side fully tears down
+      // and reconnects the socket, which would audibly interrupt whatever's already playing
+      // just from toggling mute on some other channel. A freshly muted channel stops being
+      // picked the next time this effect runs for another reason (toggle off/on, channel
+      // list change, app relaunch) rather than instantly mid-session.
+      const unmuted = channels.filter(c => !mutedChannels.has(c.id));
       LiveAudio.startAuto({
         wsUrl: nativeWsUrl(),
         restBase: BACKEND_URL,
         token: localStorage.getItem('pm_token') || '',
-        channelsJson: JSON.stringify(channels.map(c => ({ id: c.id, description: c.description || t('liveChannels.liveChannel') }))),
+        channelsJson: JSON.stringify(unmuted.map(c => ({ id: c.id, description: c.description || t('liveChannels.liveChannel') }))),
       }).catch(() => {});
     } else if (!autoListen) {
       if (playingId != null) {
@@ -349,6 +378,9 @@ export default function LiveChannels() {
   // from "playing", which always means red-with-name whether it got there manually or
   // via auto-listen — the icon shouldn't look different depending on how you got there.
   const armed = autoListen && playingId == null && status !== 'error';
+  // Muted channels don't count toward the aggregate "someone's transmitting" signal either —
+  // otherwise muting a noisy channel wouldn't actually stop it grabbing attention.
+  const hasUnmutedActivity = channels.some(c => activeChannels.has(c.id) && !mutedChannels.has(c.id));
 
   return (
     <div ref={panelRef} style={{ position:'relative', flexShrink:0, marginLeft:'auto',
@@ -365,7 +397,7 @@ export default function LiveChannels() {
       <button title={
           status === 'playing' ? t('liveChannels.listeningTapToView')
           : armed ? t('liveChannels.autoArmed')
-          : activeChannels.size > 0 ? t('liveChannels.someoneTransmitting')
+          : hasUnmutedActivity ? t('liveChannels.someoneTransmitting')
           : t('liveChannels.liveVoiceChannels')
         }
         onClick={() => setOpen(o => !o)} style={{
@@ -383,7 +415,7 @@ export default function LiveChannels() {
             (same look whether that started manually or via auto). Corner dot = "some channel
             has activity" independent of whether you're tuned in — three separate signals. */}
         <Radio size={18} className={armed ? 'animate-blink' : undefined} />
-        {activeChannels.size > 0 && (
+        {hasUnmutedActivity && (
           <span className="animate-blink" style={{
             position:'absolute', top:'3px', right:'3px', width:'8px', height:'8px',
             borderRadius:'50%', background:'var(--accent-green)',
@@ -429,19 +461,22 @@ export default function LiveChannels() {
               chStatus === 'error'   ? 'color-mix(in srgb, var(--accent-amber) 10%, transparent)' :
               chStatus === 'playing' ? 'color-mix(in srgb, var(--accent-red) 10%, transparent)' :
               'transparent';
+            const isMuted = mutedChannels.has(ch.id);
             return (
-              <button key={ch.id} onClick={() => userAction(() => !isActive ? play(ch) : chStatus === 'error' ? play(ch) : (hapticTap(), stop()))}
+              // A <div> (not <button>) since the mute toggle below needs its own nested
+              // <button> — interactive elements can't nest inside <button> in HTML.
+              <div key={ch.id} onClick={() => userAction(() => !isActive ? play(ch) : chStatus === 'error' ? play(ch) : (hapticTap(), stop()))}
                 style={{
                   display:'flex', alignItems:'center', gap:'0.5rem', width:'100%',
-                  padding:'0.4rem 0.5rem', borderRadius:'0.4rem', border:'none',
+                  padding:'0.4rem 0.5rem', borderRadius:'0.4rem',
                   background: rowBg,
                   color:'var(--text-1)', cursor:'pointer', fontSize:'0.82rem', textAlign:'left',
                 }}>
                 {icon}
-                <span style={{ flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                <span style={{ flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', opacity: isMuted ? 0.5 : 1 }}>
                   {ch.description}
                 </span>
-                {activeChannels.has(ch.id) && (
+                {activeChannels.has(ch.id) && !isMuted && (
                   <span title={t('liveChannels.transmittingNow')} className="animate-blink" style={{
                     width:'7px', height:'7px', borderRadius:'50%',
                     background:'var(--accent-green)', flexShrink:0,
@@ -450,7 +485,17 @@ export default function LiveChannels() {
                 {chStatus === 'error' && (
                   <span style={{ fontSize:'0.68rem', color:'var(--accent-amber)' }}>{t('liveChannels.retry')}</span>
                 )}
-              </button>
+                <button
+                  onClick={e => { e.stopPropagation(); toggleMute(ch.id); }}
+                  title={isMuted ? t('liveChannels.unmuteTooltip') : t('liveChannels.muteTooltip')}
+                  style={{
+                    display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+                    padding:'0.2rem', border:'none', borderRadius:'0.3rem', background:'transparent', cursor:'pointer',
+                    color: isMuted ? 'var(--accent-amber)' : 'var(--text-3)',
+                  }}>
+                  {isMuted ? <VolumeX size={14}/> : <Volume2 size={14}/>}
+                </button>
+              </div>
             );
           })}
         </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Save, RefreshCw, Mail, Smartphone, Siren } from 'lucide-react';
+import { Bell, Save, RefreshCw, Mail, Smartphone, Siren, ChevronRight, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
@@ -23,6 +23,92 @@ const DEFAULT_PREFS = {
   push_enabled: false, push_mode: 'all', push_group_ids: [], push_capcodes: [], push_keywords: [],
   alert_enabled: false, alert_mode: 'all', alert_group_ids: [], alert_capcodes: [], alert_keywords: [],
 };
+
+// One level of group nesting (top-level "parent" groups + their children) as a collapsible,
+// searchable tree. Selecting a parent selects/deselects every child with it — the backend
+// treats a selected parent as covering every child regardless of the children's own state
+// (see groupMatchesSelection in database.js), so a child left unchecked while its parent
+// stays checked would still alarm; cascading the checkbox keeps what's on screen truthful,
+// and children are locked while their parent is selected so unchecking one can't silently
+// do nothing.
+function GroupPicker({ groups, selectedIds, onChange }) {
+  const [search, setSearch] = useState('');
+  const topLevel = groups.filter(g => !g.parent_id);
+  const subOf    = pid => groups.filter(g => g.parent_id === pid);
+  const [expanded, setExpanded] = useState(() => new Set(
+    topLevel.filter(g => subOf(g.id).some(c => selectedIds.includes(c.id))).map(g => g.id)
+  ));
+
+  const toggleExpanded = id => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const toggleParent = g => {
+    const childIds      = subOf(g.id).map(c => c.id);
+    const isSelected     = selectedIds.includes(g.id);
+    const withoutBranch  = selectedIds.filter(x => x !== g.id && !childIds.includes(x));
+    onChange(isSelected ? withoutBranch : [...withoutBranch, g.id, ...childIds]);
+  };
+
+  const toggleLeaf = id => onChange(selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id]);
+
+  if (!groups.length) return <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No groups defined</span>;
+
+  const q           = search.trim().toLowerCase();
+  const nameMatches = g => g.name?.toLowerCase().includes(q);
+  const visibleTop  = q ? topLevel.filter(g => nameMatches(g) || subOf(g.id).some(nameMatches)) : topLevel;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+      <div style={{ fontSize:'0.65rem', color:'var(--text-3)' }}>
+        Selecting a top-level group also notifies for every group nested under it — including ones added later.
+      </div>
+      <input className="pm-input" type="text" placeholder="Search groups…"
+        value={search} onChange={e => setSearch(e.target.value)}
+        style={{ fontSize:'0.75rem', padding:'0.25rem 0.5rem' }} />
+      {q && !visibleTop.length && <span style={{ fontSize:'0.72rem', color:'var(--text-3)' }}>No matches</span>}
+      {visibleTop.map(g => {
+        const allChildren    = subOf(g.id);
+        const children       = q && !nameMatches(g) ? allChildren.filter(nameMatches) : allChildren;
+        const parentSelected = selectedIds.includes(g.id);
+        const isExpanded     = q ? true : expanded.has(g.id);
+        return (
+          <div key={g.id} style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'0.2rem' }}>
+              {allChildren.length > 0 ? (
+                <button type="button" onClick={() => toggleExpanded(g.id)}
+                  title={isExpanded ? 'Collapse' : 'Expand'}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)',
+                    padding:'0.1rem', display:'flex', flexShrink:0 }}>
+                  {isExpanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
+                </button>
+              ) : <span style={{ width:'17px', flexShrink:0 }} />}
+              <label style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.75rem', cursor:'pointer',
+                padding:'0.15rem 0.4rem', borderRadius:'0.3rem', border:'1px solid var(--border)', background:'var(--bg-0)', flex:1 }}>
+                <input type="checkbox" checked={parentSelected} onChange={() => toggleParent(g)} />
+                <span style={{ color: g.color }}>{g.name}</span>
+                {allChildren.length > 0 && <span style={{ fontSize:'0.62rem', color:'var(--text-3)' }}>({allChildren.length})</span>}
+              </label>
+            </div>
+            {isExpanded && children.map(sub => (
+              <label key={sub.id} title={parentSelected ? 'Included via its parent group — uncheck the parent to select individually' : undefined}
+                style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.75rem',
+                  cursor: parentSelected ? 'default' : 'pointer', padding:'0.15rem 0.4rem', borderRadius:'0.3rem',
+                  border:'1px solid var(--border)', background:'var(--bg-0)', marginLeft:'1.4rem',
+                  opacity: parentSelected ? 0.6 : 1 }}>
+                <input type="checkbox" checked={parentSelected || selectedIds.includes(sub.id)}
+                  disabled={parentSelected} onChange={() => toggleLeaf(sub.id)} />
+                <span style={{ color: sub.color }}>{sub.name}</span>
+              </label>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function FilterSection({ label, icon: Icon, accentVar, enabled, onToggle, prefs, onChange, groups, aliases, prefixKey }) {
   const mode      = prefs[`${prefixKey}mode`]      || 'all';
@@ -66,24 +152,8 @@ function FilterSection({ label, icon: Icon, accentVar, enabled, onToggle, prefs,
         {mode === 'groups' && (
           <div>
             <div className="pm-label" style={{ marginBottom: '0.3rem' }}>Groups</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-              {groups.map(g => (
-                <label key={g.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem',
-                  cursor: 'pointer', padding: '0.15rem 0.4rem',
-                  borderRadius: '0.3rem', border: '1px solid var(--border)', background: 'var(--bg-0)',
-                }}>
-                  <input type="checkbox"
-                    checked={groupIds.includes(g.id)}
-                    onChange={e => {
-                      const ids = e.target.checked ? [...groupIds, g.id] : groupIds.filter(x => x !== g.id);
-                      set({ [`${prefixKey}group_ids`]: ids });
-                    }} />
-                  <span style={{ color: g.color }}>{g.name}</span>
-                </label>
-              ))}
-              {groups.length === 0 && <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>No groups defined</span>}
-            </div>
+            <GroupPicker groups={groups} selectedIds={groupIds}
+              onChange={ids => set({ [`${prefixKey}group_ids`]: ids })} />
           </div>
         )}
 
@@ -262,7 +332,7 @@ export default function UserNotifPrefs() {
       api('GET', '/admin/aliases'),
     ]).then(([u, g, a]) => {
       setUsers(Array.isArray(u) ? u : []);
-      setGroups(Array.isArray(g) ? g.filter(x => !x.parent_id) : []);
+      setGroups(Array.isArray(g) ? g : []);
       setAliases(Array.isArray(a) ? a : []);
     }).finally(() => setLoading(false));
   };

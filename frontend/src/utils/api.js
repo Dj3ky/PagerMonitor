@@ -65,9 +65,11 @@ export const adminDeleteRule      = id   => A('DELETE', `/admin/rules/${id}`);
 export const adminSaveGroup       = (id, body) => id ? A('PUT', `/admin/groups/${id}`, body) : A('POST', '/admin/groups', body);
 export const adminDeleteGroup     = id   => A('DELETE', `/admin/groups/${id}`);
 export const adminDeleteAllGroups = () => A('DELETE', '/admin/groups');
+export const adminDeleteAllGlobalGroups = () => A('DELETE', '/admin/groups?global=1');
 export const adminSaveAlias       = (capcode, body) => A('PUT', `/admin/aliases/${capcode}`, body);
-export const adminDeleteAlias     = capcode => A('DELETE', `/admin/aliases/${capcode}`);
+export const adminDeleteAlias     = (capcode, isGlobal = false) => A('DELETE', `/admin/aliases/${capcode}${isGlobal ? '?global=1' : ''}`);
 export const adminDeleteAllAliases = () => A('DELETE', '/admin/aliases');
+export const adminDeleteAllGlobalAliases = () => A('DELETE', '/admin/aliases?global=1');
 
 // Blob downloads (need auth header)
 function authDownload(path, filename) {

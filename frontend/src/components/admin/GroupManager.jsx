@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { Layers, Plus, Trash2, Pencil, X, Save, Upload, Download, Search, ChevronRight, ChevronDown } from 'lucide-react';
 import ActivityFeed from './ActivityFeed.jsx';
-import { adminFetchGroups, adminSaveGroup, adminDeleteGroup, adminDeleteAllGroups,
+import { adminFetchGroups, adminSaveGroup, adminDeleteGroup, adminDeleteAllGroups, adminDeleteAllGlobalGroups,
          adminExportGroupsCsv, adminImportGroupsCsv,
          adminFetchAliases, adminSaveAlias } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
@@ -66,6 +66,69 @@ function GroupAliasPanel({ group, allAliases, onAssign, onUnassign }) {
         )}
       </div>
     </div>
+  );
+}
+
+// Defined at module scope (not inside GroupManager) so it keeps a stable component identity
+// across renders — otherwise every state change (e.g. toggling an alias panel) would give
+// React a "new" component type for the whole tree, forcing a full DOM remount that resets
+// scroll position instead of just updating what changed.
+function GroupRow({ g, indent = 0, groups, editing, isPlatformAdmin, expandedAliasGroupIds, searchQ, aliases,
+  onStartEdit, onDelete, onToggleAliasPanel, onAssignAlias, onUnassignAlias }) {
+  const subOf = pid => groups.filter(c => c.parent_id === pid);
+  const isGlobal        = g.org_id == null;
+  const locked          = isGlobal && !isPlatformAdmin;
+  const aliasPanelOpen  = expandedAliasGroupIds.has(g.id);
+  const allChildren     = subOf(g.id);
+  // While searching, only descend into children that themselves match — unless this
+  // group's own name already matched, in which case show all of them.
+  const children = !searchQ ? allChildren
+    : (g.name.toLowerCase().includes(searchQ) ? allChildren : allChildren.filter(c => c.name.toLowerCase().includes(searchQ)));
+  return (
+    <>
+      <div style={{
+        display:'flex', alignItems:'center', gap:'0.6rem',
+        background: editing === g.id ? 'color-mix(in srgb, var(--accent-purple) 8%, var(--bg-2))' : 'var(--bg-2)',
+        border:`1px solid ${editing===g.id ? 'color-mix(in srgb, var(--accent-purple) 30%, transparent)' : 'var(--border)'}`,
+        borderRadius:'0.5rem', padding:'0.45rem 0.75rem', marginLeft: indent ? '1.25rem' : 0,
+        marginBottom:'0.3rem',
+      }}>
+        {indent > 0 && <span style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>↳</span>}
+        <div style={{ width:'12px', height:'12px', borderRadius:'50%', background: g.color||'#a855f7', flexShrink:0 }} />
+        <span style={{ flex:1, fontSize:'0.85rem', fontWeight:600, color: g.color||'var(--accent-purple)' }}>{g.name}</span>
+        {isGlobal && (
+          <span title="Shared default — visible to every organization" style={{ fontSize:'0.65rem', color:'var(--text-3)',
+            background:'var(--bg-3)', border:'1px solid var(--border)', padding:'0.1rem 0.4rem', borderRadius:'0.75rem', flexShrink:0 }}>
+            global
+          </span>
+        )}
+        <button onClick={() => onToggleAliasPanel(g.id)} title="View and manage aliases in this group"
+          style={{ display:'flex', alignItems:'center', gap:'0.15rem', fontSize:'0.68rem', fontFamily:'monospace',
+            color: aliasPanelOpen ? 'var(--accent-purple)' : 'var(--text-3)',
+            background:'none', border:'none', cursor:'pointer', padding:'0.15rem 0.3rem', flexShrink:0 }}>
+          {aliasPanelOpen ? <ChevronDown size={11}/> : <ChevronRight size={11}/>}
+          {g.aliases?.length || 0} alias{(g.aliases?.length||0)!==1?'es':''}
+        </button>
+        <button onClick={() => onStartEdit(g)} disabled={locked} title={locked ? 'Only the platform admin can edit shared defaults' : undefined}
+          style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--text-3)', padding:'0.2rem' }}>
+          <Pencil size={13} />
+        </button>
+        <button onClick={() => onDelete(g.id, g.name)} disabled={locked} title={locked ? 'Only the platform admin can delete shared defaults' : undefined}
+          style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--accent-red)', padding:'0.2rem' }}>
+          <Trash2 size={13} />
+        </button>
+      </div>
+      {aliasPanelOpen && (
+        <GroupAliasPanel group={g} allAliases={aliases}
+          onAssign={a => onAssignAlias(a, g.id)} onUnassign={onUnassignAlias} />
+      )}
+      {children.map(sub => (
+        <GroupRow key={sub.id} g={sub} indent={indent+1} groups={groups} editing={editing} isPlatformAdmin={isPlatformAdmin}
+          expandedAliasGroupIds={expandedAliasGroupIds} searchQ={searchQ} aliases={aliases}
+          onStartEdit={onStartEdit} onDelete={onDelete} onToggleAliasPanel={onToggleAliasPanel}
+          onAssignAlias={onAssignAlias} onUnassignAlias={onUnassignAlias} />
+      ))}
+    </>
   );
 }
 
@@ -162,6 +225,17 @@ export default function GroupManager({ onGroupsChange }) {
     } catch (e) { flash('err', e.message); }
   };
 
+  const globalGroupCount = groups.filter(g => g.org_id == null).length;
+  const handleDeleteAllGlobal = async () => {
+    if (!confirm(`Delete all ${globalGroupCount} GLOBAL groups? This affects every organization on this instance, not just yours. Aliases and subgroups in them will become ungrouped. This cannot be undone.`)) return;
+    try {
+      const r = await adminDeleteAllGlobalGroups();
+      flash('ok', `Deleted ${r.deleted} global groups`);
+      reload();
+      onGroupsChange?.([]);
+    } catch (e) { flash('err', e.message); }
+  };
+
   const handleImport = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -176,60 +250,8 @@ export default function GroupManager({ onGroupsChange }) {
     e.target.value = '';
   };
 
-  const GroupRow = ({ g, indent = 0 }) => {
-    const isGlobal        = g.org_id == null;
-    const locked          = isGlobal && !isPlatformAdmin;
-    const aliasPanelOpen  = expandedAliasGroupIds.has(g.id);
-    const allChildren     = subOf(g.id);
-    // While searching, only descend into children that themselves match — unless this
-    // group's own name already matched, in which case show all of them.
-    const children = !searchQ ? allChildren
-      : (g.name.toLowerCase().includes(searchQ) ? allChildren : allChildren.filter(c => c.name.toLowerCase().includes(searchQ)));
-    return (
-    <>
-      <div style={{
-        display:'flex', alignItems:'center', gap:'0.6rem',
-        background: editing === g.id ? 'color-mix(in srgb, var(--accent-purple) 8%, var(--bg-2))' : 'var(--bg-2)',
-        border:`1px solid ${editing===g.id ? 'color-mix(in srgb, var(--accent-purple) 30%, transparent)' : 'var(--border)'}`,
-        borderRadius:'0.5rem', padding:'0.45rem 0.75rem', marginLeft: indent ? '1.25rem' : 0,
-        marginBottom:'0.3rem',
-      }}>
-        {indent > 0 && <span style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>↳</span>}
-        <div style={{ width:'12px', height:'12px', borderRadius:'50%', background: g.color||'#a855f7', flexShrink:0 }} />
-        <span style={{ flex:1, fontSize:'0.85rem', fontWeight:600, color: g.color||'var(--accent-purple)' }}>{g.name}</span>
-        {isGlobal && (
-          <span title="Shared default — visible to every organization" style={{ fontSize:'0.65rem', color:'var(--text-3)',
-            background:'var(--bg-3)', border:'1px solid var(--border)', padding:'0.1rem 0.4rem', borderRadius:'0.75rem', flexShrink:0 }}>
-            global
-          </span>
-        )}
-        <button onClick={() => toggleAliasPanel(g.id)} title="View and manage aliases in this group"
-          style={{ display:'flex', alignItems:'center', gap:'0.15rem', fontSize:'0.68rem', fontFamily:'monospace',
-            color: aliasPanelOpen ? 'var(--accent-purple)' : 'var(--text-3)',
-            background:'none', border:'none', cursor:'pointer', padding:'0.15rem 0.3rem', flexShrink:0 }}>
-          {aliasPanelOpen ? <ChevronDown size={11}/> : <ChevronRight size={11}/>}
-          {g.aliases?.length || 0} alias{(g.aliases?.length||0)!==1?'es':''}
-        </button>
-        <button onClick={() => startEdit(g)} disabled={locked} title={locked ? 'Only the platform admin can edit shared defaults' : undefined}
-          style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--text-3)', padding:'0.2rem' }}>
-          <Pencil size={13} />
-        </button>
-        <button onClick={() => handleDelete(g.id, g.name)} disabled={locked} title={locked ? 'Only the platform admin can delete shared defaults' : undefined}
-          style={{ background:'none', border:'none', cursor: locked ? 'not-allowed' : 'pointer', color: locked ? 'var(--border)' : 'var(--accent-red)', padding:'0.2rem' }}>
-          <Trash2 size={13} />
-        </button>
-      </div>
-      {aliasPanelOpen && (
-        <GroupAliasPanel group={g} allAliases={aliases}
-          onAssign={a => handleAssignAlias(a, g.id)} onUnassign={handleUnassignAlias} />
-      )}
-      {children.map(sub => <GroupRow key={sub.id} g={sub} indent={indent+1} />)}
-    </>
-    );
-  };
-
   return (
-    <div style={{ maxWidth:'600px' }}>
+    <div style={{ maxWidth:'720px' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.5rem' }}>
         <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', display:'flex', alignItems:'center', gap:'0.5rem', margin:0 }}>
           <Layers size={16} style={{ color:'var(--accent-purple)' }} /> Groups
@@ -245,6 +267,12 @@ export default function GroupManager({ onGroupsChange }) {
           <button className="pm-btn" onClick={handleExport} style={{ fontSize:'0.75rem' }}><Download size={12} /> Export CSV</button>
           <button className="pm-btn" onClick={() => fileRef.current?.click()} style={{ fontSize:'0.75rem' }}><Upload size={12} /> Import CSV</button>
           {groups.length > 0 && <button className="pm-btn" onClick={handleDeleteAll} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}><Trash2 size={12} /> Delete All</button>}
+          {isPlatformAdmin && globalGroupCount > 0 && (
+            <button className="pm-btn" onClick={handleDeleteAllGlobal} style={{ fontSize:'0.75rem', color:'var(--accent-red)' }}
+              title="Deletes the shared global group library — affects every organization on this instance">
+              <Trash2 size={12} /> Delete Global
+            </button>
+          )}
           <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={handleImport} />
         </div>
       </div>
@@ -361,7 +389,7 @@ export default function GroupManager({ onGroupsChange }) {
 
       <div style={{ fontSize:'0.72rem', color:'var(--text-3)', fontFamily:'monospace', marginBottom:'0.75rem',
         padding:'0.4rem 0.6rem', background:'var(--bg-2)', borderRadius:'0.35rem', border:'1px solid var(--border)' }}>
-        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>id;name;color;parent_name;row_color;row_sound</span> — id is exported for cross-referencing the aliases CSV's group_id column; it's ignored on import
+        CSV format (semicolon-separated): <span style={{ color:'var(--text-2)' }}>id;name;color;parent_name;row_color;row_sound</span> — an existing group is matched by name; a new one keeps the id from the file if it's free, so a paired aliases CSV's group_id column still links up. Aliases now export group_name instead, which doesn't depend on ids at all.
       </div>
 
       {groups.length > 0 && (
@@ -387,7 +415,12 @@ export default function GroupManager({ onGroupsChange }) {
           ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem', padding:'1.5rem', textAlign:'center' }}>No groups yet.</div>
           : filteredTopLevel.length === 0
             ? <div style={{ color:'var(--text-3)', fontFamily:'monospace', fontSize:'0.82rem', padding:'1.5rem', textAlign:'center' }}>No groups match "{search}".</div>
-            : filteredTopLevel.map(g => <GroupRow key={g.id} g={g} />)
+            : filteredTopLevel.map(g => (
+              <GroupRow key={g.id} g={g} groups={groups} editing={editing} isPlatformAdmin={isPlatformAdmin}
+                expandedAliasGroupIds={expandedAliasGroupIds} searchQ={searchQ} aliases={aliases}
+                onStartEdit={startEdit} onDelete={handleDelete} onToggleAliasPanel={toggleAliasPanel}
+                onAssignAlias={handleAssignAlias} onUnassignAlias={handleUnassignAlias} />
+            ))
       }
 
       {/* Recent group activity */}

@@ -74,16 +74,21 @@ function looksLikeRetransmission(a, b) {
 
 // Rewards length, heavily penalizes control characters and multimon-ng's
 // bracketed error placeholders (<DEL>, <NUL>, ...) so a longer-but-more-
-// corrupted retransmission can never outscore a shorter, cleaner one.
+// corrupted retransmission can never outscore a shorter, cleaner one. Junk
+// tokens are stripped out of the length count entirely (not just flat-fee
+// penalized) — a bracketed token is 4-5 characters long, so a per-token
+// penalty in that same range nets out to ~0 and lets padding with garbage
+// pay for itself; excluding their length from the count first closes that.
 function scoreText(text) {
   if (!text) return 0;
-  const junkTokens = (text.match(/<[A-Z]{2,5}>/g) || []).length;
+  const junkTokens = text.match(/<[A-Z]{2,5}>/g) || [];
+  const stripped = text.replace(/<[A-Z]{2,5}>/g, '');
   let controlChars = 0;
-  for (const ch of text) {
+  for (const ch of stripped) {
     const code = ch.codePointAt(0);
     if (code < 0x20 || code === 0x7f) controlChars++;
   }
-  return (text.length - controlChars) - controlChars * 3 - junkTokens * 5;
+  return (stripped.length - controlChars) - controlChars * 3 - junkTokens.length * 8;
 }
 
 function sweepStale(now) {

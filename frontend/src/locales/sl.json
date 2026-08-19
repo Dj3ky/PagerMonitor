@@ -330,6 +330,8 @@
     "on": "vklopljeno",
     "off": "izklopljeno",
     "transmittingNow": "Trenutno oddaja",
-    "retry": "poskusi znova"
+    "retry": "poskusi znova",
+    "muteTooltip": "Utišaj ta kanal — skrije ga iz indikatorja aktivnosti in ga izloči iz samodejnega poslušanja (motnje/lažni sprožilci). Še vedno ga lahko ročno predvajaš.",
+    "unmuteTooltip": "Prekliči utišanje kanala"
   }
 }

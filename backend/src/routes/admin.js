@@ -325,11 +325,14 @@ router.delete('/groups/:id', (req, res) => {
   }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-// Deletes only the caller's own org's groups — never the global library or another org's.
+// Deletes the caller's own org's groups by default; a platform admin passing ?global=1
+// deletes the global/shared-default groups instead — same reasoning as aliases above.
 router.delete('/groups', adminOnly, (req, res) => {
   try {
-    const deleted = deleteAllGroups(req.session.orgId);
-    addAuditLog(req.session?.username||'admin', 'group.delete_all', `count=${deleted}`, req.session.orgId);
+    const wantsGlobal = req.query.global === '1';
+    if (wantsGlobal && !req.session.isPlatformAdmin) return res.status(403).json({ error: 'Only the platform admin can delete the global group library' });
+    const deleted = deleteAllGroups(wantsGlobal ? null : req.session.orgId);
+    addAuditLog(req.session?.username||'admin', wantsGlobal ? 'group.delete_all_global' : 'group.delete_all', `count=${deleted}`, req.session.orgId);
     res.json({ ok: true, deleted });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -340,8 +343,9 @@ router.get('/groups/export', (req, res) => {
     const groups = getGroups(req.session.orgId);
     const nameById = {};
     groups.forEach(g => { nameById[g.id] = g.name; });
-    // id is exported so it can be cross-referenced against the group_id column in the
-    // aliases CSV — it's ignored on import (groups are matched/created by name instead).
+    // id lets a paired aliases CSV's group_id column keep working across a delete-all +
+    // reimport cycle: existing groups are still matched by name on import, but a genuinely
+    // new group keeps this id if nothing already occupies it (see bulkUpsertGroups).
     const csv = ['id;name;color;parent_name;row_color;row_sound',
       ...groups.map(g => `"${g.id}";"${(g.name||'').replace(/"/g,'""')}";"${g.color||''}";"${(g.parent_id ? nameById[g.parent_id]||'' : '').replace(/"/g,'""')}";"${g.row_color||''}";"${g.row_sound||''}"`),
     ].join('\r\n');
@@ -363,7 +367,7 @@ router.post('/groups/import', express.text({ type: 'text/csv', limit: '1mb' }), 
       const vals = parseCsvLine(line);
       const row  = {};
       cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
-      if (row.name) rows.push({ name: row.name, color: row.color||'#4ade80', parent_name: row.parent_name||null, row_color: row.row_color||null, row_sound: row.row_sound||null });
+      if (row.name) rows.push({ id: row.id ? parseInt(row.id, 10) : null, name: row.name, color: row.color||'#4ade80', parent_name: row.parent_name||null, row_color: row.row_color||null, row_sound: row.row_sound||null });
       else skipped++;
     }
     bulkUpsertGroups(effectiveOrgId(req), rows);
@@ -382,17 +386,25 @@ router.put('/aliases/:capcode', (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// Deletes only the caller's own org's aliases — never the global library or another org's.
+// Deletes the caller's own org's aliases by default — never the global library or another
+// org's. A platform admin passing ?global=1 instead deletes the global/shared-default
+// library itself (affects every org on the instance), which is why that branch re-checks
+// isPlatformAdmin explicitly rather than trusting adminOnly's org-scoped role check.
 router.delete('/aliases', adminOnly, (req, res) => {
   try {
-    const info = getDb().prepare('DELETE FROM aliases WHERE org_id=?').run(req.session.orgId);
-    addAuditLog(req.session?.username||'admin', 'alias.delete_all', `count=${info.changes}`, req.session.orgId);
+    const wantsGlobal = req.query.global === '1';
+    if (wantsGlobal && !req.session.isPlatformAdmin) return res.status(403).json({ error: 'Only the platform admin can delete the global alias library' });
+    const info = wantsGlobal
+      ? getDb().prepare('DELETE FROM aliases WHERE org_id IS NULL').run()
+      : getDb().prepare('DELETE FROM aliases WHERE org_id=?').run(req.session.orgId);
+    addAuditLog(req.session?.username||'admin', wantsGlobal ? 'alias.delete_all_global' : 'alias.delete_all', `count=${info.changes}`, req.session.orgId);
     res.json({ ok: true, deleted: info.changes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.delete('/aliases/:capcode', (req, res) => {
   try {
-    deleteAlias(effectiveOrgId(req), req.session.isPlatformAdmin, req.params.capcode);
+    const changes = deleteAlias(effectiveOrgId(req), req.session.isPlatformAdmin, req.params.capcode);
+    if (!changes) return res.status(404).json({ error: 'Alias not found, or not yours to delete' });
     addAuditLog(req.session?.username||'admin', 'alias.delete', `capcode=${normCapcode(req.params.capcode)}`, req.session.orgId);
     res.json({ ok: true });
   }
@@ -403,8 +415,12 @@ router.delete('/aliases/:capcode', (req, res) => {
 router.get('/aliases/export', (req, res) => {
   try {
     const aliases = getAliases(req.session.orgId);
-    const csv = ['capcode;name;color;notes;group_id',
-      ...aliases.map(a => `"${a.capcode}";"${(a.name||'').replace(/"/g,'""')}";"${a.color||''}";"${(a.notes||'').replace(/"/g,'""')}";"${a.group_id||''}"`),
+    // group_name, not the raw id — an id only means anything on the instance it was
+    // exported from, and re-importing it elsewhere (or after groups were recreated, which
+    // reassigns ids) trips the aliases.group_id foreign key. Name is portable and matches
+    // how the groups CSV already references parent_name instead of parent_id.
+    const csv = ['capcode;name;color;notes;group_name;row_color;row_sound',
+      ...aliases.map(a => `"${a.capcode}";"${(a.name||'').replace(/"/g,'""')}";"${a.color||''}";"${(a.notes||'').replace(/"/g,'""')}";"${(a.group_name||'').replace(/"/g,'""')}";"${a.row_color||''}";"${a.row_sound||''}"`),
     ].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="aliases.csv"');
@@ -419,15 +435,28 @@ router.post('/aliases/import', express.text({ type: 'text/csv', limit: '1mb' }),
     const header = lines[0].toLowerCase();
     if (!header.includes('capcode')) return res.status(400).json({ error: 'CSV must have capcode column' });
     const cols = header.split(';').map(c => c.replace(/"/g,'').trim());
+    const effOrgId = effectiveOrgId(req);
+
+    // Resolve group_name (current export format) or a legacy raw group_id column to a group
+    // actually visible in this scope; anything that doesn't resolve becomes ungrouped instead
+    // of failing the whole import with a foreign-key error. Global groups are looked up first
+    // so an org's own same-named group wins on collision, matching getAliases' precedence.
+    const visibleGroups = getDb().prepare('SELECT id, name FROM groups WHERE org_id = ? OR org_id IS NULL ORDER BY (org_id IS NULL) DESC').all(effOrgId);
+    const nameToId = {}; const validIds = new Set();
+    for (const g of visibleGroups) { nameToId[g.name] = g.id; validIds.add(g.id); }
+
     const rows = []; let skipped = 0;
     for (const line of lines.slice(1)) {
       const vals = parseCsvLine(line);
       const row  = {};
       cols.forEach((c, i) => row[c] = (vals[i]||'').trim());
-      if (row.capcode) rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'', group_id: row.group_id||null });
-      else skipped++;
+      if (!row.capcode) { skipped++; continue; }
+      let group_id = null;
+      if (row.group_name) group_id = nameToId[row.group_name] || null;
+      else if (row.group_id) { const gid = parseInt(row.group_id, 10); if (validIds.has(gid)) group_id = gid; }
+      rows.push({ capcode: row.capcode, name: row.name||row.capcode, color: row.color||'#4ade80', notes: row.notes||'', group_id, row_color: row.row_color||null, row_sound: row.row_sound||null });
     }
-    bulkUpsertAliases(effectiveOrgId(req), rows);
+    bulkUpsertAliases(effOrgId, rows);
     res.json({ ok: true, imported: rows.length, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
