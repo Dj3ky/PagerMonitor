@@ -247,7 +247,8 @@ function TrackedPlanesPanel({ aircraft }) {
                     <span title="Globalno — vidno vsem organizacijam" style={{ color: 'var(--accent-blue)', display: 'flex' }}><Globe size={11} /></span>
                   )}
                   <span style={{ color: 'var(--text-3)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {row.aircraft_type || (!row.icao24 ? 'ni podatkov o letalu' : '')}
+                    {[row.manufacturer, row.aircraft_type].filter(Boolean).join(' ')
+                      || (row.icao24 ? `ICAO24 ${row.icao24}` : 'ni podatkov o letalu')}
                     {row.added_by_username ? ` · dodal ${row.added_by_username}` : ''}
                   </span>
                   {canManage(row) && !row.icao24 && (
