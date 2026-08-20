@@ -132,18 +132,26 @@ function saveDedupConfig(cfg) {
 // mode: 'show_all' | 'ignore_capcodes' | 'only_capcodes' | 'only_groups' | 'only_aliases'
 const FEED_FILTER_MODES    = ['show_all', 'ignore_capcodes', 'only_capcodes', 'only_groups', 'only_aliases'];
 // message_type: 'all' | 'alpha' | 'numeric' — independent of mode, same as the text filters below.
-// Only meaningful for POCSAG/FLEX, whose funcbits distinguish numeric-only pages from
-// alphanumeric ones (multimon-ng's default "standard" decode: POCSAG func 0 = numeric,
-// func != 0 = alpha; FLEX NUM = numeric). Anything else (unknown protocol) always passes.
+// Only meaningful for POCSAG/FLEX. Anything else (unknown protocol) always passes.
 const MESSAGE_TYPES        = ['all', 'alpha', 'numeric'];
 const FEED_FILTER_DEFAULTS = { mode: 'show_all', capcodes: [], group_ids: [], text_strings: [], text_regex: [], message_type: 'all' };
 const MAX_TEXT_FILTERS     = 100; // text_strings/text_regex run on every incoming message — bound the list size
 
 function isNumericMessage(msg) {
   const protocol = String(msg.protocol || '').toUpperCase();
-  const funcbits = Number(msg.funcbits);
-  if (protocol.startsWith('POCSAG')) return funcbits === 0;
-  if (protocol === 'FLEX')           return funcbits === 1; // FLEX_TYPE_FUNC.NUM (see services/sdr.js)
+  if (protocol.startsWith('POCSAG')) {
+    // POCSAG func bits are just a 2-bit subaddress field — some networks use func==0 to mean
+    // numeric by convention, but plenty (confirmed in the field) send genuine alpha text on
+    // func 0, so that alone isn't reliable. Trust multimon-ng's own decoded type instead —
+    // it's embedded verbatim in `raw` ("... Alpha: ..." / "Numeric: ..." / "Skyper: ...").
+    // Fall back to the old func-bits heuristic only if `raw` isn't available (e.g. rows
+    // written before `raw` was captured).
+    const raw = String(msg.raw || '');
+    if (/\bNumeric:/i.test(raw))          return true;
+    if (/\b(?:Alpha|Skyper):/i.test(raw)) return false;
+    return Number(msg.funcbits) === 0;
+  }
+  if (protocol === 'FLEX') return Number(msg.funcbits) === 1; // FLEX_TYPE_FUNC.NUM (see services/sdr.js)
   return false;
 }
 

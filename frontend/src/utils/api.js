@@ -45,6 +45,7 @@ const A = (method, path, body) => req(method, path, body, true);
 export const adminFetchSystem       = () => A('GET', '/admin/system');
 export const adminFetchSdrStatus    = () => A('GET', '/admin/sdr/status');
 export const adminFetchSdrConfig    = () => A('GET', '/admin/sdr/config');
+export const adminFetchSdrDongles   = () => A('GET', '/admin/sdr/dongles');
 export const adminFetchSdrLogs      = () => A('GET', '/admin/sdr/logs');
 export const adminFetchClientLogs   = (clientId) => A('GET', `/admin/clients/logs${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`);
 export const adminFetchSdrClients   = () => A('GET', '/admin/sdr-clients');
