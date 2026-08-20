@@ -233,7 +233,7 @@ export default function SiteSettings({ onResetMap }) {
   const nameParts = siteForm.siteName.trim().match(/^(.*?)(\S+)$/) || ['', '', siteForm.siteName];
 
   return (
-    <div style={{ maxWidth: '480px' }}>
+    <div style={{ maxWidth: '720px' }}>
       <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-1)', marginBottom:'1rem',
         display:'flex', alignItems:'center', gap:'0.5rem' }}>
         <Settings2 size={16} style={{ color:'var(--accent-blue)' }} /> Site Settings

@@ -60,6 +60,7 @@ const CFG_FIELDS = [
   { key:'inputFormat',    label:'Input format (-t)',    placeholder:'raw',      hint:'raw | wav | au | aiff (always raw with rtl_fm)',          group:'mmon' },
   { key:'pocsagSpecial',  label:'POCSAG special (-s)',  placeholder:'0',        hint:'1 = on (special char decoding for numeric msgs), 0 = off', group:'mmon' },
   { key:'charset',        label:'Charset (-C)',         placeholder:'',         hint:'Set charset: US (default), FR, DE, SE, DK, SI',          group:'mmon' },
+  { key:'pocsagMode',     label:'POCSAG mode (-f)',     placeholder:'',         hint:'Force message type — empty = auto-detect, or numeric | alpha | skyper. Use alpha if digit-heavy alpha messages (e.g. postal addresses) show up as garbled Numeric.', group:'mmon' },
 ];
 
 const DONGLE_DEFAULTS = { serial:'', label:'', device:'0', mode:'single', pocsagEnabled:true, voiceChannelIds:[] };

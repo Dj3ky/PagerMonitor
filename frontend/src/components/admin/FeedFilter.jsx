@@ -1,8 +1,94 @@
 import { useState, useEffect } from 'react';
-import { EyeOff, Save } from 'lucide-react';
+import { EyeOff, Save, ChevronRight, ChevronDown } from 'lucide-react';
 import { adminFetchFeedFilter, adminSaveFeedFilter } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { adminFetchAliases, adminFetchGroups } from '../../utils/api.js';
+
+// One level of group nesting (top-level "parent" groups + their children) as a collapsible,
+// searchable tree. Selecting a parent selects/deselects every child with it — the backend
+// treats a selected parent as covering every child regardless of the children's own state
+// (see groupMatchesSelection in database.js), so a child left unchecked while its parent
+// stays checked would still pass the filter; cascading the checkbox keeps what's on screen
+// truthful, and children are locked while their parent is selected so unchecking one can't
+// silently do nothing.
+function GroupPicker({ groups, selectedIds, onChange }) {
+  const [search, setSearch] = useState('');
+  const topLevel = groups.filter(g => !g.parent_id);
+  const subOf    = pid => groups.filter(g => g.parent_id === pid);
+  const [expanded, setExpanded] = useState(() => new Set(
+    topLevel.filter(g => subOf(g.id).some(c => selectedIds.includes(c.id))).map(g => g.id)
+  ));
+
+  const toggleExpanded = id => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const toggleParent = g => {
+    const childIds      = subOf(g.id).map(c => c.id);
+    const isSelected     = selectedIds.includes(g.id);
+    const withoutBranch  = selectedIds.filter(x => x !== g.id && !childIds.includes(x));
+    onChange(isSelected ? withoutBranch : [...withoutBranch, g.id, ...childIds]);
+  };
+
+  const toggleLeaf = id => onChange(selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id]);
+
+  if (!groups.length) return <span style={{ fontSize:'0.75rem', color:'var(--text-3)' }}>No groups defined</span>;
+
+  const q           = search.trim().toLowerCase();
+  const nameMatches = g => g.name?.toLowerCase().includes(q);
+  const visibleTop  = q ? topLevel.filter(g => nameMatches(g) || subOf(g.id).some(nameMatches)) : topLevel;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+      <input className="pm-input" type="text" placeholder="Search groups…"
+        value={search} onChange={e => setSearch(e.target.value)}
+        style={{ fontSize:'0.75rem', padding:'0.25rem 0.5rem' }} />
+      {q && !visibleTop.length && <span style={{ fontSize:'0.72rem', color:'var(--text-3)' }}>No matches</span>}
+      {visibleTop.map(g => {
+        const allChildren    = subOf(g.id);
+        const children       = q && !nameMatches(g) ? allChildren.filter(nameMatches) : allChildren;
+        const parentSelected = selectedIds.includes(g.id);
+        const isExpanded     = q ? true : expanded.has(g.id);
+        return (
+          <div key={g.id} style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'0.2rem' }}>
+              {allChildren.length > 0 ? (
+                <button type="button" onClick={() => toggleExpanded(g.id)}
+                  title={isExpanded ? 'Collapse' : 'Expand'}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)',
+                    padding:'0.1rem', display:'flex', flexShrink:0 }}>
+                  {isExpanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
+                </button>
+              ) : <span style={{ width:'17px', flexShrink:0 }} />}
+              <label style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.78rem', cursor:'pointer',
+                padding:'0.2rem 0.55rem', borderRadius:'0.3rem', flex:1,
+                border: `1px solid ${parentSelected ? 'color-mix(in srgb,' + (g.color || 'var(--accent-green)') + ' 50%,transparent)' : 'var(--border)'}`,
+                background: parentSelected ? 'color-mix(in srgb,' + (g.color || 'var(--accent-green)') + ' 12%,transparent)' : 'var(--bg-0)' }}>
+                <input type="checkbox" checked={parentSelected} onChange={() => toggleParent(g)}
+                  style={{ accentColor: g.color || 'var(--accent-green)' }} />
+                <span style={{ color: g.color || 'var(--accent-green)', fontWeight: 600 }}>{g.name}</span>
+                {allChildren.length > 0 && <span style={{ fontSize:'0.62rem', color:'var(--text-3)' }}>({allChildren.length})</span>}
+              </label>
+            </div>
+            {isExpanded && children.map(sub => (
+              <label key={sub.id} title={parentSelected ? 'Included via its parent group — uncheck the parent to select individually' : undefined}
+                style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.78rem',
+                  cursor: parentSelected ? 'default' : 'pointer', padding:'0.2rem 0.55rem', borderRadius:'0.3rem',
+                  border:'1px solid var(--border)', background:'var(--bg-0)', marginLeft:'1.4rem',
+                  opacity: parentSelected ? 0.6 : 1 }}>
+                <input type="checkbox" checked={parentSelected || selectedIds.includes(sub.id)}
+                  disabled={parentSelected} onChange={() => toggleLeaf(sub.id)} />
+                <span style={{ color: sub.color }}>{sub.name}</span>
+              </label>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const MODES = [
   { id: 'show_all',        label: 'Accept all',          desc: 'No filtering — all received messages are processed normally.' },
@@ -48,7 +134,7 @@ export default function FeedFilter() {
   useEffect(() => { if (rawFilter) setFilter(sanitise(rawFilter)); }, [rawFilter]);
 
   const aliases = Array.isArray(rawAliases) ? rawAliases : [];
-  const groups  = Array.isArray(rawGroups)  ? rawGroups.filter(g => !g.parent_id) : [];
+  const groups  = Array.isArray(rawGroups)  ? rawGroups : [];
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); };
 
@@ -184,32 +270,8 @@ export default function FeedFilter() {
                   No groups defined yet. Create groups in <em>Admin → Groups</em>.
                 </div>
               : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                  {groups.map(g => (
-                    <label key={g.id} style={{
-                      display: 'flex', alignItems: 'center', gap: '0.3rem',
-                      fontSize: '0.78rem', cursor: 'pointer', padding: '0.2rem 0.55rem',
-                      borderRadius: '0.3rem',
-                      border: `1px solid ${safe.group_ids.includes(g.id)
-                        ? 'color-mix(in srgb,' + (g.color || 'var(--accent-green)') + ' 50%,transparent)'
-                        : 'var(--border)'}`,
-                      background: safe.group_ids.includes(g.id)
-                        ? 'color-mix(in srgb,' + (g.color || 'var(--accent-green)') + ' 12%,transparent)'
-                        : 'var(--bg-0)',
-                    }}>
-                      <input type="checkbox"
-                        checked={safe.group_ids.includes(g.id)}
-                        onChange={e => {
-                          const ids = e.target.checked
-                            ? [...safe.group_ids, g.id]
-                            : safe.group_ids.filter(x => x !== g.id);
-                          setFilter(f => ({ ...sanitise(f), group_ids: ids }));
-                        }}
-                        style={{ accentColor: g.color || 'var(--accent-green)' }} />
-                      <span style={{ color: g.color || 'var(--accent-green)', fontWeight: 600 }}>{g.name}</span>
-                    </label>
-                  ))}
-                </div>
+                <GroupPicker groups={groups} selectedIds={safe.group_ids}
+                  onChange={ids => setFilter(f => ({ ...sanitise(f), group_ids: ids }))} />
               )
           }
           {safe.group_ids.length === 0 && groups.length > 0 && (

@@ -21,7 +21,7 @@ const DONGLE_DEFAULTS = {
   label:'', device:'0', freq:'173.250M', modulation:'fm', sampleRate:'22050',
   gain:'40', ppm:'0', squelch:'0', resampleRate:'', lowpass:'',
   tunerBandwidth:'', directSampling:'0', offsetTuning:'0',
-  protocols:'POCSAG1200', verbosity:'', quiet:'1', inputFormat:'', pocsagSpecial:'0', charset:'',
+  protocols:'POCSAG1200', verbosity:'', quiet:'1', inputFormat:'', pocsagSpecial:'0', charset:'', pocsagMode:'',
   mode:'single', voiceChannelIds:[], pocsagEnabled:true,
 };
 const DONGLE_FIELDS = [
@@ -44,6 +44,7 @@ const DONGLE_FIELDS = [
   { key:'inputFormat',    label:'Input format (-t)',    hint:'raw | wav | au | aiff (always raw with rtl_fm)',           group:'mmon' },
   { key:'pocsagSpecial',  label:'POCSAG special (-s)',  hint:'1 = on (special char decoding for numeric msgs), 0 = off', group:'mmon' },
   { key:'charset',        label:'Charset (-C)',         hint:'Set charset: US (default), FR, DE, SE, DK, SI',           group:'mmon' },
+  { key:'pocsagMode',     label:'POCSAG mode (-f)',     hint:'Force message type — empty = auto-detect, or numeric | alpha | skyper. Use alpha if digit-heavy alpha messages (e.g. postal addresses) show up as garbled Numeric.', group:'mmon' },
 ];
 
 const FIELD_GROUPS = [
@@ -75,6 +76,7 @@ const FIELD_GROUPS = [
       { key: 'MULTIMON_INPUT_FORMAT',    label: 'Input format (-t)',        hint: 'raw | wav | au | aiff (always raw with rtl_fm)' },
       { key: 'MULTIMON_POCSAG_SPECIAL',  label: 'POCSAG special (-s)',      hint: '1 = on (special char decoding for numeric msgs), 0 = off' },
       { key: 'MULTIMON_POCSAG_CHARSET',  label: 'POCSAG charset (-C)',      hint: 'Set charset: US (default), FR, DE, SE, DK, SI' },
+      { key: 'MULTIMON_POCSAG_MODE',     label: 'POCSAG mode (-f)',         hint: 'Force message type — empty = auto-detect, or numeric | alpha | skyper. Use alpha if digit-heavy alpha messages (e.g. postal addresses) show up as garbled Numeric.' },
     ],
   },
 ];

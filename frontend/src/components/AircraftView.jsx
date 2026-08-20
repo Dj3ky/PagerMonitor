@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader, Plane } from 'lucide-react';
+import { Loader, Plane, Plus, Trash2, ChevronDown, ChevronUp, Pencil, Globe } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
+import { fetchTrackedAircraft, addTrackedAircraft, setTrackedAircraftEnabled, setTrackedAircraftIcao24,
+  setTrackedAircraftGlobal, deleteTrackedAircraft } from '../utils/api.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 // This just re-reads our own backend's in-memory cache (no OpenSky cost), so we
 // poll much faster than the backend's own 1-5 min OpenSky cycle — otherwise the
@@ -74,7 +77,7 @@ function StatusStrip({ aircraft }) {
       color: '#3fb950', fontSize: '0.8rem', fontWeight: 600,
     }}>
       <Plane size={14} />
-      {airborne.length} letal Fire Boss v zraku — {airborne.map(a => a.reg).join(', ')}
+      {airborne.length} letal v zraku — {airborne.map(a => a.reg).join(', ')}
     </div>
   );
 }
@@ -87,13 +90,13 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
   const tileLayerRef = useRef(null);
   const trackLayerRef = useRef(null);
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
-  const [selectedCallsign, setSelectedCallsign] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
     const L = window.L;
     const map = L.map(divRef.current, { center: [45.85, 14.2], zoom: 8 }); // Slovenian coast — usual scooping grounds
-    map.on('click', () => setSelectedCallsign(null));
+    map.on('click', () => setSelectedId(null));
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; trackLayerRef.current = null; };
   }, []);
@@ -122,7 +125,7 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
       .map(a => {
         const marker = L.marker([a.lat, a.lon], { icon: planeIcon(L, a) }).addTo(map);
         marker.bindPopup(buildPopupHtml(a), { minWidth: 210 });
-        marker.on('click', () => setSelectedCallsign(prev => (prev === a.callsign ? null : a.callsign)));
+        marker.on('click', () => setSelectedId(prev => (prev === a.id ? null : a.id)));
         return marker;
       });
   }, [aircraft]);
@@ -133,19 +136,175 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
     if (!map || !window.L) return;
     const L = window.L;
     if (trackLayerRef.current) { map.removeLayer(trackLayerRef.current); trackLayerRef.current = null; }
-    const selected = aircraft.find(a => a.callsign === selectedCallsign);
+    const selected = aircraft.find(a => a.id === selectedId);
     if (selected?.track?.length > 1) {
       trackLayerRef.current = L.polyline(selected.track.map(p => [p.lat, p.lon]), {
         color: '#ffd700', weight: 3, opacity: 0.9,
       }).addTo(map);
     }
-  }, [aircraft, selectedCallsign]);
+  }, [aircraft, selectedId]);
 
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       <LastUpdated updatedAt={updatedAt} />
       <BasemapSwitcher basemap={basemap} onChange={setBasemap} />
       <div ref={divRef} style={{ height: '100%' }} />
+    </div>
+  );
+}
+
+// ── Tracked planes — add/remove/toggle which registrations OpenSky is polled for ─────────
+function TrackedPlanesPanel({ aircraft }) {
+  const { user } = useAuth();
+  const [tracked, setTracked] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [reg, setReg] = useState('');
+  const [manualIcao, setManualIcao] = useState('');
+  const [manualDesc, setManualDesc] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const load = useCallback(() => { fetchTrackedAircraft().then(setTracked).catch(() => {}); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  // Guests (no user.id) get a read-only list; anyone with a real account can add their
+  // own, and admins/editors can manage every row (including the seeded defaults). Only a
+  // platform admin can change global (every-org) visibility.
+  const canManage = (row) => !!user && (user.role === 'admin' || user.role === 'editor' || (user.id != null && row.added_by_user_id === user.id));
+  const canAdd = !!user && user.id != null;
+  const canGlobal = !!user?.isPlatformAdmin;
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    const registration = reg.trim();
+    if (!registration) return;
+    setBusy(true); setMsg(null);
+    try {
+      const res = await addTrackedAircraft(registration, manualIcao.trim(), manualDesc.trim());
+      setReg(''); setManualIcao(''); setManualDesc('');
+      load();
+      setMsg(res.lookupFailed
+        ? { type: 'warn', text: `${registration} dodano, a podatkov o letalu ni bilo mogoče najti — sledenje morda ne bo delovalo, dokler ročno ne vneseš ICAO24 kode.` }
+        : { type: 'ok', text: `${registration} dodano.` });
+    } catch (err) {
+      setMsg({ type: 'err', text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleToggle = async (row) => {
+    try { await setTrackedAircraftEnabled(row.id, !row.enabled); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
+  };
+
+  const handleFixIcao = async (row) => {
+    const val = prompt(`Vnesi ICAO24 (6-mestna šestnajstiška koda, npr. 391a2b) za ${row.registration}:`, '');
+    if (val === null) return;
+    // No free lookup source is guaranteed to have metadata for a manually-sourced hex, so
+    // offer to attach a hand-typed description right away instead of leaving it blank.
+    const desc = prompt(`Opis letala za ${row.registration} (neobvezno, npr. "Airbus A321neo"):`, row.aircraft_type || '');
+    try { await setTrackedAircraftIcao24(row.id, val.trim(), desc == null ? undefined : desc.trim()); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
+  };
+
+  const handleToggleGlobal = async (row) => {
+    const makeGlobal = row.org_id != null;
+    if (!confirm(makeGlobal
+      ? `${row.registration} bo viden vsem organizacijam na tej napravi. Nadaljujem?`
+      : `${row.registration} ne bo več globalno viden, ostal bo samo v tvoji organizaciji. Nadaljujem?`)) return;
+    try { await setTrackedAircraftGlobal(row.id, makeGlobal); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
+  };
+
+  const handleDelete = async (row) => {
+    if (!confirm(`Odstranim ${row.registration} s seznama?`)) return;
+    try { await deleteTrackedAircraft(row.id); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
+  };
+
+  const liveById = new Map(aircraft.map(a => [a.id, a]));
+  const msgColor = msg?.type === 'ok' ? 'var(--accent-green)' : msg?.type === 'warn' ? 'var(--accent-amber)' : 'var(--accent-red)';
+
+  return (
+    <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)' }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        display: 'flex', alignItems: 'center', gap: '0.4rem', width: '100%', padding: '0.45rem 0.75rem',
+        background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-2)', fontSize: '0.78rem', fontWeight: 600,
+      }}>
+        {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+        Sledena letala ({tracked.length})
+      </button>
+      {open && (
+        <div style={{ padding: '0 0.75rem 0.75rem' }}>
+          {msg && (
+            <div style={{ padding: '0.35rem 0.6rem', borderRadius: '0.35rem', fontSize: '0.72rem', marginBottom: '0.5rem',
+              color: msgColor, background: `color-mix(in srgb, ${msgColor} 10%, transparent)` }}>
+              {msg.text}
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '0.6rem' }}>
+            {tracked.map(row => {
+              const live = liveById.get(row.id);
+              const color = live?.live && !live.onGround ? '#3fb950' : live?.live && live.onGround ? '#d29922' : '#8b949e';
+              return (
+                <div key={row.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem' }}>
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: color, flexShrink: 0 }} />
+                  <span style={{ fontWeight: 600, color: 'var(--text-1)', minWidth: '68px' }}>{row.registration}</span>
+                  {row.org_id == null && (
+                    <span title="Globalno — vidno vsem organizacijam" style={{ color: 'var(--accent-blue)', display: 'flex' }}><Globe size={11} /></span>
+                  )}
+                  <span style={{ color: 'var(--text-3)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {[row.manufacturer, row.aircraft_type].filter(Boolean).join(' ')
+                      || (row.icao24 ? `ICAO24 ${row.icao24}` : 'ni podatkov o letalu')}
+                    {row.added_by_username ? ` · dodal ${row.added_by_username}` : ''}
+                  </span>
+                  {canManage(row) && !row.icao24 && (
+                    <button onClick={() => handleFixIcao(row)} title="Ročno nastavi ICAO24" style={{
+                      display: 'flex', alignItems: 'center', background: 'transparent', border: 'none',
+                      color: 'var(--accent-amber)', cursor: 'pointer', padding: '0.15rem' }}>
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                  {canGlobal && (
+                    <button onClick={() => handleToggleGlobal(row)}
+                      title={row.org_id == null ? 'Odstrani iz globalnega seznama' : 'Naredi globalno (vidno vsem organizacijam)'} style={{
+                        display: 'flex', alignItems: 'center', background: 'transparent', border: 'none',
+                        color: row.org_id == null ? 'var(--accent-blue)' : 'var(--text-3)', cursor: 'pointer', padding: '0.15rem' }}>
+                      <Globe size={12} />
+                    </button>
+                  )}
+                  {canManage(row) && (
+                    <>
+                      <input type="checkbox" checked={!!row.enabled} onChange={() => handleToggle(row)}
+                        title={row.enabled ? 'Onemogoči sledenje' : 'Omogoči sledenje'} style={{ cursor: 'pointer' }} />
+                      <button onClick={() => handleDelete(row)} title="Odstrani" style={{
+                        display: 'flex', alignItems: 'center', background: 'transparent', border: 'none',
+                        color: 'var(--accent-red)', cursor: 'pointer', padding: '0.15rem' }}>
+                        <Trash2 size={12} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            {!tracked.length && <div style={{ color: 'var(--text-3)', fontSize: '0.78rem' }}>Ni sledenih letal.</div>}
+          </div>
+          {canAdd && (
+            <form onSubmit={handleAdd} style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <input className="pm-input" value={reg} onChange={e => setReg(e.target.value)}
+                placeholder="Registracija (npr. S5-ABC)" style={{ flex: 1, minWidth: '8rem', fontSize: '0.78rem' }} disabled={busy} />
+              <input className="pm-input" value={manualIcao} onChange={e => setManualIcao(e.target.value)}
+                placeholder="ICAO24 (neobvezno)" style={{ width: '9rem', fontSize: '0.78rem' }} disabled={busy}
+                title="Če poznaš ICAO24 (šestnajstiško) kodo letala, jo lahko vneseš tu — s tem preskočiš samodejno iskanje." />
+              {manualIcao.trim() && (
+                <input className="pm-input" value={manualDesc} onChange={e => setManualDesc(e.target.value)}
+                  placeholder="Opis letala (neobvezno)" style={{ width: '11rem', fontSize: '0.78rem' }} disabled={busy}
+                  title="Samodejno iskanje se preskoči, ko vneseš ICAO24 ročno — tu lahko sam opišeš letalo (tip, proizvajalec …)." />
+              )}
+              <button className="pm-btn pm-btn-primary" type="submit" disabled={busy || !reg.trim()}>
+                <Plus size={13} /> Dodaj
+              </button>
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -180,6 +339,7 @@ export default function AircraftView({ visible }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <StatusStrip aircraft={data.aircraft} />
+      <TrackedPlanesPanel aircraft={data.aircraft} />
       {loading && !loadedOnce.current ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>

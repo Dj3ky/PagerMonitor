@@ -44,6 +44,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
   const markersRef     = useRef({});        // id → L.marker (always created)
   const clusterRef     = useRef(null);      // L.markerClusterGroup
   const heatRef        = useRef(null);      // L.heatLayer
+  const mapMessagesRef = useRef([]);        // always-current mirror of mapMessages, for use in stable callbacks
   const [mapMessages, setMapMessages] = useState([]);
   const [selected,    setSelected]    = useState(null);
   const [loading,     setLoading]     = useState(true);
@@ -135,6 +136,11 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     fetchParamsRef.current = { mapMaxAgeDays, dateFrom, dateTo };
   }, [mapMaxAgeDays, dateFrom, dateTo]);
 
+  // Keep ref in sync so marker click/popup handlers always see the current message list
+  useEffect(() => {
+    mapMessagesRef.current = mapMessages;
+  }, [mapMessages]);
+
   // ── Sync blue "my location" dot from hook position ───────────────────────
   useEffect(() => {
     if (!mapRef.current || !window.L) return;
@@ -185,7 +191,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
               iconSize:[60,28], iconAnchor:[30,28],
             }),
             zIndexOffset: 900,
-          }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem"><strong style="color:${color}">${u.username}</strong><br/><span style="color:#888;font-size:0.7rem">${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}</span><br/><span style="color:#888;font-size:0.65rem">${new Date(u.updated_at + 'Z').toLocaleTimeString()}</span></div>`)
+          }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem"><strong style="color:${color}">${u.username}</strong><br/><span style="color:#888;font-size:0.7rem">${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}</span><br/><span style="color:#888;font-size:0.65rem">${fmtTime(u.updated_at + 'Z', locale, hour12)}</span></div>`)
             .addTo(mapRef.current);
           userMarkersRef.current[u.username] = marker;
         }
@@ -198,7 +204,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
         }
       });
     }).catch(() => {});
-  }, [user]);
+  }, [user, locale, hour12]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -237,13 +243,50 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
       .catch(console.warn);
   }, [visible]);
 
-  function makeIcon(color) {
+  const DOT_SIZE = 20;
+
+  function makeIcon(color, count) {
     const col = color || mapDotColor;
+    const badge = count > 1
+      ? `<div style="position:absolute;top:-9px;right:-9px;min-width:19px;height:19px;padding:0 4px;
+          border-radius:10px;background:#ff4444;color:#fff;font-size:0.68rem;font-weight:700;
+          font-family:monospace;line-height:17px;text-align:center;border:2px solid #fff;">${count > 99 ? '99+' : count}</div>`
+      : '';
     return window.L.divIcon({
       className: '',
-      html: `<div style="width:14px;height:14px;border-radius:50%;background:${col};border:2px solid #fff;box-shadow:0 0 7px ${col};"></div>`,
-      iconSize:[14,14], iconAnchor:[7,7], popupAnchor:[0,-10],
+      html: `<div style="position:relative;width:${DOT_SIZE}px;height:${DOT_SIZE}px;">
+        <div style="width:${DOT_SIZE}px;height:${DOT_SIZE}px;border-radius:50%;background:${col};border:2px solid #fff;box-shadow:0 0 7px ${col};"></div>
+        ${badge}
+      </div>`,
+      iconSize:[DOT_SIZE,DOT_SIZE], iconAnchor:[DOT_SIZE/2,DOT_SIZE/2], popupAnchor:[0,-DOT_SIZE/2-2],
     });
+  }
+
+  // Build popup HTML listing every message that shares this marker's exact location
+  function buildLocationPopupHtml(lat, lng) {
+    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+    const group = mapMessagesRef.current
+      .filter(m => m.lat && m.lng && `${m.lat.toFixed(5)},${m.lng.toFixed(5)}` === key)
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    const items = group.map(msg => {
+      const color = msg.alias_color || mapDotColor;
+      const label = msg.alias_name || msg.capcode;
+      return `<div style="padding:6px 0;border-top:1px solid #ffffff22;">
+        <strong style="color:${color}">${label}</strong>
+        <span style="color:#888;font-size:0.68rem"> · ${msg.capcode} · ${fmtTime(msg.timestamp, locale, hour12)}</span>
+        <div style="margin-top:2px;word-break:break-word">${msg.message || t('mapView.noText')}</div>
+        <button onclick="window.__pmDeleteLocation(${msg.id})" style="margin-top:4px;padding:2px 8px;font-size:0.7rem;font-family:monospace;cursor:pointer;border-radius:4px;border:1px solid #ff444466;background:transparent;color:#ff6666;">${t('mapView.deleteLocation')}</button>
+      </div>`;
+    }).join('');
+
+    const header = group.length > 1
+      ? `<div style="font-size:0.7rem;color:var(--accent-amber,#ffb800);font-weight:700;">${t('mapView.unitsAtLocation', { count: group.length })}</div>`
+      : '';
+
+    return `<div style="font-family:monospace;font-size:0.8rem;min-width:200px;max-height:280px;overflow-y:auto">
+      ${header}${items}
+    </div>`;
   }
 
   const deleteLocation = useCallback((id) => {
@@ -266,21 +309,19 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
   const addMarker = useCallback((msg) => {
     if (!window.L || !msg.lat || !msg.lng) return;
     const color = msg.alias_color || mapDotColor;
-    const label = msg.alias_name  || msg.capcode;
-    const popup = `<div style="font-family:monospace;font-size:0.8rem;min-width:180px">
-      <strong style="color:${color}">${label}</strong><br/>
-      <span style="color:#888;font-size:0.7rem">${msg.capcode} · ${fmtTime(msg.timestamp, locale, hour12)}</span><br/>
-      <div style="margin-top:4px;word-break:break-word">${msg.message || t('mapView.noText')}</div>
-      <button onclick="window.__pmDeleteLocation(${msg.id})" style="margin-top:6px;padding:2px 8px;font-size:0.7rem;font-family:monospace;cursor:pointer;border-radius:4px;border:1px solid #ff444466;background:transparent;color:#ff6666;">${t('mapView.deleteLocation')}</button>
-    </div>`;
 
     if (markersRef.current[msg.id]) {
       markersRef.current[msg.id].setLatLng([msg.lat, msg.lng]).setIcon(makeIcon(color));
     } else {
-      // Create marker but don't add to map yet — layer mode effect handles placement
+      // Create marker but don't add to map yet — layer mode effect handles placement.
+      // Popup content is (re)computed on click so it always lists every message
+      // currently sharing this location, not just the one this marker was created for.
       const marker = window.L.marker([msg.lat, msg.lng], { icon: makeIcon(color) })
-        .bindPopup(popup)
-        .on('click', () => setSelected(msg));
+        .bindPopup('', { maxWidth: 320 })
+        .on('click', () => {
+          setSelected(msg);
+          marker.setPopupContent(buildLocationPopupHtml(msg.lat, msg.lng));
+        });
       markersRef.current[msg.id] = marker;
 
       // Add to current active layer immediately
@@ -300,6 +341,24 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     // Simplest: re-add all markers with updated icons
     mapMessages.forEach(msg => addMarker(msg));
   }, [mapDotColor]);
+
+  // Show a count badge on dots that share a location with other messages
+  useEffect(() => {
+    const counts = {};
+    mapMessages.forEach(msg => {
+      if (!msg.lat || !msg.lng) return;
+      const key = `${msg.lat.toFixed(5)},${msg.lng.toFixed(5)}`;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    mapMessages.forEach(msg => {
+      if (!msg.lat || !msg.lng) return;
+      const marker = markersRef.current[msg.id];
+      if (!marker) return;
+      const key = `${msg.lat.toFixed(5)},${msg.lng.toFixed(5)}`;
+      const color = msg.alias_color || mapDotColor;
+      marker.setIcon(makeIcon(color, counts[key]));
+    });
+  }, [mapMessages, mapDotColor]);
 
   // Execute pending fly once map is ready
   useEffect(() => {
@@ -368,8 +427,12 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
       // don't bypass the mapMaxAgeDays filter via WebSocket
       if (msg.timestamp && new Date(msg.timestamp).getTime() < cutoffMs) return;
 
-      // Already has coords — just add to map if not already there
+      // Already has coords — just add to map if not already there.
+      // Skip if a marker already exists: re-calling addMarker() on every
+      // WebSocket tick (liveMessages is the whole history, not just new
+      // items) would reset its icon and wipe out any location-count badge.
       if (msg.lat && msg.lng) {
+        if (markersRef.current[msg.id]) return;
         setMapMessages(prev => {
           if (prev.find(m => m.id === msg.id)) return prev;
           setTotal(t => t + 1);
@@ -425,7 +488,12 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     // Add marker if it doesn't exist yet (e.g. map just opened)
     if (!markersRef.current[msg.id]) addMarker(msg);
     mapRef.current.flyTo([msg.lat, msg.lng], 15, { duration:0.8 });
-    setTimeout(() => markersRef.current[msg.id]?.openPopup(), 900);
+    setTimeout(() => {
+      const marker = markersRef.current[msg.id];
+      if (!marker) return;
+      marker.setPopupContent(buildLocationPopupHtml(msg.lat, msg.lng));
+      marker.openPopup();
+    }, 900);
     if (window.innerWidth <= 640) setSidebarOpen(false);
   };
 

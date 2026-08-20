@@ -20,12 +20,32 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
   const menuRef                 = useRef(null);
   const debounceRef             = useRef(null);
   const { theme, toggle: toggleTheme } = useTheme();
-  const { user, logout }        = useAuth();
+  const { user, logout, authFetch } = useAuth();
   const { siteName, enableTraffic, enableAircraft, enableInterventions, geocodeCountry } = useSite();
   // All three hardcoded to Slovenian data sources — same gate ARSO weather uses.
   const showAircraft      = enableAircraft      && geocodeCountry === 'si';
   const showTraffic       = enableTraffic       && geocodeCountry === 'si';
   const showInterventions = enableInterventions && geocodeCountry === 'si';
+
+  // Blinking nav dot when any tracked plane is airborne — reads the backend's cheap
+  // in-memory cache (see AircraftView.jsx's own poll), so this second poll costs nothing
+  // extra against OpenSky itself.
+  const [anyAirborne, setAnyAirborne] = useState(false);
+  useEffect(() => {
+    if (!showAircraft) { setAnyAirborne(false); return; }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await authFetch('/api/aircraft');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!cancelled) setAnyAirborne((d.aircraft || []).some(a => a.live && !a.onGround));
+      } catch (_) {}
+    };
+    poll();
+    const iv = setInterval(poll, 20000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [showAircraft, authFetch]);
 
   // Dynamic search — fires 350ms after user stops typing
   useEffect(() => {
@@ -113,7 +133,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             <NavBtn active={view==='archive'} onClick={() => nav('archive')} icon={<Archive size={13}/>} label={t('header.nav.archive')} />
             <NavBtn active={view==='weather'} onClick={() => nav('weather')} icon={<CloudRain size={13}/>} label={t('header.nav.weather')} />
             {showAircraft && (
-              <NavBtn active={view==='aircraft'} onClick={() => nav('aircraft')} icon={<Plane size={13}/>} label={t('header.nav.aircraft')} />
+              <NavBtn active={view==='aircraft'} onClick={() => nav('aircraft')} icon={<Plane size={13}/>} label={t('header.nav.aircraft')} badge={anyAirborne} />
             )}
             {showTraffic && (
               <NavBtn active={view==='traffic'} onClick={() => nav('traffic')} icon={<Camera size={13}/>} label={t('header.nav.traffic')} />
@@ -243,7 +263,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
               </>
             )}
             {showAircraft && (
-              <MenuRow icon={<Plane size={16}/>} label={t('header.nav.aircraft')} active={view==='aircraft'} onClick={() => nav('aircraft')} />
+              <MenuRow icon={<Plane size={16}/>} label={t('header.nav.aircraft')} active={view==='aircraft'} onClick={() => nav('aircraft')} badge={anyAirborne} />
             )}
             {showTraffic && (
               <MenuRow icon={<Camera size={16}/>} label={t('header.nav.traffic')} active={view==='traffic'} onClick={() => nav('traffic')} />
@@ -304,10 +324,10 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
   );
 }
 
-function NavBtn({ active, onClick, icon, label }) {
+function NavBtn({ active, onClick, icon, label, badge }) {
   return (
     <button onClick={onClick} style={{
-      display:'flex', alignItems:'center', gap:'0.3rem',
+      display:'flex', alignItems:'center', gap:'0.3rem', position:'relative',
       padding:'0.28rem 0.55rem', borderRadius:'0.4rem', fontSize:'0.78rem',
       fontWeight:500, cursor:'pointer', whiteSpace:'nowrap',
       border: active ? '1px solid color-mix(in srgb, var(--accent-green) 35%, transparent)' : '1px solid transparent',
@@ -315,6 +335,10 @@ function NavBtn({ active, onClick, icon, label }) {
       color: active ? 'var(--accent-green)' : 'var(--text-2)', transition:'all 0.15s',
     }}>
       {icon} {label}
+      {badge && (
+        <span style={{ position:'absolute', top:'1px', right:'1px', width:'6px', height:'6px', borderRadius:'50%',
+          background:'var(--accent-green)', boxShadow:'var(--glow-green)', animation:'blink 2s ease-in-out infinite' }} />
+      )}
     </button>
   );
 }
@@ -334,7 +358,7 @@ function IconBtn({ onClick, title, active, dimmed, children }) {
   );
 }
 
-function MenuRow({ icon, label, onClick, active, accent }) {
+function MenuRow({ icon, label, onClick, active, accent, badge }) {
   const [hover, setHover] = useState(false);
   const col = active ? 'var(--accent-green)' : accent || 'var(--text-1)';
   return (
@@ -349,7 +373,13 @@ function MenuRow({ icon, label, onClick, active, accent }) {
         cursor:'pointer', fontSize:'0.9rem', fontWeight: active ? 600 : 400,
         color: col, transition:'background 0.12s',
       }}>
-      <span style={{ opacity: active ? 1 : 0.75 }}>{icon}</span>
+      <span style={{ position:'relative', opacity: active ? 1 : 0.75, display:'inline-flex' }}>
+        {icon}
+        {badge && (
+          <span style={{ position:'absolute', top:'-2px', right:'-2px', width:'7px', height:'7px', borderRadius:'50%',
+            background:'var(--accent-green)', boxShadow:'var(--glow-green)', animation:'blink 2s ease-in-out infinite' }} />
+        )}
+      </span>
       {label}
     </button>
   );

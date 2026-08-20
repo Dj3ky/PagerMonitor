@@ -9,7 +9,12 @@ const ROOT_DIR = path.join(__dirname, '../../..');
 const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, deleteAlias,
         getGroups, getHighlightRules, getLastSeenId, setLastSeenId,
         upsertUserLocation, deleteUserLocation, getVoiceChannels,
-        ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL, enrichSourceLabels } = require('../services/database');
+        ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL, enrichSourceLabels,
+        getTrackedAircraft, getTrackedAircraftById, insertTrackedAircraft,
+        updateTrackedAircraftEnabled, updateTrackedAircraftIcao24, setTrackedAircraftOrgId,
+        deleteTrackedAircraftById } = require('../services/database');
+
+const ICAO24_RE = /^[0-9a-f]{6}$/;
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
@@ -474,9 +479,103 @@ router.get('/weather/smok/stations', requireAuth, requireEnabled('enableArsoWeat
 const arsoQuakes = require('../services/arsoQuakes');
 router.get('/weather/arso/quakes', requireAuth, requireEnabled('enableArsoWeather'), (_req, res) => res.json(arsoQuakes.getQuakes()));
 
-// ── Firefighting aircraft tracking (OpenSky) ────────────────────────────────────
+// ── Aircraft tracking (OpenSky) ──────────────────────────────────────────────────
 const openskyAircraft = require('../services/openskyAircraft');
-router.get('/aircraft', requireAuth, requireEnabled('enableAircraft'), (_req, res) => res.json(openskyAircraft.getAircraft()));
+router.get('/aircraft', requireAuth, requireEnabled('enableAircraft'), (req, res) => res.json(openskyAircraft.getAircraft(req.session.orgId)));
+
+// Tracked-aircraft registrations — the list openskyAircraft.js polls OpenSky for. GET is
+// available to any org member; POST always requires a real logged-in session (requireAuth
+// only lets unauthenticated *GET* through in public mode), so guests can't add planes.
+// PATCH/DELETE are allowed for admins/editors on any row, or for the user who added it.
+router.get('/aircraft/tracked', requireAuth, requireEnabled('enableAircraft'), (req, res) => {
+  try { res.json(getTrackedAircraft(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.post('/aircraft/tracked', requireAuth, requireEnabled('enableAircraft'), async (req, res) => {
+  try {
+    const registration = String(req.body?.registration || '').trim().toUpperCase();
+    if (!registration) return res.status(400).json({ error: 'Registration is required' });
+    // Manual ICAO24 override — some aircraft (e.g. small state/firefighting fleets) simply
+    // aren't in adsbdb's database, so a user who already knows the hex can skip the lookup.
+    const manualIcao24 = String(req.body?.icao24 || '').trim().toLowerCase();
+    if (manualIcao24 && !ICAO24_RE.test(manualIcao24)) {
+      return res.status(400).json({ error: 'ICAO24 must be a 6-character hex code' });
+    }
+
+    const orgId = req.session.orgId;
+    const visible = getTrackedAircraft(orgId);
+    if (visible.some(a => a.registration.toUpperCase() === registration)) {
+      return res.status(409).json({ error: 'That registration is already tracked' });
+    }
+
+    let info = null;
+    if (!manualIcao24) {
+      const { lookupByRegistration } = require('../services/aircraftLookup');
+      info = await lookupByRegistration(registration);
+    }
+    // When the caller already supplied the hex by hand, they clearly know the plane —
+    // let them attach their own description too, since neither free lookup source is
+    // guaranteed to have metadata for a manually-sourced hex.
+    const manualDescription = manualIcao24 ? String(req.body?.aircraft_type || '').trim() : '';
+    const row = insertTrackedAircraft(orgId, req.session.userId, req.session.username, {
+      registration,
+      icao24: manualIcao24 || info?.icao24 || null,
+      aircraft_type: info?.type || manualDescription || null,
+      manufacturer: info?.manufacturer || null,
+    });
+    openskyAircraft.refreshSoon();
+    res.json({ ...row, lookupFailed: !manualIcao24 && !info });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+function canManageTrackedAircraft(req, row) {
+  if (row.org_id != null && row.org_id !== req.session.orgId) return false;
+  if (req.session.role === 'admin' || req.session.role === 'editor') return true;
+  return row.added_by_user_id != null && row.added_by_user_id === req.session.userId;
+}
+
+router.patch('/aircraft/tracked/:id', requireAuth, requireEnabled('enableAircraft'), (req, res) => {
+  try {
+    const row = getTrackedAircraftById(parseInt(req.params.id, 10));
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    if (!canManageTrackedAircraft(req, row)) return res.status(403).json({ error: 'Not allowed' });
+
+    if (req.body?.enabled !== undefined) updateTrackedAircraftEnabled(row.id, !!req.body.enabled);
+
+    // Manual ICAO24 fix (+ optional hand-typed description) — lets someone patch in the hex
+    // for a plane neither free lookup source ever resolved (see POST above for why that
+    // happens), and describe it themselves since a manually-sourced hex has no guarantee of
+    // matching metadata anywhere free.
+    if (req.body?.icao24 !== undefined) {
+      const icao24 = String(req.body.icao24 || '').trim().toLowerCase();
+      if (icao24 && !ICAO24_RE.test(icao24)) return res.status(400).json({ error: 'ICAO24 must be a 6-character hex code' });
+      const aircraft_type = req.body.aircraft_type !== undefined
+        ? (String(req.body.aircraft_type).trim() || null)
+        : row.aircraft_type;
+      updateTrackedAircraftIcao24(row.id, { icao24: icao24 || null, aircraft_type, manufacturer: row.manufacturer });
+    }
+
+    // Promote/demote to a global (every-org) default — affects visibility for orgs beyond
+    // the requester's own, so this one needs the instance-wide platform-admin tier, not just
+    // org admin/editor (which canManageTrackedAircraft above already required).
+    if (req.body?.global !== undefined) {
+      if (!req.session.isPlatformAdmin) return res.status(403).json({ error: 'Only a platform admin can change global visibility' });
+      setTrackedAircraftOrgId(row.id, req.body.global ? null : req.session.orgId);
+    }
+
+    openskyAircraft.refreshSoon();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.delete('/aircraft/tracked/:id', requireAuth, requireEnabled('enableAircraft'), (req, res) => {
+  try {
+    const row = getTrackedAircraftById(parseInt(req.params.id, 10));
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    if (!canManageTrackedAircraft(req, row)) return res.status(403).json({ error: 'Not allowed' });
+    deleteTrackedAircraftById(row.id);
+    openskyAircraft.refreshSoon();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ── Traffic data (NAP / b2b.nap.si) ─────────────────────────────────────────────
 const napTraffic = require('../services/napTraffic');
@@ -498,6 +597,12 @@ router.get('/interventions/municipalities', requireAuth, requireEnabled('enableI
 });
 router.get('/interventions/types', requireAuth, requireEnabled('enableInterventions'), (_req, res) => {
   try { res.json(interventions.getTypes()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.get('/interventions/stats', requireAuth, requireEnabled('enableInterventions'), (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+    res.json({ daily: interventions.getDailyStats(days), byType: interventions.getTypeStats(days) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 module.exports = router;

@@ -20,7 +20,7 @@ const REFRESH_MS         = 90 * 1000;
 const DETAIL_BATCH       = 40; // per tick — this hits the source's own per-id endpoint,
                                  // not the same one that's IP-gated, so a higher cap is fine
 const GEOCODE_BATCH      = 10;
-const RECHECK_WINDOW_MS  = 2 * 24 * 60 * 60 * 1000; // give up on missing narrative after 2 days
+const RECHECK_WINDOW_MS  = 6 * 24 * 60 * 60 * 1000; // give up on missing narrative after 6 days
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 
@@ -183,6 +183,22 @@ function getTypes() {
   `).all().map(r => r.intervention_type);
 }
 
+function getDailyStats(days = 30) {
+  ensureTable();
+  return getDb().prepare(`
+    SELECT date(reported_at) AS day, COUNT(*) AS n FROM interventions
+    WHERE reported_at >= datetime('now', @window) GROUP BY day ORDER BY day
+  `).all({ window: `-${days} days` });
+}
+
+function getTypeStats(days = 30) {
+  ensureTable();
+  return getDb().prepare(`
+    SELECT intervention_type, COUNT(*) AS n FROM interventions
+    WHERE reported_at >= datetime('now', @window) GROUP BY intervention_type ORDER BY n DESC
+  `).all({ window: `-${days} days` });
+}
+
 let timer = null;
 function start() {
   if (timer) return;
@@ -192,4 +208,4 @@ function start() {
 }
 function stop() { clearInterval(timer); timer = null; }
 
-module.exports = { start, stop, query, getMunicipalities, getTypes };
+module.exports = { start, stop, query, getMunicipalities, getTypes, getDailyStats, getTypeStats };

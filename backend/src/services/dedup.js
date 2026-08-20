@@ -24,6 +24,12 @@ const SIMILARITY_THRESHOLD = 0.55;
 // corrupted tail drags whole-string similarity below SIMILARITY_THRESHOLD.
 const PREFIX_MIN_LEN   = 15;
 const PREFIX_MIN_RATIO = 0.4;
+// A transmission that just cuts off cleanly (dropped signal, no trailing
+// corruption) leaves the shorter message as an exact prefix of the longer
+// one — unambiguous evidence of a fragment, unlike a shared-opener coincidence
+// between two different messages, so this floor can be much lower than
+// PREFIX_MIN_LEN above.
+const EXACT_PREFIX_MIN_LEN = 8;
 // Safety-net sweep interval for capcodes that stop sending entirely — normal
 // pruning already happens per-capcode against the configured dedup window.
 const STALE_SWEEP_MS = 300_000;
@@ -63,13 +69,16 @@ function commonPrefixLen(a, b) {
   return i;
 }
 
-// True if b looks like a retransmission of a — either the whole strings are
-// close, or they share a long clean prefix before one of them degrades.
+// True if b looks like a retransmission of a — the whole strings are close,
+// the shorter one is a clean cut-off of the longer one, or they share a long
+// prefix before one of them degrades into corruption.
 function looksLikeRetransmission(a, b) {
   if (similarity(a, b) >= SIMILARITY_THRESHOLD) return true;
   const prefixLen = commonPrefixLen(a, b);
   const minLen = Math.min(a.length, b.length);
-  return minLen > 0 && prefixLen >= PREFIX_MIN_LEN && prefixLen / minLen >= PREFIX_MIN_RATIO;
+  if (minLen === 0) return false;
+  if (prefixLen === minLen) return minLen >= EXACT_PREFIX_MIN_LEN;
+  return prefixLen >= PREFIX_MIN_LEN && prefixLen / minLen >= PREFIX_MIN_RATIO;
 }
 
 // Rewards length, heavily penalizes control characters and multimon-ng's

@@ -24,6 +24,14 @@ export const fetchSearch   = (q, limit = 100) => req('GET', `/api/search?q=${enc
 export const fetchStatus   = () => req('GET', '/api/status');
 export const fetchAliases    = () => req('GET', '/api/aliases');
 export const fetchVoiceChannels = () => req('GET', '/api/voice-channels');
+export const fetchTrackedAircraft     = () => req('GET', '/api/aircraft/tracked');
+export const addTrackedAircraft       = (registration, icao24, aircraft_type) =>
+  req('POST', '/api/aircraft/tracked', { registration, ...(icao24 ? { icao24 } : {}), ...(aircraft_type ? { aircraft_type } : {}) });
+export const setTrackedAircraftEnabled = (id, enabled) => req('PATCH', `/api/aircraft/tracked/${id}`, { enabled });
+export const setTrackedAircraftIcao24  = (id, icao24, aircraft_type) =>
+  req('PATCH', `/api/aircraft/tracked/${id}`, { icao24, ...(aircraft_type !== undefined ? { aircraft_type } : {}) });
+export const setTrackedAircraftGlobal  = (id, global)  => req('PATCH', `/api/aircraft/tracked/${id}`, { global });
+export const deleteTrackedAircraft    = (id) => req('DELETE', `/api/aircraft/tracked/${id}`);
 export const fetchActiveVoiceChannels = () => req('GET', '/api/voice-channels/active');
 export const fetchFeedFilter = () => req('GET', '/api/feed-filter');
 export const fetchGroups   = () => req('GET', '/api/groups');

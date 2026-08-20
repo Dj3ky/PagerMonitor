@@ -6,8 +6,9 @@ const REFRESH_MS = 2 * 60 * 1000; // backend itself only refreshes every 10 min 
                                    // catches that update reasonably quickly, cost is a same-origin
                                    // read from the in-memory cache, not a new ARSO fetch.
 
-const BASEMAP_STORAGE_KEY = 'pm_arso_basemap';
-const METRIC_STORAGE_KEY  = 'pm_arso_metric';
+const BASEMAP_STORAGE_KEY   = 'pm_arso_basemap';
+const METRIC_STORAGE_KEY    = 'pm_arso_metric';
+const WARN_AREAS_STORAGE_KEY = 'pm_arso_warn_areas';
 
 const SEVERITY_LABEL = { yellow: 'Rumeno', orange: 'Oranžno', red: 'Rdeče' };
 const SEVERITY_HEX   = { yellow: '#d29922', orange: '#f0883e', red: '#f85149' };
@@ -251,8 +252,9 @@ function WarningsBanner({ alerts }) {
   );
 }
 
-// ── Metric switcher (Temp / Precip / Snow / Wind) — stacked under BasemapSwitcher
-function MetricSwitcher({ metric, onChange }) {
+// ── Metric switcher (Temp / Precip / Snow / Wind) — stacked under BasemapSwitcher,
+// with a warning-areas ON/OFF toggle grouped below it.
+function MetricSwitcher({ metric, onChange, showWarnAreas, onToggleWarnAreas }) {
   return (
     <div style={{
       position: 'absolute', top: '2.6rem', right: '0.5rem', zIndex: 1000,
@@ -267,6 +269,17 @@ function MetricSwitcher({ metric, onChange }) {
           color: metric === id ? 'var(--accent-green)' : 'var(--text-2)',
         }}>{m.label}</button>
       ))}
+      <div style={{ borderTop: '1px solid var(--border)', margin: '0.15rem 0' }} />
+      <button onClick={() => onToggleWarnAreas(w => !w)} title="Opozorilna območja" style={{
+        padding: '0.2rem 0.5rem', borderRadius: '0.35rem', fontSize: '0.68rem', fontWeight: 500,
+        cursor: 'pointer', border: 'none', whiteSpace: 'nowrap', textAlign: 'left',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem',
+        background: showWarnAreas ? 'color-mix(in srgb, var(--accent-amber) 16%, transparent)' : 'transparent',
+        color: showWarnAreas ? 'var(--accent-amber)' : 'var(--text-2)',
+      }}>
+        <span>Opozorila</span>
+        <span style={{ fontSize: '0.6rem', fontWeight: 700 }}>{showWarnAreas ? 'VKLOP' : 'IZKLOP'}</span>
+      </button>
     </div>
   );
 }
@@ -283,6 +296,10 @@ function StationMap({ stations, visible, updatedAt, regions, alerts }) {
     () => (localStorage.getItem(METRIC_STORAGE_KEY) in METRICS ? localStorage.getItem(METRIC_STORAGE_KEY) : 'temp')
   );
   useEffect(() => { localStorage.setItem(METRIC_STORAGE_KEY, metric); }, [metric]);
+  const [showWarnAreas, setShowWarnAreas] = useState(
+    () => localStorage.getItem(WARN_AREAS_STORAGE_KEY) !== '0'
+  );
+  useEffect(() => { localStorage.setItem(WARN_AREAS_STORAGE_KEY, showWarnAreas ? '1' : '0'); }, [showWarnAreas]);
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
@@ -341,11 +358,14 @@ function StationMap({ stations, visible, updatedAt, regions, alerts }) {
   }, [stations, metric]);
 
   // Warning-region outlines — subtle when calm, filled with severity color when active.
+  // Hidden entirely when the "Opozorila" toggle is off.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
     regionLayersRef.current.forEach(l => map.removeLayer(l));
+    regionLayersRef.current = [];
+    if (!showWarnAreas) return;
     regionLayersRef.current = (regions || []).map(region => {
       const active = region.worstColor && SEVERITY_HEX[region.worstColor];
       const color = active || '#4a5568';
@@ -358,13 +378,14 @@ function StationMap({ stations, visible, updatedAt, regions, alerts }) {
       layer.bindPopup(buildRegionPopupHtml(region, alertsForRegion), { minWidth: 220 });
       return layer;
     });
-  }, [regions, alerts]);
+  }, [regions, alerts, showWarnAreas]);
 
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       <LastUpdated updatedAt={updatedAt} />
       <BasemapSwitcher basemap={basemap} onChange={setBasemap} />
-      <MetricSwitcher metric={metric} onChange={setMetric} />
+      <MetricSwitcher metric={metric} onChange={setMetric}
+        showWarnAreas={showWarnAreas} onToggleWarnAreas={setShowWarnAreas} />
       <div ref={divRef} style={{ height: '100%' }} />
     </div>
   );
