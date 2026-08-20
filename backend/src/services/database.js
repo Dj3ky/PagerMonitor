@@ -1375,7 +1375,7 @@ module.exports = {
   getUsers, getUserById, getUserByUsername, createUser, updateUserPassword, updateUserRole, updateUserEmail,
   deleteUser, touchUserLogin, countUsers, setUserOrg, setUserPlatformAdmin,
   getLastSeenId, setLastSeenId,
-  getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode,
+  getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode, groupMatchesSelection,
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,
   getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
   getTrackedAircraft, getAllTrackedAircraft, getTrackedAircraftById, insertTrackedAircraft,
