@@ -227,8 +227,8 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
         style={{
           position: 'absolute', top: '2.6rem', right: '0.5rem', zIndex: 1000,
           display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.5rem', borderRadius: '0.5rem',
-          fontSize: '0.68rem', fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)',
-          background: clustered ? 'color-mix(in srgb, var(--accent-green) 16%, transparent)' : 'var(--bg-1)',
+          fontSize: '0.68rem', fontWeight: 500, cursor: 'pointer', background: 'var(--bg-1)',
+          border: clustered ? '1px solid var(--accent-green)' : '1px solid var(--border)',
           color: clustered ? 'var(--accent-green)' : 'var(--text-2)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
         }}>
         <Ungroup size={12} /> Združevanje
@@ -263,7 +263,19 @@ function StatsModal({ onClose }) {
   }, []);
 
   const maxDaily = Math.max(...(stats?.daily || []).map(r => r.n), 1);
-  const maxType  = Math.max(...(stats?.byType || []).map(r => r.n), 1);
+
+  // The backend groups by the raw SPIN intervention_type string, but several distinct
+  // raw values can all fall into typeStyle()'s "Drugo" catch-all (or any other bucket) —
+  // re-group here by the same classified label so those don't show as duplicate bars.
+  const byTypeGrouped = useMemo(() => {
+    const totals = new Map();
+    for (const r of stats?.byType || []) {
+      const label = typeStyle(r.intervention_type).label;
+      totals.set(label, (totals.get(label) || 0) + r.n);
+    }
+    return [...totals.entries()].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n);
+  }, [stats]);
+  const maxType = Math.max(...byTypeGrouped.map(r => r.n), 1);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', alignItems: 'center',
@@ -304,11 +316,10 @@ function StatsModal({ onClose }) {
               Po vrsti dogodka — zadnjih 30 dni
             </div>
             <div>
-              {stats.byType.length === 0
+              {byTypeGrouped.length === 0
                 ? <div style={{ color: 'var(--text-3)', fontSize: '0.75rem' }}>Ni podatkov</div>
-                : stats.byType.map(r => (
-                  <StatBar key={r.intervention_type || '—'} label={typeStyle(r.intervention_type).label}
-                    value={r.n} max={maxType} color="var(--accent-green)" />
+                : byTypeGrouped.map(r => (
+                  <StatBar key={r.label} label={r.label} value={r.n} max={maxType} color="var(--accent-green)" />
                 ))}
             </div>
           </>
