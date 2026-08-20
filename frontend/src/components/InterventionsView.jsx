@@ -43,11 +43,13 @@ const TIME_LEGEND = [
   { color: '#22c55e', label: 'dogodki v teku' },
 ];
 
-// Not yet in the "confirmed" feed → still active, regardless of age.
-// Once confirmed, color fades from red to yellow with time since report
-// (rows past 12h + confirmed are excluded server-side via activeOnly).
+// description_pending tracks whether SPIN has published the full narrative for
+// this event yet — empirically, that's the same signal SPIN's own map uses for
+// "confirmed" (an event with no narrative is always still in progress). Still
+// pending → active, regardless of age. Once narrative arrives, color fades from
+// red to yellow with time since report (rows past 12h are excluded via activeOnly).
 function tierColor(row) {
-  if (!row.confirmed) return '#22c55e';
+  if (row.description_pending) return '#22c55e';
   const hrs = (Date.now() - new Date(row.reported_at).getTime()) / 3600000;
   if (hrs <= 3) return '#ef4444';
   if (hrs <= 6) return '#f97316';
@@ -88,12 +90,12 @@ function fmtWhen(iso) {
 }
 
 function markerIcon(L, color, Icon) {
-  const glyph = renderToStaticMarkup(<Icon size={11} color="#fff" strokeWidth={2.5} />);
+  const glyph = renderToStaticMarkup(<Icon size={17} color="#fff" strokeWidth={2.5} />);
   return L.divIcon({
     className: '',
-    html: `<div style="width:19px;height:19px;border-radius:50%;background:${color};border:2px solid #fff;
-      box-shadow:0 0 6px ${color};display:flex;align-items:center;justify-content:center">${glyph}</div>`,
-    iconSize: [19, 19], iconAnchor: [9, 9], popupAnchor: [0, -9],
+    html: `<div style="width:28px;height:28px;border-radius:50%;background:${color};border:2px solid #fff;
+      box-shadow:0 0 7px ${color};display:flex;align-items:center;justify-content:center">${glyph}</div>`,
+    iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14],
   });
 }
 

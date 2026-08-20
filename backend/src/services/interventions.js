@@ -15,9 +15,6 @@ const logger = require('../utils/logger');
 
 const FEED_HOST          = 'spin3.sos112.si';
 const RSS_URL            = `https://${FEED_HOST}/javno/ODApi/true`;
-// Same ids as RSS_URL, but only ones dispatch has finished writing up a full
-// narrative for — this is SPIN's own "confirmed" signal, not something we infer.
-const CONFIRMED_RSS_URL  = `https://${FEED_HOST}/javno/ODApi/false`;
 const DETAIL_URL         = id => `https://${FEED_HOST}/api/javno/lokacija/${id}`;
 const REFRESH_MS         = 90 * 1000;
 const DETAIL_BATCH       = 40; // per tick — this hits the source's own per-id endpoint,
@@ -51,13 +48,6 @@ function ensureTable() {
     CREATE INDEX IF NOT EXISTS idx_interventions_municipality ON interventions(municipality);
     CREATE INDEX IF NOT EXISTS idx_interventions_type         ON interventions(intervention_type);
   `);
-  const cols = getDb().prepare(`PRAGMA table_info(interventions)`).all().map(c => c.name);
-  for (const [col, def] of [
-    ['confirmed',    'INTEGER NOT NULL DEFAULT 0'],
-    ['confirmed_at', 'TEXT'],
-  ]) {
-    if (!cols.includes(col)) getDb().exec(`ALTER TABLE interventions ADD COLUMN ${col} ${def}`);
-  }
   tableReady = true;
 }
 
@@ -89,23 +79,6 @@ async function refresh() {
     id: extractId(item.link),
     reportedAt: item.pubDate ? new Date(item.pubDate).toISOString() : null,
   })).filter(r => r.id));
-
-  // 1b. Cross-check against the "confirmed" feed — same ids, but only ones dispatch
-  //     has finished the writeup for. Anything found here is done/closed; anything
-  //     not (yet) found here is still an active in-progress event.
-  try {
-    const confirmedRes = await fetch(CONFIRMED_RSS_URL, { signal: AbortSignal.timeout(15000) });
-    if (confirmedRes.ok) {
-      const confirmedParsed = xmlParser.parse(await confirmedRes.text());
-      const confirmedIds = [].concat(confirmedParsed?.rss?.channel?.item || [])
-        .filter(Boolean).map(item => extractId(item.link)).filter(Boolean);
-      const markConfirmed = db.prepare(`
-        UPDATE interventions SET confirmed = 1, confirmed_at = datetime('now')
-        WHERE id = ? AND confirmed = 0
-      `);
-      db.transaction(ids => { for (const id of ids) markConfirmed.run(id); })(confirmedIds);
-    }
-  } catch (e) { logger.warn(`Intervention confirmed-feed fetch: ${e.message}`); }
 
   // 2. Fill in detail for rows still missing coordinates, or still waiting on a
   //    narrative within the recheck window. Rows still missing coordinates
@@ -177,7 +150,7 @@ function query({ limit = 50, offset = 0, municipality, type, q, from, to, active
   if (type)         { where.push('intervention_type = @type');    params.type = type; }
   if (from)         { where.push('reported_at >= @from');         params.from = from; }
   if (to)           { where.push('reported_at <= @to');           params.to = to; }
-  if (activeOnly)   { where.push(`NOT (confirmed = 1 AND reported_at < datetime('now', '-12 hours'))`); }
+  if (activeOnly)   { where.push(`NOT (description_pending = 0 AND reported_at < datetime('now', '-12 hours'))`); }
   if (q)            {
     where.push('(description LIKE @q OR municipality LIKE @q OR address LIKE @q OR event_type LIKE @q)');
     params.q = `%${q}%`;
