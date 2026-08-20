@@ -11,7 +11,10 @@ const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, de
         upsertUserLocation, deleteUserLocation, getVoiceChannels,
         ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL, enrichSourceLabels,
         getTrackedAircraft, getTrackedAircraftById, insertTrackedAircraft,
-        updateTrackedAircraftEnabled, deleteTrackedAircraftById } = require('../services/database');
+        updateTrackedAircraftEnabled, updateTrackedAircraftIcao24, setTrackedAircraftOrgId,
+        deleteTrackedAircraftById } = require('../services/database');
+
+const ICAO24_RE = /^[0-9a-f]{6}$/;
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
@@ -491,6 +494,12 @@ router.post('/aircraft/tracked', requireAuth, requireEnabled('enableAircraft'), 
   try {
     const registration = String(req.body?.registration || '').trim().toUpperCase();
     if (!registration) return res.status(400).json({ error: 'Registration is required' });
+    // Manual ICAO24 override — some aircraft (e.g. small state/firefighting fleets) simply
+    // aren't in adsbdb's database, so a user who already knows the hex can skip the lookup.
+    const manualIcao24 = String(req.body?.icao24 || '').trim().toLowerCase();
+    if (manualIcao24 && !ICAO24_RE.test(manualIcao24)) {
+      return res.status(400).json({ error: 'ICAO24 must be a 6-character hex code' });
+    }
 
     const orgId = req.session.orgId;
     const visible = getTrackedAircraft(orgId);
@@ -498,16 +507,19 @@ router.post('/aircraft/tracked', requireAuth, requireEnabled('enableAircraft'), 
       return res.status(409).json({ error: 'That registration is already tracked' });
     }
 
-    const { lookupByRegistration } = require('../services/aircraftLookup');
-    const info = await lookupByRegistration(registration);
+    let info = null;
+    if (!manualIcao24) {
+      const { lookupByRegistration } = require('../services/aircraftLookup');
+      info = await lookupByRegistration(registration);
+    }
     const row = insertTrackedAircraft(orgId, req.session.userId, req.session.username, {
       registration,
-      icao24: info?.icao24 || null,
+      icao24: manualIcao24 || info?.icao24 || null,
       aircraft_type: info?.type || null,
       manufacturer: info?.manufacturer || null,
     });
     openskyAircraft.refreshSoon();
-    res.json({ ...row, lookupFailed: !info });
+    res.json({ ...row, lookupFailed: !manualIcao24 && !info });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -522,7 +534,25 @@ router.patch('/aircraft/tracked/:id', requireAuth, requireEnabled('enableAircraf
     const row = getTrackedAircraftById(parseInt(req.params.id, 10));
     if (!row) return res.status(404).json({ error: 'Not found' });
     if (!canManageTrackedAircraft(req, row)) return res.status(403).json({ error: 'Not allowed' });
-    updateTrackedAircraftEnabled(row.id, !!req.body?.enabled);
+
+    if (req.body?.enabled !== undefined) updateTrackedAircraftEnabled(row.id, !!req.body.enabled);
+
+    // Manual ICAO24 fix — lets someone patch in the hex by hand for a plane adsbdb never
+    // resolved (see POST above for why that happens).
+    if (req.body?.icao24 !== undefined) {
+      const icao24 = String(req.body.icao24 || '').trim().toLowerCase();
+      if (icao24 && !ICAO24_RE.test(icao24)) return res.status(400).json({ error: 'ICAO24 must be a 6-character hex code' });
+      updateTrackedAircraftIcao24(row.id, { icao24: icao24 || null, aircraft_type: row.aircraft_type, manufacturer: row.manufacturer });
+    }
+
+    // Promote/demote to a global (every-org) default — affects visibility for orgs beyond
+    // the requester's own, so this one needs the instance-wide platform-admin tier, not just
+    // org admin/editor (which canManageTrackedAircraft above already required).
+    if (req.body?.global !== undefined) {
+      if (!req.session.isPlatformAdmin) return res.status(403).json({ error: 'Only a platform admin can change global visibility' });
+      setTrackedAircraftOrgId(row.id, req.body.global ? null : req.session.orgId);
+    }
+
     openskyAircraft.refreshSoon();
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

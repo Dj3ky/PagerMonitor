@@ -1110,6 +1110,11 @@ function updateTrackedAircraftIcao24(id, { icao24, aircraft_type = null, manufac
 function updateTrackedAircraftEnabled(id, enabled) {
   return getDb().prepare('UPDATE tracked_aircraft SET enabled=? WHERE id=?').run(enabled ? 1 : 0, id).changes;
 }
+// orgId=NULL promotes the row to a global/shared default, visible to every org (same
+// convention as aliases/groups/the seeded Fire Boss planes) — platform-admin only, see api.js.
+function setTrackedAircraftOrgId(id, orgId) {
+  return getDb().prepare('UPDATE tracked_aircraft SET org_id=? WHERE id=?').run(orgId, id).changes;
+}
 function deleteTrackedAircraftById(id) { return getDb().prepare('DELETE FROM tracked_aircraft WHERE id=?').run(id).changes; }
 
 // ── Voice channels (instance-wide catalog, platform-admin managed — see voice_channel_hidden
@@ -1366,7 +1371,7 @@ module.exports = {
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,
   getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
   getTrackedAircraft, getAllTrackedAircraft, getTrackedAircraftById, insertTrackedAircraft,
-  updateTrackedAircraftIcao24, updateTrackedAircraftEnabled, deleteTrackedAircraftById,
+  updateTrackedAircraftIcao24, updateTrackedAircraftEnabled, setTrackedAircraftOrgId, deleteTrackedAircraftById,
   getVoiceChannels, getAllVoiceChannels, upsertVoiceChannel, deleteVoiceChannel, getVoiceChannelById,
   getVoiceChannelHidden, setVoiceChannelHidden,
   getDiscordRelays, upsertDiscordRelay, deleteDiscordRelay, getAllDiscordRelays,

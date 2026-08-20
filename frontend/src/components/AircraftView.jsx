@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader, Plane, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader, Plane, Plus, Trash2, ChevronDown, ChevronUp, Pencil, Globe } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
-import { fetchTrackedAircraft, addTrackedAircraft, setTrackedAircraftEnabled, deleteTrackedAircraft } from '../utils/api.js';
+import { fetchTrackedAircraft, addTrackedAircraft, setTrackedAircraftEnabled, setTrackedAircraftIcao24,
+  setTrackedAircraftGlobal, deleteTrackedAircraft } from '../utils/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 // This just re-reads our own backend's in-memory cache (no OpenSky cost), so we
@@ -158,6 +159,7 @@ function TrackedPlanesPanel({ aircraft }) {
   const [tracked, setTracked] = useState([]);
   const [open, setOpen] = useState(false);
   const [reg, setReg] = useState('');
+  const [manualIcao, setManualIcao] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
 
@@ -165,9 +167,11 @@ function TrackedPlanesPanel({ aircraft }) {
   useEffect(() => { load(); }, [load]);
 
   // Guests (no user.id) get a read-only list; anyone with a real account can add their
-  // own, and admins/editors can manage every row (including the seeded defaults).
+  // own, and admins/editors can manage every row (including the seeded defaults). Only a
+  // platform admin can change global (every-org) visibility.
   const canManage = (row) => !!user && (user.role === 'admin' || user.role === 'editor' || (user.id != null && row.added_by_user_id === user.id));
   const canAdd = !!user && user.id != null;
+  const canGlobal = !!user?.isPlatformAdmin;
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -175,11 +179,11 @@ function TrackedPlanesPanel({ aircraft }) {
     if (!registration) return;
     setBusy(true); setMsg(null);
     try {
-      const res = await addTrackedAircraft(registration);
-      setReg('');
+      const res = await addTrackedAircraft(registration, manualIcao.trim());
+      setReg(''); setManualIcao('');
       load();
       setMsg(res.lookupFailed
-        ? { type: 'warn', text: `${registration} dodano, a podatkov o letalu ni bilo mogoče najti — sledenje morda ne bo delovalo.` }
+        ? { type: 'warn', text: `${registration} dodano, a podatkov o letalu ni bilo mogoče najti — sledenje morda ne bo delovalo, dokler ročno ne vneseš ICAO24 kode.` }
         : { type: 'ok', text: `${registration} dodano.` });
     } catch (err) {
       setMsg({ type: 'err', text: err.message });
@@ -190,6 +194,20 @@ function TrackedPlanesPanel({ aircraft }) {
 
   const handleToggle = async (row) => {
     try { await setTrackedAircraftEnabled(row.id, !row.enabled); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
+  };
+
+  const handleFixIcao = async (row) => {
+    const val = prompt(`Vnesi ICAO24 (6-mestna šestnajstiška koda, npr. 391a2b) za ${row.registration}:`, '');
+    if (val === null) return;
+    try { await setTrackedAircraftIcao24(row.id, val.trim()); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
+  };
+
+  const handleToggleGlobal = async (row) => {
+    const makeGlobal = row.org_id != null;
+    if (!confirm(makeGlobal
+      ? `${row.registration} bo viden vsem organizacijam na tej napravi. Nadaljujem?`
+      : `${row.registration} ne bo več globalno viden, ostal bo samo v tvoji organizaciji. Nadaljujem?`)) return;
+    try { await setTrackedAircraftGlobal(row.id, makeGlobal); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
   };
 
   const handleDelete = async (row) => {
@@ -225,10 +243,28 @@ function TrackedPlanesPanel({ aircraft }) {
                 <div key={row.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem' }}>
                   <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: color, flexShrink: 0 }} />
                   <span style={{ fontWeight: 600, color: 'var(--text-1)', minWidth: '68px' }}>{row.registration}</span>
+                  {row.org_id == null && (
+                    <span title="Globalno — vidno vsem organizacijam" style={{ color: 'var(--accent-blue)', display: 'flex' }}><Globe size={11} /></span>
+                  )}
                   <span style={{ color: 'var(--text-3)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {row.aircraft_type || (!row.icao24 ? 'ni podatkov o letalu' : '')}
                     {row.added_by_username ? ` · dodal ${row.added_by_username}` : ''}
                   </span>
+                  {canManage(row) && !row.icao24 && (
+                    <button onClick={() => handleFixIcao(row)} title="Ročno nastavi ICAO24" style={{
+                      display: 'flex', alignItems: 'center', background: 'transparent', border: 'none',
+                      color: 'var(--accent-amber)', cursor: 'pointer', padding: '0.15rem' }}>
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                  {canGlobal && (
+                    <button onClick={() => handleToggleGlobal(row)}
+                      title={row.org_id == null ? 'Odstrani iz globalnega seznama' : 'Naredi globalno (vidno vsem organizacijam)'} style={{
+                        display: 'flex', alignItems: 'center', background: 'transparent', border: 'none',
+                        color: row.org_id == null ? 'var(--accent-blue)' : 'var(--text-3)', cursor: 'pointer', padding: '0.15rem' }}>
+                      <Globe size={12} />
+                    </button>
+                  )}
                   {canManage(row) && (
                     <>
                       <input type="checkbox" checked={!!row.enabled} onChange={() => handleToggle(row)}
@@ -249,6 +285,9 @@ function TrackedPlanesPanel({ aircraft }) {
             <form onSubmit={handleAdd} style={{ display: 'flex', gap: '0.4rem' }}>
               <input className="pm-input" value={reg} onChange={e => setReg(e.target.value)}
                 placeholder="Registracija (npr. S5-ABC)" style={{ flex: 1, fontSize: '0.78rem' }} disabled={busy} />
+              <input className="pm-input" value={manualIcao} onChange={e => setManualIcao(e.target.value)}
+                placeholder="ICAO24 (neobvezno)" style={{ width: '9rem', fontSize: '0.78rem' }} disabled={busy}
+                title="Če poznaš ICAO24 (šestnajstiško) kodo letala, jo lahko vneseš tu — s tem preskočiš samodejno iskanje." />
               <button className="pm-btn pm-btn-primary" type="submit" disabled={busy || !reg.trim()}>
                 <Plus size={13} /> Dodaj
               </button>
