@@ -9,7 +9,9 @@ const ROOT_DIR = path.join(__dirname, '../../..');
 const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, deleteAlias,
         getGroups, getHighlightRules, getLastSeenId, setLastSeenId,
         upsertUserLocation, deleteUserLocation, getVoiceChannels,
-        ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL, enrichSourceLabels } = require('../services/database');
+        ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL, enrichSourceLabels,
+        getTrackedAircraft, getTrackedAircraftById, insertTrackedAircraft,
+        updateTrackedAircraftEnabled, deleteTrackedAircraftById } = require('../services/database');
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
@@ -474,9 +476,67 @@ router.get('/weather/smok/stations', requireAuth, requireEnabled('enableArsoWeat
 const arsoQuakes = require('../services/arsoQuakes');
 router.get('/weather/arso/quakes', requireAuth, requireEnabled('enableArsoWeather'), (_req, res) => res.json(arsoQuakes.getQuakes()));
 
-// ── Firefighting aircraft tracking (OpenSky) ────────────────────────────────────
+// ── Aircraft tracking (OpenSky) ──────────────────────────────────────────────────
 const openskyAircraft = require('../services/openskyAircraft');
-router.get('/aircraft', requireAuth, requireEnabled('enableAircraft'), (_req, res) => res.json(openskyAircraft.getAircraft()));
+router.get('/aircraft', requireAuth, requireEnabled('enableAircraft'), (req, res) => res.json(openskyAircraft.getAircraft(req.session.orgId)));
+
+// Tracked-aircraft registrations — the list openskyAircraft.js polls OpenSky for. GET is
+// available to any org member; POST always requires a real logged-in session (requireAuth
+// only lets unauthenticated *GET* through in public mode), so guests can't add planes.
+// PATCH/DELETE are allowed for admins/editors on any row, or for the user who added it.
+router.get('/aircraft/tracked', requireAuth, requireEnabled('enableAircraft'), (req, res) => {
+  try { res.json(getTrackedAircraft(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.post('/aircraft/tracked', requireAuth, requireEnabled('enableAircraft'), async (req, res) => {
+  try {
+    const registration = String(req.body?.registration || '').trim().toUpperCase();
+    if (!registration) return res.status(400).json({ error: 'Registration is required' });
+
+    const orgId = req.session.orgId;
+    const visible = getTrackedAircraft(orgId);
+    if (visible.some(a => a.registration.toUpperCase() === registration)) {
+      return res.status(409).json({ error: 'That registration is already tracked' });
+    }
+
+    const { lookupByRegistration } = require('../services/aircraftLookup');
+    const info = await lookupByRegistration(registration);
+    const row = insertTrackedAircraft(orgId, req.session.userId, req.session.username, {
+      registration,
+      icao24: info?.icao24 || null,
+      aircraft_type: info?.type || null,
+      manufacturer: info?.manufacturer || null,
+    });
+    openskyAircraft.refreshSoon();
+    res.json({ ...row, lookupFailed: !info });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+function canManageTrackedAircraft(req, row) {
+  if (row.org_id != null && row.org_id !== req.session.orgId) return false;
+  if (req.session.role === 'admin' || req.session.role === 'editor') return true;
+  return row.added_by_user_id != null && row.added_by_user_id === req.session.userId;
+}
+
+router.patch('/aircraft/tracked/:id', requireAuth, requireEnabled('enableAircraft'), (req, res) => {
+  try {
+    const row = getTrackedAircraftById(parseInt(req.params.id, 10));
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    if (!canManageTrackedAircraft(req, row)) return res.status(403).json({ error: 'Not allowed' });
+    updateTrackedAircraftEnabled(row.id, !!req.body?.enabled);
+    openskyAircraft.refreshSoon();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.delete('/aircraft/tracked/:id', requireAuth, requireEnabled('enableAircraft'), (req, res) => {
+  try {
+    const row = getTrackedAircraftById(parseInt(req.params.id, 10));
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    if (!canManageTrackedAircraft(req, row)) return res.status(403).json({ error: 'Not allowed' });
+    deleteTrackedAircraftById(row.id);
+    openskyAircraft.refreshSoon();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ── Traffic data (NAP / b2b.nap.si) ─────────────────────────────────────────────
 const napTraffic = require('../services/napTraffic');

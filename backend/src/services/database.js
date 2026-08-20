@@ -400,6 +400,34 @@ function _migrate() {
   `).run();
   if (backfilled.changes > 0) logger.info(`Migration: backfilled ${backfilled.changes} discord_relay_channels row(s) from discord_relays.voice_channel_id`);
 
+  // Tracked aircraft — user/admin-managed registrations for the Airplanes page, org-scoped
+  // like aliases/groups (NULL org_id = global/shared default, visible to every org). Replaces
+  // the old hardcoded Fire Boss list in openskyAircraft.js; icao24 is resolved lazily (via
+  // aircraftLookup.js) since a user only ever supplies a registration, not the hex code
+  // OpenSky actually matches on.
+  const hadTrackedAircraft = tables.includes('tracked_aircraft');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tracked_aircraft (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id            INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+      registration      TEXT    NOT NULL,
+      icao24            TEXT,
+      aircraft_type     TEXT,
+      manufacturer      TEXT,
+      enabled           INTEGER NOT NULL DEFAULT 1,
+      added_by_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      added_by_username TEXT,
+      created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tracked_aircraft_org ON tracked_aircraft(org_id);
+  `);
+  if (!hadTrackedAircraft) {
+    logger.info('Migration: created tracked_aircraft table');
+    const seedStmt = db.prepare('INSERT INTO tracked_aircraft (org_id, registration, enabled) VALUES (NULL, ?, 1)');
+    for (const reg of ['S5-BZR', 'S5-BZS', 'S5-BZT', 'S5-BZU']) seedStmt.run(reg);
+    logger.info('Migration: seeded 4 default Fire Boss registrations into tracked_aircraft (global)');
+  }
+
   // Message notes
   db.exec(`
     CREATE TABLE IF NOT EXISTS message_notes (
@@ -1059,6 +1087,31 @@ function upsertKeywordAlert(orgId, alert) {
 }
 function deleteKeywordAlert(id, orgId) { return getDb().prepare('DELETE FROM keyword_alerts WHERE id=? AND org_id=?').run(id, orgId).changes; }
 
+// ── Tracked aircraft ────────────────────────────────────────────────────────────
+// getTrackedAircraft(orgId) is the org-visible set (global + own org) served to the
+// frontend; getAllTrackedAircraft() (no filter) is for the OpenSky poller, which needs
+// every org's registrations to build one combined worldwide query.
+function getTrackedAircraft(orgId) {
+  return getDb().prepare('SELECT * FROM tracked_aircraft WHERE org_id IS NULL OR org_id=? ORDER BY id ASC').all(orgId);
+}
+function getAllTrackedAircraft() {
+  return getDb().prepare('SELECT * FROM tracked_aircraft ORDER BY id ASC').all();
+}
+function getTrackedAircraftById(id) { return getDb().prepare('SELECT * FROM tracked_aircraft WHERE id=?').get(id); }
+function insertTrackedAircraft(orgId, userId, username, { registration, icao24 = null, aircraft_type = null, manufacturer = null }) {
+  const id = getDb().prepare(`INSERT INTO tracked_aircraft (org_id, registration, icao24, aircraft_type, manufacturer, added_by_user_id, added_by_username)
+    VALUES (?,?,?,?,?,?,?)`).run(orgId, registration, icao24, aircraft_type, manufacturer, userId, username).lastInsertRowid;
+  return getTrackedAircraftById(id);
+}
+function updateTrackedAircraftIcao24(id, { icao24, aircraft_type = null, manufacturer = null }) {
+  return getDb().prepare('UPDATE tracked_aircraft SET icao24=?, aircraft_type=?, manufacturer=? WHERE id=?')
+    .run(icao24, aircraft_type, manufacturer, id).changes;
+}
+function updateTrackedAircraftEnabled(id, enabled) {
+  return getDb().prepare('UPDATE tracked_aircraft SET enabled=? WHERE id=?').run(enabled ? 1 : 0, id).changes;
+}
+function deleteTrackedAircraftById(id) { return getDb().prepare('DELETE FROM tracked_aircraft WHERE id=?').run(id).changes; }
+
 // ── Voice channels (instance-wide catalog, platform-admin managed — see voice_channel_hidden
 // above for the per-org opt-out layer) — separate from SDR/dongle POCSAG config ────────
 // sort_order sorts first (currently unused/always 0 — no UI sets it yet, kept for a future
@@ -1312,6 +1365,8 @@ module.exports = {
   getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode,
   getHighlightRules, upsertHighlightRule, deleteHighlightRule,
   getKeywordAlerts, upsertKeywordAlert, deleteKeywordAlert,
+  getTrackedAircraft, getAllTrackedAircraft, getTrackedAircraftById, insertTrackedAircraft,
+  updateTrackedAircraftIcao24, updateTrackedAircraftEnabled, deleteTrackedAircraftById,
   getVoiceChannels, getAllVoiceChannels, upsertVoiceChannel, deleteVoiceChannel, getVoiceChannelById,
   getVoiceChannelHidden, setVoiceChannelHidden,
   getDiscordRelays, upsertDiscordRelay, deleteDiscordRelay, getAllDiscordRelays,

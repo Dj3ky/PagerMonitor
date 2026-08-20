@@ -1,19 +1,26 @@
 'use strict';
-// OpenSky Network — live tracking of Slovenia's AT-802 Fire Boss wildfire aircraft
-// (S5-BZR/BZS/BZT/BZU). Credentials come from the `opensky_config` setting (Admin →
-// Aircraft Tracking), falling back to OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET env
-// vars. With credentials (OAuth2 client-credentials, Standard tier: 4000 credits/day)
-// we poll every minute; without them we fall back to anonymous access (400
-// credits/day) and poll every 5 minutes. Our bounding box is under 25 sq°, so each
-// poll costs 1 credit either way.
+// OpenSky Network — live tracking of user-added aircraft registrations (Admin/Airplanes
+// page → "tracked_aircraft" table). Credentials come from the `opensky_config` setting
+// (Admin → Aircraft Tracking), falling back to OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET env
+// vars. With credentials (OAuth2 client-credentials, Standard tier: 4000 credits/day) we
+// poll every 90s; without them we fall back to anonymous access (400 credits/day) and poll
+// every 15 minutes. We query by icao24 (worldwide, no bounding box) so tracked planes work
+// anywhere — OpenSky's docs put an unbounded query at the top credit tier per call, so these
+// intervals are conservative estimates; watch for 429s if that assumption is off.
 const logger = require('../utils/logger');
-const { getSetting } = require('./database');
+const { getSetting, getAllTrackedAircraft, updateTrackedAircraftIcao24 } = require('./database');
+const { lookupByRegistration } = require('./aircraftLookup');
 
 const TOKEN_URL  = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
-const STATES_URL = 'https://opensky-network.org/api/states/all?lamin=45.3&lomin=13.2&lamax=47.0&lomax=16.7';
+const STATES_BASE_URL = 'https://opensky-network.org/api/states/all';
 
-const AUTHENTICATED_REFRESH_MS = 60 * 1000;
-const ANONYMOUS_REFRESH_MS     = 5 * 60 * 1000;
+const AUTHENTICATED_REFRESH_MS = 90 * 1000;
+const ANONYMOUS_REFRESH_MS     = 15 * 60 * 1000;
+
+// Don't retry a registration lookup more than once per this window — a persistently
+// unmatched registration (typo, obscure aircraft not in adsbdb) shouldn't hammer the API.
+const LOOKUP_RETRY_MS = 10 * 60 * 1000;
+const lastLookupAttempt = new Map(); // tracked_aircraft.id -> timestamp
 
 function getCredentials() {
   const stored = getSetting('opensky_config', null);
@@ -47,59 +54,79 @@ async function getToken(creds) {
 }
 
 // Tokens expire after 30 min; on a stale-token 401 we clear the cache and retry once.
-async function fetchStates(creds) {
+async function fetchStates(creds, url) {
   const headers = creds ? { Authorization: `Bearer ${await getToken(creds)}` } : {};
-  let res = await fetch(STATES_URL, { headers, signal: AbortSignal.timeout(15000) });
+  let res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
   if (res.status === 401 && creds) {
     token = null;
-    res = await fetch(STATES_URL, { headers: { Authorization: `Bearer ${await getToken(creds)}` }, signal: AbortSignal.timeout(15000) });
+    res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken(creds)}` }, signal: AbortSignal.timeout(15000) });
   }
   return res;
 }
-
-const KNOWN = [
-  { reg: 'S5-BZR', callsign: 'S5BZR' },
-  { reg: 'S5-BZS', callsign: 'S5BZS' },
-  { reg: 'S5-BZT', callsign: 'S5BZT' },
-  { reg: 'S5-BZU', callsign: 'S5BZU' },
-];
 
 // Flown path per aircraft, shown when its marker is clicked on the frontend.
 const MAX_TRACK_POINTS  = 500;
 const TRACK_GAP_RESET_MS = 30 * 60 * 1000; // gap this long = new sortie, don't draw a line across it
 
-function emptyAircraft(k) {
-  return { ...k, icao24: null, lat: null, lon: null, altitude: null,
-    velocity: null, heading: null, onGround: null, live: false, lastSeen: null, track: [] };
+function emptyAircraft(row) {
+  return {
+    id: row.id, orgId: row.org_id, reg: row.registration, icao24: row.icao24 || null,
+    lat: null, lon: null, altitude: null, velocity: null, heading: null,
+    onGround: null, live: false, lastSeen: null, track: [],
+  };
 }
 
-let cache = { aircraft: KNOWN.map(emptyAircraft), updatedAt: null };
+let cache = { aircraft: [], updatedAt: null };
 let timer = null;
+
+// Fills in missing icao24 for rows that don't have one yet (throttled per-row). Mutates
+// nothing on the passed rows beyond returning which ids got resolved this pass.
+async function resolveMissingIcao24(rows) {
+  const now = Date.now();
+  const candidates = rows.filter(r => !r.icao24 && (now - (lastLookupAttempt.get(r.id) || 0)) > LOOKUP_RETRY_MS);
+  for (const row of candidates) {
+    lastLookupAttempt.set(row.id, now);
+    const info = await lookupByRegistration(row.registration);
+    if (info?.icao24) {
+      updateTrackedAircraftIcao24(row.id, { icao24: info.icao24, aircraft_type: info.type, manufacturer: info.manufacturer });
+      row.icao24 = info.icao24;
+      row.aircraft_type = info.type;
+      row.manufacturer = info.manufacturer;
+    }
+  }
+}
 
 async function refresh() {
   const s = getSetting('site_settings', {});
-  // Bounding box above is hardcoded to Slovenia — pointless (and wasted OpenSky
-  // credits) for any other deployment, regardless of the enable toggle.
   if (s.enableAircraft !== true || s.geocodeCountry !== 'si') return;
-  const res = await fetchStates(getCredentials());
+
+  const rows = getAllTrackedAircraft().filter(r => r.enabled);
+  await resolveMissingIcao24(rows);
+
+  const now = new Date().toISOString();
+  const prevById = new Map(cache.aircraft.map(a => [a.id, a]));
+  const trackable = rows.filter(r => r.icao24);
+
+  if (trackable.length === 0) {
+    cache = { aircraft: rows.map(r => prevById.get(r.id) || emptyAircraft(r)), updatedAt: now };
+    return;
+  }
+
+  const url = STATES_BASE_URL + '?' + trackable.map(r => `icao24=${encodeURIComponent(r.icao24)}`).join('&');
+  const res = await fetchStates(getCredentials(), url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const raw = await res.json();
   const states = raw.states || [];
+  const byIcao24 = new Map(states.map(st => [st[0], st]));
 
-  const byCallsign = new Map();
-  for (const s of states) {
-    const cs = (s[1] || '').trim();
-    if (cs) byCallsign.set(cs, s);
-  }
-
-  const now = new Date().toISOString();
   cache = {
-    aircraft: KNOWN.map(k => {
-      const s = byCallsign.get(k.callsign);
-      const prev = cache.aircraft.find(a => a.callsign === k.callsign) || emptyAircraft(k);
-      if (!s) return { ...prev, live: false };
+    aircraft: rows.map(row => {
+      const prev = prevById.get(row.id) || emptyAircraft(row);
+      if (!row.icao24) return { ...prev, reg: row.registration, live: false };
+      const st = byIcao24.get(row.icao24);
+      if (!st) return { ...prev, reg: row.registration, icao24: row.icao24, live: false };
 
-      const lat = s[6], lon = s[5];
+      const lat = st[6], lon = st[5];
       let track = prev.track || [];
       const lastPoint = track[track.length - 1];
       if (lastPoint && Date.now() - new Date(lastPoint.time).getTime() > TRACK_GAP_RESET_MS) track = [];
@@ -108,16 +135,9 @@ async function refresh() {
       }
 
       return {
-        ...k,
-        icao24: s[0],
-        lon, lat,
-        altitude: s[7],
-        onGround: s[8],
-        velocity: s[9],
-        heading: s[10],
-        live: true,
-        lastSeen: now,
-        track,
+        id: row.id, orgId: row.org_id, reg: row.registration, icao24: row.icao24,
+        lat, lon, altitude: st[7], onGround: st[8], velocity: st[9], heading: st[10],
+        live: true, lastSeen: now, track,
       };
     }),
     updatedAt: now,
@@ -138,6 +158,15 @@ function stop() { clearInterval(timer); timer = null; token = null; }
 // Re-reads credentials and restarts the poll interval — call after saving new config.
 function restart() { stop(); start(); }
 
-function getAircraft() { return cache; }
+// Fire-and-forget immediate refresh — call after a tracked_aircraft row changes so the
+// UI doesn't have to wait out a full poll cycle to see the effect.
+function refreshSoon() { refresh().catch(e => logger.warn(`OpenSky aircraft refresh: ${e.message}`)); }
 
-module.exports = { start, stop, restart, getAircraft };
+function getAircraft(orgId) {
+  return {
+    aircraft: cache.aircraft.filter(a => a.orgId == null || a.orgId === orgId),
+    updatedAt: cache.updatedAt,
+  };
+}
+
+module.exports = { start, stop, restart, refreshSoon, getAircraft };
