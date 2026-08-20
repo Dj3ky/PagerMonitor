@@ -170,8 +170,11 @@
     "clusteredMarkers": "Združene oznake",
     "heatmapDensity": "Gostotna karta",
     "hideList": "Skrij seznam",
-    "unitsAtLocation_one": "{{count}} sporočilo na tej lokaciji",
-    "unitsAtLocation_other": "{{count}} sporočil na tej lokaciji"
+    "unitsAtLocation_one": "{{count}} enota na tej lokaciji",
+    "unitsAtLocation_two": "{{count}} enoti na tej lokaciji",
+    "unitsAtLocation_three": "{{count}} enote na tej lokaciji",
+    "unitsAtLocation_four": "{{count}} enote na tej lokaciji",
+    "unitsAtLocation_other": "{{count}} enot na tej lokaciji"
   },
   "loginPage": {
     "forgotFailed": "Pošiljanje ni uspelo. Preveri povezavo s strežnikom.",
