@@ -10,6 +10,12 @@ function age(updatedAt) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function lastSeenDate(updatedAt) {
+  return new Date(updatedAt + 'Z').toLocaleString(undefined, {
+    day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit',
+  });
+}
+
 function isOnline(updatedAt) {
   return (Date.now() - new Date(updatedAt + 'Z').getTime()) < 10 * 60 * 1000; // within 10 min
 }
@@ -92,10 +98,15 @@ export default function UserLocations() {
                       {r.lng.toFixed(5)}
                     </td>
                     <td style={{ padding:'0.45rem 0.5rem' }}>
-                      <span style={{ color: online ? 'var(--accent-green)' : 'var(--text-3)',
-                        fontSize:'0.72rem' }}>
-                        {age(r.updated_at)}
-                      </span>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'0.1rem' }}>
+                        <span style={{ color: online ? 'var(--accent-green)' : 'var(--text-3)',
+                          fontSize:'0.72rem' }}>
+                          {age(r.updated_at)}
+                        </span>
+                        <span style={{ color:'var(--text-3)', fontSize:'0.62rem' }}>
+                          {lastSeenDate(r.updated_at)}
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 );

@@ -185,7 +185,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
               iconSize:[60,28], iconAnchor:[30,28],
             }),
             zIndexOffset: 900,
-          }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem"><strong style="color:${color}">${u.username}</strong><br/><span style="color:#888;font-size:0.7rem">${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}</span><br/><span style="color:#888;font-size:0.65rem">${new Date(u.updated_at + 'Z').toLocaleTimeString()}</span></div>`)
+          }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem"><strong style="color:${color}">${u.username}</strong><br/><span style="color:#888;font-size:0.7rem">${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}</span><br/><span style="color:#888;font-size:0.65rem">${fmtTime(u.updated_at + 'Z', locale, hour12)}</span></div>`)
             .addTo(mapRef.current);
           userMarkersRef.current[u.username] = marker;
         }
@@ -198,7 +198,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
         }
       });
     }).catch(() => {});
-  }, [user]);
+  }, [user, locale, hour12]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -237,11 +237,19 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
       .catch(console.warn);
   }, [visible]);
 
-  function makeIcon(color) {
+  function makeIcon(color, count) {
     const col = color || mapDotColor;
+    const badge = count > 1
+      ? `<div style="position:absolute;top:-6px;right:-6px;min-width:14px;height:14px;padding:0 3px;
+          border-radius:7px;background:#ff4444;color:#fff;font-size:0.55rem;font-weight:700;
+          font-family:monospace;line-height:13px;text-align:center;border:1.5px solid #fff;">${count > 99 ? '99+' : count}</div>`
+      : '';
     return window.L.divIcon({
       className: '',
-      html: `<div style="width:14px;height:14px;border-radius:50%;background:${col};border:2px solid #fff;box-shadow:0 0 7px ${col};"></div>`,
+      html: `<div style="position:relative;width:14px;height:14px;">
+        <div style="width:14px;height:14px;border-radius:50%;background:${col};border:2px solid #fff;box-shadow:0 0 7px ${col};"></div>
+        ${badge}
+      </div>`,
       iconSize:[14,14], iconAnchor:[7,7], popupAnchor:[0,-10],
     });
   }
@@ -300,6 +308,24 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     // Simplest: re-add all markers with updated icons
     mapMessages.forEach(msg => addMarker(msg));
   }, [mapDotColor]);
+
+  // Show a count badge on dots that share a location with other messages
+  useEffect(() => {
+    const counts = {};
+    mapMessages.forEach(msg => {
+      if (!msg.lat || !msg.lng) return;
+      const key = `${msg.lat.toFixed(5)},${msg.lng.toFixed(5)}`;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    mapMessages.forEach(msg => {
+      if (!msg.lat || !msg.lng) return;
+      const marker = markersRef.current[msg.id];
+      if (!marker) return;
+      const key = `${msg.lat.toFixed(5)},${msg.lng.toFixed(5)}`;
+      const color = msg.alias_color || mapDotColor;
+      marker.setIcon(makeIcon(color, counts[key]));
+    });
+  }, [mapMessages, mapDotColor]);
 
   // Execute pending fly once map is ready
   useEffect(() => {
