@@ -79,19 +79,23 @@ function emptyAircraft(row) {
 let cache = { aircraft: [], updatedAt: null };
 let timer = null;
 
-// Fills in missing icao24 for rows that don't have one yet (throttled per-row). Mutates
-// nothing on the passed rows beyond returning which ids got resolved this pass.
+// Fills in missing icao24 and/or missing description for rows that lack either (throttled
+// per-row). A row that already has BOTH is left untouched — in particular this never
+// overwrites a manually-entered icao24 or a hand-typed description, only fills gaps.
 async function resolveMissingIcao24(rows) {
   const now = Date.now();
-  const candidates = rows.filter(r => !r.icao24 && (now - (lastLookupAttempt.get(r.id) || 0)) > LOOKUP_RETRY_MS);
+  const candidates = rows.filter(r => (!r.icao24 || !r.aircraft_type) && (now - (lastLookupAttempt.get(r.id) || 0)) > LOOKUP_RETRY_MS);
   for (const row of candidates) {
     lastLookupAttempt.set(row.id, now);
     const info = await lookupByRegistration(row.registration);
     if (info?.icao24) {
-      updateTrackedAircraftIcao24(row.id, { icao24: info.icao24, aircraft_type: info.type, manufacturer: info.manufacturer });
-      row.icao24 = info.icao24;
-      row.aircraft_type = info.type;
-      row.manufacturer = info.manufacturer;
+      const icao24 = row.icao24 || info.icao24;
+      const aircraft_type = row.aircraft_type || info.type;
+      const manufacturer = row.manufacturer || info.manufacturer;
+      updateTrackedAircraftIcao24(row.id, { icao24, aircraft_type, manufacturer });
+      row.icao24 = icao24;
+      row.aircraft_type = aircraft_type;
+      row.manufacturer = manufacturer;
     }
   }
 }
