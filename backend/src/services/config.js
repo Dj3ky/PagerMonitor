@@ -251,7 +251,7 @@ function passesFeedFilter(msg, orgId) {
     }
 
     return true;
-  } catch (_) { return true; }
+  } catch (e) { logger.warn(`Feed filter failed, showing message (org ${orgId}): ${e.message}`); return true; }
 }
 
 // ── Message normalizations ────────────────────────────────────────────────────

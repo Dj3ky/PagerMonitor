@@ -62,7 +62,7 @@ function passesFilter(msg, orgId) {
       return filter.keywords.some(kw => kw && text.includes(kw.toLowerCase()));
     }
     return true;
-  } catch (_) { return true; }
+  } catch (e) { logger.warn(`Notification filter failed, letting message through (org ${orgId}): ${e.message}`); return true; }
 }
 
 // ── Shared message builder ────────────────────────────────────────────────────
