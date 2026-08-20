@@ -427,8 +427,12 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
       // don't bypass the mapMaxAgeDays filter via WebSocket
       if (msg.timestamp && new Date(msg.timestamp).getTime() < cutoffMs) return;
 
-      // Already has coords — just add to map if not already there
+      // Already has coords — just add to map if not already there.
+      // Skip if a marker already exists: re-calling addMarker() on every
+      // WebSocket tick (liveMessages is the whole history, not just new
+      // items) would reset its icon and wipe out any location-count badge.
       if (msg.lat && msg.lng) {
+        if (markersRef.current[msg.id]) return;
         setMapMessages(prev => {
           if (prev.find(m => m.id === msg.id)) return prev;
           setTotal(t => t + 1);
