@@ -172,8 +172,7 @@
     "hideList": "Skrij seznam",
     "unitsAtLocation_one": "{{count}} enota na tej lokaciji",
     "unitsAtLocation_two": "{{count}} enoti na tej lokaciji",
-    "unitsAtLocation_three": "{{count}} enote na tej lokaciji",
-    "unitsAtLocation_four": "{{count}} enote na tej lokaciji",
+    "unitsAtLocation_few": "{{count}} enote na tej lokaciji",
     "unitsAtLocation_other": "{{count}} enot na tej lokaciji"
   },
   "loginPage": {
