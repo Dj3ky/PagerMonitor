@@ -2,7 +2,25 @@ import { useState, useEffect } from 'react';
 import { EyeOff, Save, ChevronRight, ChevronDown } from 'lucide-react';
 import { adminFetchFeedFilter, adminSaveFeedFilter } from '../../utils/api.js';
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
-import { adminFetchAliases, adminFetchGroups } from '../../utils/api.js';
+import { adminFetchAliases, adminFetchGroups, adminFetchSdrConfig, adminFetchSdrDongles } from '../../utils/api.js';
+
+// A message can only ever come out of multimon-ng as the type MULTIMON_POCSAG_MODE (-f)
+// forces it to — 'skyper' still counts as "not numeric" for our alpha/numeric classification
+// (see isNumericMessage in backend/services/config.js). Returns { label, mode } for any local
+// dongle whose forced mode can never satisfy the given message_type filter, so the UI can
+// warn before someone locks their own feed to a permanently-empty result.
+function findPocsagModeConflicts(messageType, sdrConfig, dongles) {
+  if (messageType === 'all') return [];
+  const neverMatches = mode =>
+    (messageType === 'numeric' && (mode === 'alpha' || mode === 'skyper')) ||
+    (messageType === 'alpha'   && mode === 'numeric');
+
+  const sources = Array.isArray(dongles) && dongles.length > 0
+    ? dongles.map((d, i) => ({ label: d.label || `Dongle ${i + 1}`, mode: d.pocsagMode }))
+    : [{ label: 'SDR', mode: sdrConfig?.MULTIMON_POCSAG_MODE }];
+
+  return sources.filter(s => neverMatches(s.mode));
+}
 
 // One level of group nesting (top-level "parent" groups + their children) as a collapsible,
 // searchable tree. Selecting a parent selects/deselects every child with it — the backend
@@ -126,6 +144,10 @@ export default function FeedFilter() {
   const { data: rawFilter,  loading: loadingFilter  } = useAdminFetch(adminFetchFeedFilter,  DEFAULTS);
   const { data: rawAliases, loading: loadingAliases } = useAdminFetch(adminFetchAliases, []);
   const { data: rawGroups,  loading: loadingGroups  } = useAdminFetch(adminFetchGroups,  []);
+  // Best-effort — a non-platform org (or any fetch failure) just leaves these at their
+  // defaults, which findPocsagModeConflicts treats as "no forced mode", i.e. no warning.
+  const { data: sdrConfig } = useAdminFetch(adminFetchSdrConfig,  {});
+  const { data: dongles }   = useAdminFetch(adminFetchSdrDongles, []);
 
   const [filter, setFilter] = useState(sanitise(null));
   const [saving, setSaving] = useState(false);
@@ -151,6 +173,7 @@ export default function FeedFilter() {
 
   const safe        = sanitise(filter);
   const isFiltering = safe.mode !== 'show_all' || safe.text_strings.length > 0 || safe.text_regex.length > 0 || safe.message_type !== 'all';
+  const pocsagModeConflicts = findPocsagModeConflicts(safe.message_type, sdrConfig, dongles);
 
   return (
     <div style={{ maxWidth: '640px' }}>
@@ -347,9 +370,23 @@ export default function FeedFilter() {
       <div className="pm-card" style={{ marginBottom: '1rem' }}>
         <div className="pm-section-title">Message type</div>
         <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.6rem', lineHeight: 1.55 }}>
-          Runs <strong>after</strong> the selected mode above. Based on the POCSAG/FLEX function bits multimon-ng
-          already decodes — no numeric messages are mis-decoded, they're just dropped before reaching the feed.
+          Runs <strong>after</strong> the selected mode above. Based on the message type multimon-ng itself
+          decoded (Alpha/Numeric/Skyper) — messages aren't re-classified here, just dropped before reaching the feed.
         </div>
+        {pocsagModeConflicts.length > 0 && (
+          <div style={{
+            padding: '0.5rem 0.75rem', borderRadius: '0.4rem', marginBottom: '0.6rem',
+            fontSize: '0.78rem', lineHeight: 1.5,
+            background: 'color-mix(in srgb, var(--accent-red, #f87171) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--accent-red, #f87171) 30%, transparent)',
+            color: 'var(--accent-red, #f87171)',
+          }}>
+            ⚠ POCSAG mode (-f) is forced on {pocsagModeConflicts.map((c, i) => (
+              <span key={c.label}>{i > 0 ? ', ' : ''}<strong>{c.label}</strong> (mode: {c.mode})</span>
+            ))} — {pocsagModeConflicts.length > 1 ? 'those decoders' : 'that decoder'} can never
+            produce a message matching "{MESSAGE_TYPES.find(t => t.id === safe.message_type)?.label}". This filter will silently empty that part of the feed.
+          </div>
+        )}
         <div style={{ display: 'flex', gap: '0.4rem' }}>
           {MESSAGE_TYPES.map(t => (
             <label key={t.id} onClick={() => setFilter(f => ({ ...sanitise(f), message_type: t.id }))}
