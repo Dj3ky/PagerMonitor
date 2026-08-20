@@ -489,8 +489,8 @@ router.get('/traffic/vms', requireAuth, requireEnabled('enableTraffic'), (_req, 
 const interventions = require('../services/interventions');
 router.get('/interventions', requireAuth, requireEnabled('enableInterventions'), (req, res) => {
   try {
-    const { limit, offset, municipality, type, q, from, to, activeOnly } = req.query;
-    res.json(interventions.query({ limit, offset, municipality, type, q, from, to, activeOnly: activeOnly === '1' || activeOnly === 'true' }));
+    const { limit, offset, municipality, type, q, from, to } = req.query;
+    res.json(interventions.query({ limit, offset, municipality, type, q, from, to }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.get('/interventions/municipalities', requireAuth, requireEnabled('enableInterventions'), (_req, res) => {

@@ -20,7 +20,7 @@ const REFRESH_MS         = 90 * 1000;
 const DETAIL_BATCH       = 40; // per tick — this hits the source's own per-id endpoint,
                                  // not the same one that's IP-gated, so a higher cap is fine
 const GEOCODE_BATCH      = 10;
-const RECHECK_WINDOW_MS  = 2 * 24 * 60 * 60 * 1000; // give up on missing narrative after 2 days
+const RECHECK_WINDOW_MS  = 6 * 24 * 60 * 60 * 1000; // give up on missing narrative after 6 days
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 
@@ -142,7 +142,7 @@ async function refresh() {
 // Returns { rows, total } — total is the full match count regardless of limit/offset,
 // so callers (the archive search UI) can show "N of M" and paginate instead of
 // silently truncating at the page size with no indication there's more.
-function query({ limit = 50, offset = 0, municipality, type, q, from, to, activeOnly } = {}) {
+function query({ limit = 50, offset = 0, municipality, type, q, from, to } = {}) {
   ensureTable();
   const where  = [];
   const params = {};
@@ -150,7 +150,6 @@ function query({ limit = 50, offset = 0, municipality, type, q, from, to, active
   if (type)         { where.push('intervention_type = @type');    params.type = type; }
   if (from)         { where.push('reported_at >= @from');         params.from = from; }
   if (to)           { where.push('reported_at <= @to');           params.to = to; }
-  if (activeOnly)   { where.push(`NOT (description_pending = 0 AND reported_at < datetime('now', '-12 hours'))`); }
   if (q)            {
     where.push('(description LIKE @q OR municipality LIKE @q OR address LIKE @q OR event_type LIKE @q)');
     params.q = `%${q}%`;

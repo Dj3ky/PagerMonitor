@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Search, X, Loader, Flame, Car, Wrench, Waves, Skull, Biohazard, MapPin, Filter, History, BarChart2 } from 'lucide-react';
+import { Search, X, Loader, Flame, Car, Wrench, Waves, Skull, Biohazard, MapPin, Filter, History, BarChart2, Ungroup } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
 
 // Slovenia's national public-safety intervention feed (fires, traffic accidents,
 // technical assistance, etc) — see backend/src/services/interventions.js for the
 // source and polling details. Live view + filterable/searchable archive.
 const REFRESH_MS = 60 * 1000;
-const LIVE_WINDOW_DAYS = 3; // "Live" = last N days, not just "most recent N rows" — anything
-                             // older is only reachable via Archive, even if the feed's been quiet.
+const LIVE_WINDOW_HOURS = 24; // "Live" = last N hours, not just "most recent N rows" — anything
+                                // older is only reachable via Archive, even if the feed's been quiet.
+                                // Applies uniformly to confirmed and unconfirmed events alike.
 const BASEMAP_STORAGE_KEY = 'pm_interventions_basemap';
+const CLUSTER_STORAGE_KEY = 'pm_interventions_clustered';
 
 // Icon + Slovenian label per intervention type — color no longer comes from here,
 // it's driven by tierColor() instead (time elapsed / confirmed state).
@@ -129,8 +131,10 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
   const mapRef = useRef(null);
   const clusterRef = useRef(null); // L.markerClusterGroup — keeps dense areas (Ljubljana etc) readable
   const markersRef = useRef(new Map());
+  const activeLayerRef = useRef(null); // whichever layer (cluster group or plain map) markers currently live on
   const tileLayerRef = useRef(null);
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
+  const [clustered, setClustered] = useState(() => localStorage.getItem(CLUSTER_STORAGE_KEY) !== '0');
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
@@ -142,7 +146,7 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 8, maxZoom: 19 }); // Slovenia
     if (L.markerClusterGroup) {
       clusterRef.current = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 45 });
-      map.addLayer(clusterRef.current);
+      if (clustered) map.addLayer(clusterRef.current);
     }
     mapRef.current = map;
     // markersRef must be cleared here too — under StrictMode's dev-mode double-invoke
@@ -150,8 +154,8 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     // map/cluster group they belonged to gets destroyed means the next markers-effect
     // run tries to removeLayer() them from a *new* cluster group that never had them,
     // which throws inside Leaflet.markercluster's internal bookkeeping.
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); };
-  }, []);
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const map = mapRef.current;
@@ -166,22 +170,39 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     if (visible) requestAnimationFrame(() => mapRef.current?.invalidateSize());
   }, [visible]);
 
+  // Toggle the cluster group's attachment to the map — separate from the marker-rebuild
+  // effect below so flipping the switch doesn't need to wait on a rows change.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !clusterRef.current) return;
+    const onMap = map.hasLayer(clusterRef.current);
+    if (clustered && !onMap) map.addLayer(clusterRef.current);
+    if (!clustered && onMap) map.removeLayer(clusterRef.current);
+    localStorage.setItem(CLUSTER_STORAGE_KEY, clustered ? '1' : '0');
+  }, [clustered]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
-    const layer = clusterRef.current || map; // fall back to plain markers if the plugin didn't load
-    markersRef.current.forEach(m => layer.removeLayer(m));
+    const useCluster = clustered && !!clusterRef.current;
+    const targetLayer = useCluster ? clusterRef.current : map;
+    // Remove existing markers from whichever layer they were actually added to —
+    // removing them from the wrong layer type throws inside Leaflet.markercluster's
+    // internal bookkeeping (see the mount-effect comment above for the same gotcha).
+    const prevLayer = activeLayerRef.current;
+    if (prevLayer) markersRef.current.forEach(m => prevLayer.removeLayer(m));
     markersRef.current = new Map();
     rows.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng)).forEach(r => {
       const { Icon } = typeStyle(r.intervention_type);
       const marker = L.marker([r.lat, r.lng], { icon: markerIcon(L, tierColor(r), Icon) });
       marker.bindPopup(popupHtml(r), { maxWidth: 320 });
       marker.on('click', () => onSelect?.(r.id)); // keep the list panel in sync with the map, not just the reverse
-      layer.addLayer ? layer.addLayer(marker) : marker.addTo(map);
+      targetLayer.addLayer ? targetLayer.addLayer(marker) : marker.addTo(map);
       markersRef.current.set(r.id, marker);
     });
-  }, [rows]);
+    activeLayerRef.current = targetLayer;
+  }, [rows, clustered]);
 
   useEffect(() => {
     if (!flyTo) return;
@@ -190,18 +211,28 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     if (!map || !marker) return;
     // Inside a collapsed cluster — zoomToShowLayer spiders/zooms until it's visible,
     // then the callback opens its popup. Without clustering, just fly straight to it.
-    if (clusterRef.current) {
+    if (clustered && clusterRef.current) {
       clusterRef.current.zoomToShowLayer(marker, () => marker.openPopup());
     } else {
       map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 12), { duration: 0.6 });
       marker.openPopup();
     }
-  }, [flyTo]);
+  }, [flyTo, clustered]);
 
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       <LastUpdated updatedAt={updatedAt} />
       <BasemapSwitcher basemap={basemap} onChange={setBasemap} />
+      <button onClick={() => setClustered(v => !v)} title={clustered ? 'Onemogoči združevanje bližnjih dogodkov' : 'Omogoči združevanje bližnjih dogodkov'}
+        style={{
+          position: 'absolute', top: '2.6rem', right: '0.5rem', zIndex: 1000,
+          display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.5rem', borderRadius: '0.5rem',
+          fontSize: '0.68rem', fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)',
+          background: clustered ? 'color-mix(in srgb, var(--accent-green) 16%, transparent)' : 'var(--bg-1)',
+          color: clustered ? 'var(--accent-green)' : 'var(--text-2)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
+        }}>
+        <Ungroup size={12} /> Združevanje
+      </button>
       <Legend />
       <div ref={divRef} style={{ height: '100%' }} />
     </div>
@@ -468,11 +499,10 @@ export default function InterventionsView({ visible }) {
         if (filters.from) params.set('from', filters.from);
         if (filters.to)   params.set('to', filters.to + 'T23:59:59');
       } else {
-        // Live = last LIVE_WINDOW_DAYS days, not just "most recent N rows" — older
-        // entries stay reachable only through Archive, even on a quiet feed.
-        params.set('from', new Date(Date.now() - LIVE_WINDOW_DAYS * 86400000).toISOString());
-        // Confirmed events older than 12h age out of the live view (still reachable via Archive).
-        params.set('activeOnly', '1');
+        // Live = last LIVE_WINDOW_HOURS hours, not just "most recent N rows" — older
+        // entries stay reachable only through Archive, even on a quiet feed. Applies
+        // the same cutoff whether or not the event has been confirmed yet.
+        params.set('from', new Date(Date.now() - LIVE_WINDOW_HOURS * 3600000).toISOString());
       }
       const { rows: page, total: n } = await getJson(`/api/interventions?${params}`);
       setRows(prev => append ? [...prev, ...page] : page);
@@ -523,7 +553,7 @@ export default function InterventionsView({ visible }) {
             display: 'flex', flexDirection: 'column', background: 'var(--bg-1)', minHeight: 0 }}>
             <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-3)',
               borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
-              Prikazanih {rows.length} od {total} rezultatov {archiveMode ? '(arhiv)' : `(zadnji ${LIVE_WINDOW_DAYS} dni)`}
+              Prikazanih {rows.length} od {total} rezultatov {archiveMode ? '(arhiv)' : `(zadnjih ${LIVE_WINDOW_HOURS} ur)`}
               {activeFilters ? ' · filtrirano' : ''}
               {!archiveMode && ' — za starejše preklopi na Arhiv'}
             </div>
