@@ -257,6 +257,14 @@ function _migrate() {
     db.exec('ALTER TABLE groups ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE');
     logger.info('Migration: added org_id to groups (NULL = global/shared default)');
   }
+  // Installs predating parent/child group nesting never got this column — without it,
+  // groupMatchesSelection's `SELECT parent_id FROM groups` throws, which passesFilter's
+  // catch-all silently turns into "let everything through" (looked like "by group"
+  // notification/feed filtering doing nothing).
+  if (!groupColumns.includes('parent_id')) {
+    db.exec('ALTER TABLE groups ADD COLUMN parent_id INTEGER REFERENCES groups(id) ON DELETE SET NULL');
+    logger.info('Migration: added parent_id to groups');
+  }
 
   const userColumns = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
   if (!userColumns.includes('last_seen_id')) {
