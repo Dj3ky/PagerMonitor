@@ -512,10 +512,14 @@ router.post('/aircraft/tracked', requireAuth, requireEnabled('enableAircraft'), 
       const { lookupByRegistration } = require('../services/aircraftLookup');
       info = await lookupByRegistration(registration);
     }
+    // When the caller already supplied the hex by hand, they clearly know the plane —
+    // let them attach their own description too, since neither free lookup source is
+    // guaranteed to have metadata for a manually-sourced hex.
+    const manualDescription = manualIcao24 ? String(req.body?.aircraft_type || '').trim() : '';
     const row = insertTrackedAircraft(orgId, req.session.userId, req.session.username, {
       registration,
       icao24: manualIcao24 || info?.icao24 || null,
-      aircraft_type: info?.type || null,
+      aircraft_type: info?.type || manualDescription || null,
       manufacturer: info?.manufacturer || null,
     });
     openskyAircraft.refreshSoon();
@@ -537,12 +541,17 @@ router.patch('/aircraft/tracked/:id', requireAuth, requireEnabled('enableAircraf
 
     if (req.body?.enabled !== undefined) updateTrackedAircraftEnabled(row.id, !!req.body.enabled);
 
-    // Manual ICAO24 fix — lets someone patch in the hex by hand for a plane adsbdb never
-    // resolved (see POST above for why that happens).
+    // Manual ICAO24 fix (+ optional hand-typed description) — lets someone patch in the hex
+    // for a plane neither free lookup source ever resolved (see POST above for why that
+    // happens), and describe it themselves since a manually-sourced hex has no guarantee of
+    // matching metadata anywhere free.
     if (req.body?.icao24 !== undefined) {
       const icao24 = String(req.body.icao24 || '').trim().toLowerCase();
       if (icao24 && !ICAO24_RE.test(icao24)) return res.status(400).json({ error: 'ICAO24 must be a 6-character hex code' });
-      updateTrackedAircraftIcao24(row.id, { icao24: icao24 || null, aircraft_type: row.aircraft_type, manufacturer: row.manufacturer });
+      const aircraft_type = req.body.aircraft_type !== undefined
+        ? (String(req.body.aircraft_type).trim() || null)
+        : row.aircraft_type;
+      updateTrackedAircraftIcao24(row.id, { icao24: icao24 || null, aircraft_type, manufacturer: row.manufacturer });
     }
 
     // Promote/demote to a global (every-org) default — affects visibility for orgs beyond

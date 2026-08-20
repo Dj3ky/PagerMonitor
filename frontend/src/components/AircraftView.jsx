@@ -160,6 +160,7 @@ function TrackedPlanesPanel({ aircraft }) {
   const [open, setOpen] = useState(false);
   const [reg, setReg] = useState('');
   const [manualIcao, setManualIcao] = useState('');
+  const [manualDesc, setManualDesc] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
 
@@ -179,8 +180,8 @@ function TrackedPlanesPanel({ aircraft }) {
     if (!registration) return;
     setBusy(true); setMsg(null);
     try {
-      const res = await addTrackedAircraft(registration, manualIcao.trim());
-      setReg(''); setManualIcao('');
+      const res = await addTrackedAircraft(registration, manualIcao.trim(), manualDesc.trim());
+      setReg(''); setManualIcao(''); setManualDesc('');
       load();
       setMsg(res.lookupFailed
         ? { type: 'warn', text: `${registration} dodano, a podatkov o letalu ni bilo mogoče najti — sledenje morda ne bo delovalo, dokler ročno ne vneseš ICAO24 kode.` }
@@ -199,7 +200,10 @@ function TrackedPlanesPanel({ aircraft }) {
   const handleFixIcao = async (row) => {
     const val = prompt(`Vnesi ICAO24 (6-mestna šestnajstiška koda, npr. 391a2b) za ${row.registration}:`, '');
     if (val === null) return;
-    try { await setTrackedAircraftIcao24(row.id, val.trim()); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
+    // No free lookup source is guaranteed to have metadata for a manually-sourced hex, so
+    // offer to attach a hand-typed description right away instead of leaving it blank.
+    const desc = prompt(`Opis letala za ${row.registration} (neobvezno, npr. "Airbus A321neo"):`, row.aircraft_type || '');
+    try { await setTrackedAircraftIcao24(row.id, val.trim(), desc == null ? undefined : desc.trim()); load(); } catch (err) { setMsg({ type: 'err', text: err.message }); }
   };
 
   const handleToggleGlobal = async (row) => {
@@ -283,12 +287,17 @@ function TrackedPlanesPanel({ aircraft }) {
             {!tracked.length && <div style={{ color: 'var(--text-3)', fontSize: '0.78rem' }}>Ni sledenih letal.</div>}
           </div>
           {canAdd && (
-            <form onSubmit={handleAdd} style={{ display: 'flex', gap: '0.4rem' }}>
+            <form onSubmit={handleAdd} style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
               <input className="pm-input" value={reg} onChange={e => setReg(e.target.value)}
-                placeholder="Registracija (npr. S5-ABC)" style={{ flex: 1, fontSize: '0.78rem' }} disabled={busy} />
+                placeholder="Registracija (npr. S5-ABC)" style={{ flex: 1, minWidth: '8rem', fontSize: '0.78rem' }} disabled={busy} />
               <input className="pm-input" value={manualIcao} onChange={e => setManualIcao(e.target.value)}
                 placeholder="ICAO24 (neobvezno)" style={{ width: '9rem', fontSize: '0.78rem' }} disabled={busy}
                 title="Če poznaš ICAO24 (šestnajstiško) kodo letala, jo lahko vneseš tu — s tem preskočiš samodejno iskanje." />
+              {manualIcao.trim() && (
+                <input className="pm-input" value={manualDesc} onChange={e => setManualDesc(e.target.value)}
+                  placeholder="Opis letala (neobvezno)" style={{ width: '11rem', fontSize: '0.78rem' }} disabled={busy}
+                  title="Samodejno iskanje se preskoči, ko vneseš ICAO24 ročno — tu lahko sam opišeš letalo (tip, proizvajalec …)." />
+              )}
               <button className="pm-btn pm-btn-primary" type="submit" disabled={busy || !reg.trim()}>
                 <Plus size={13} /> Dodaj
               </button>
