@@ -55,6 +55,10 @@ function buildMmonArgs() {
   if (e.MULTIMON_QUIET === '1')           args.push('-q');
   if (e.MULTIMON_POCSAG_SPECIAL === '1') args.push('-s');
   if (e.MULTIMON_POCSAG_CHARSET)          args.push('-C', e.MULTIMON_POCSAG_CHARSET); // -C POCSAG charset: US, FR, DE, SE, DK, SI
+  // -f forces every message to decode as this POCSAG type ('numeric'|'alpha'|'skyper'|'auto'),
+  // skipping multimon-ng's own content-based guess — confirmed in the field to misclassify
+  // digit-heavy alpha messages (e.g. postal addresses) as Numeric garbage otherwise.
+  if (e.MULTIMON_POCSAG_MODE)             args.push('-f', e.MULTIMON_POCSAG_MODE);
   args.push('-');
   return args;
 }
@@ -132,6 +136,8 @@ function buildMmonArgsForDongle(dongle) {
   if (special === '1') args.push('-s');
   const charset = dongle.charset || e.MULTIMON_POCSAG_CHARSET;
   if (charset) args.push('-C', charset);
+  const pocsagMode = dongle.pocsagMode || e.MULTIMON_POCSAG_MODE;
+  if (pocsagMode) args.push('-f', pocsagMode);
   args.push('-');
   return args;
 }

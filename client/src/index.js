@@ -59,6 +59,7 @@ function buildGlobalDongleDefaults() {
     inputFormat:    process.env.MULTIMON_INPUT_FORMAT      || '',
     pocsagSpecial:  process.env.MULTIMON_POCSAG_SPECIAL    || '0',
     charset:        process.env.MULTIMON_POCSAG_CHARSET    || '',
+    pocsagMode:     process.env.MULTIMON_POCSAG_MODE       || '',
   };
 }
 
@@ -191,6 +192,13 @@ function buildMmonArgs(cfg) {
   if (cfg.quiet       === '1')   args.push('-q');
   if (cfg.pocsagSpecial === '1') args.push('-s');
   if (cfg.charset)               args.push('-C', cfg.charset);
+  // multimon-ng's default (no -f) guesses Numeric vs Alpha per-message from decoded content
+  // (penalizing brackets/junk chars, rewarding clean letters/digits) — confirmed in the field
+  // to misclassify legitimate alpha messages as Numeric garbage when they're digit-heavy (e.g.
+  // postal addresses/house numbers). -f alpha forces every message on this decoder to print as
+  // alpha, skipping that guesswork entirely; only worth setting on networks that never send
+  // genuinely numeric-only pages, since it'd misrender those.
+  if (cfg.pocsagMode)            args.push('-f', cfg.pocsagMode);
   args.push('-');
   return args;
 }
@@ -655,7 +663,7 @@ async function pollConfig(pipelines) {
       directSampling: mainCfg.directSampling, offsetTuning: mainCfg.offsetTuning,
       protocols: mainCfg.protocols, verbosity: mainCfg.verbosity,
       quiet: mainCfg.quiet, inputFormat: mainCfg.inputFormat,
-      pocsagSpecial: mainCfg.pocsagSpecial, charset: mainCfg.charset,
+      pocsagSpecial: mainCfg.pocsagSpecial, charset: mainCfg.charset, pocsagMode: mainCfg.pocsagMode,
     };
     const hashParam = CLIENT_GIT_HASH ? `&gitHash=${CLIENT_GIT_HASH}` : '';
     // Cheap to re-enumerate every poll cycle (60s) — lets the admin UI show newly-plugged
