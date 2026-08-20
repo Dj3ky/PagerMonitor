@@ -169,7 +169,9 @@
     "individualMarkers": "Individual markers",
     "clusteredMarkers": "Clustered markers",
     "heatmapDensity": "Heatmap density",
-    "hideList": "Hide list"
+    "hideList": "Hide list",
+    "unitsAtLocation_one": "{{count}} message at this location",
+    "unitsAtLocation_other": "{{count}} messages at this location"
   },
   "loginPage": {
     "forgotFailed": "Failed to send. Check server connection.",
