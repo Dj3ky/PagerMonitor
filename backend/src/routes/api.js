@@ -610,5 +610,11 @@ const vecjiObseg = require('../services/vecjiObseg');
 router.get('/interventions/vecji-obseg', requireAuth, requireEnabled('enableInterventions'), (_req, res) => {
   try { res.json(vecjiObseg.getActive()); } catch (e) { res.status(500).json({ error: e.message }); }
 });
+router.get('/interventions/vecji-obseg/history', requireAuth, requireEnabled('enableInterventions'), (req, res) => {
+  try {
+    const { limit, offset, municipality, q, from, to } = req.query;
+    res.json(vecjiObseg.getHistory({ limit, offset, municipality, q, from, to }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 module.exports = router;

@@ -395,7 +395,8 @@ function StatsModal({ onClose }) {
 }
 
 // ── Filter toolbar ───────────────────────────────────────────────────────────
-function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setArchiveMode, onShowStats }) {
+function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setArchiveMode,
+  archiveDataType, setArchiveDataType, onShowStats }) {
   const [qInput, setQInput] = useState(filters.q);
   useEffect(() => {
     const t = setTimeout(() => setFilters(f => ({ ...f, q: qInput })), 350);
@@ -430,10 +431,12 @@ function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setA
         {municipalities.map(m => <option key={m} value={m}>{m}</option>)}
       </select>
 
-      <select value={filters.type} onChange={e => setFilters(f => ({ ...f, type: e.target.value }))} style={selStyle}>
-        <option value="">Vse vrste</option>
-        {types.map(t => <option key={t} value={t}>{t}</option>)}
-      </select>
+      {archiveDataType !== 'obseg' && (
+        <select value={filters.type} onChange={e => setFilters(f => ({ ...f, type: e.target.value }))} style={selStyle}>
+          <option value="">Vse vrste</option>
+          {types.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      )}
 
       <button onClick={() => setArchiveMode(v => !v)} title="Preišči celotno zgodovino namesto zadnjih dogodkov" style={{
         display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.6rem', borderRadius: '0.4rem',
@@ -455,6 +458,15 @@ function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setA
 
       {archiveMode && (
         <>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '0.4rem', overflow: 'hidden' }}>
+            {[['dogodki', 'Dogodki'], ['obseg', 'Večji obseg']].map(([id, label]) => (
+              <button key={id} onClick={() => setArchiveDataType(id)} style={{
+                padding: '0.3rem 0.55rem', fontSize: '0.75rem', fontWeight: 500, cursor: 'pointer', border: 'none',
+                background: archiveDataType === id ? 'color-mix(in srgb, var(--accent-blue) 12%, transparent)' : 'var(--bg-3)',
+                color: archiveDataType === id ? 'var(--accent-blue)' : 'var(--text-2)',
+              }}>{label}</button>
+            ))}
+          </div>
           <input type="date" value={filters.from} onChange={e => setFilters(f => ({ ...f, from: e.target.value }))} style={selStyle} />
           <span style={{ color: 'var(--text-3)', fontSize: '0.75rem' }}>–</span>
           <input type="date" value={filters.to} onChange={e => setFilters(f => ({ ...f, to: e.target.value }))} style={selStyle} />
@@ -542,6 +554,92 @@ function ResultList({ rows, selected, onSelect }) {
   );
 }
 
+// ── Večji obseg archive list ───────────────────────────────────────────────────
+// Self-contained, unlike ResultList — it has its own fetch/pagination since it's a
+// different data shape (municipality + free text, no lat/lng point) rather than
+// something that plugs into the point-intervention rows/map/selection machinery above.
+const OBSEG_PAGE_SIZE = 50;
+
+function ObsegHistoryList({ filters }) {
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async (append = false) => {
+    append ? setLoadingMore(true) : setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: String(OBSEG_PAGE_SIZE), offset: append ? String(rows.length) : '0' });
+      if (filters.q)            params.set('q', filters.q);
+      if (filters.municipality) params.set('municipality', filters.municipality);
+      if (filters.from)         params.set('from', filters.from);
+      if (filters.to)           params.set('to', filters.to + 'T23:59:59');
+      const { rows: page, total: n } = await getJson(`/api/interventions/vecji-obseg/history?${params}`);
+      setRows(prev => append ? [...prev, ...page] : page);
+      setTotal(n);
+      setError(null);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); setLoadingMore(false); }
+  }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { load(false); }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
+        <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} /> Nalaganje…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'var(--accent-red)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+        Napaka pri nalaganju: {error}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-3)',
+        borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
+        Prikazanih {rows.length} od {total} rezultatov (večji obseg)
+      </div>
+      {!rows.length ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--text-3)', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>
+          Noben dogodek ne ustreza tem filtrom.
+        </div>
+      ) : (
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {rows.map((r, i) => (
+            <div key={`${r.obcina_mid}-${r.message_at}-${i}`} style={{
+              padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-soft)', maxWidth: '640px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#a855f7', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-1)' }}>{r.obcina_naziv}</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: '0.15rem' }}>{fmtWhen(r.message_at)}</div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-2)', marginTop: '0.3rem', lineHeight: 1.4 }}>{r.besedilo}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {rows.length < total && (
+        <button onClick={() => load(true)} disabled={loadingMore} style={{
+          flexShrink: 0, padding: '0.55rem', fontSize: '0.78rem', fontWeight: 500,
+          color: 'var(--accent-blue)', background: 'var(--bg-3)', border: 'none',
+          borderTop: '1px solid var(--border-soft)', cursor: loadingMore ? 'default' : 'pointer' }}>
+          {loadingMore ? 'Nalaganje…' : `Naloži še ${Math.min(OBSEG_PAGE_SIZE, total - rows.length)}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Main panel ───────────────────────────────────────────────────────────────
 const PAGE_SIZE = 100;
 
@@ -552,6 +650,7 @@ export default function InterventionsView({ visible }) {
   const [types, setTypes]         = useState([]);
   const [filters, setFilters]     = useState({ q: '', municipality: '', type: '', from: '', to: '' });
   const [archiveMode, setArchiveMode] = useState(false);
+  const [archiveDataType, setArchiveDataType] = useState('dogodki'); // 'dogodki' | 'obseg' — only relevant while archiveMode
   const [showStats, setShowStats] = useState(false);
   const [selected, setSelected]   = useState(null);
   const [updatedAt, setUpdatedAt] = useState(null);
@@ -566,6 +665,9 @@ export default function InterventionsView({ visible }) {
   // fly-to-marker + open-popup effect as if you'd just clicked it. Clearing it on hide
   // means returning to the page always starts from a clean, unselected map.
   useEffect(() => { if (!visible) setSelected(null); }, [visible]);
+  // Leaving Arhiv always resets back to the normal Dogodki view, so re-opening Arhiv
+  // later doesn't silently land on the Večji obseg list from a previous session.
+  useEffect(() => { if (!archiveMode) setArchiveDataType('dogodki'); }, [archiveMode]);
 
   const activeFilters = filters.q || filters.municipality || filters.type || filters.from || filters.to;
 
@@ -620,9 +722,13 @@ export default function InterventionsView({ visible }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Toolbar filters={filters} setFilters={setFilters} municipalities={municipalities} types={types}
-        archiveMode={archiveMode} setArchiveMode={setArchiveMode} onShowStats={() => setShowStats(true)} />
+        archiveMode={archiveMode} setArchiveMode={setArchiveMode}
+        archiveDataType={archiveDataType} setArchiveDataType={setArchiveDataType}
+        onShowStats={() => setShowStats(true)} />
       {showStats && <StatsModal onClose={() => setShowStats(false)} />}
-      {loading && !loadedOnce.current ? (
+      {archiveMode && archiveDataType === 'obseg' ? (
+        <ObsegHistoryList filters={filters} />
+      ) : loading && !loadedOnce.current ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
           <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} />

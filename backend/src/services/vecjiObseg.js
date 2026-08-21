@@ -173,6 +173,30 @@ function getActive() {
   return [...byMunicipality.values()];
 }
 
+// All messages ever seen (not just currently-active ones) — searchable history for
+// the Arhiv "Večji obseg" view. Rows are never deleted from vecji_obseg_messages, so
+// this is the full record.
+function getHistory({ limit = 50, offset = 0, municipality, q, from, to } = {}) {
+  ensureTable();
+  const where  = [];
+  const params = {};
+  if (municipality) { where.push('obcina_naziv = @municipality'); params.municipality = municipality; }
+  if (from)         { where.push('message_at >= @from');          params.from = from; }
+  if (to)           { where.push('message_at <= @to');            params.to = to; }
+  if (q)            { where.push('(besedilo LIKE @q OR obcina_naziv LIKE @q)'); params.q = `%${q}%`; }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = getDb().prepare(`SELECT COUNT(*) AS n FROM vecji_obseg_messages ${whereSql}`).get(params).n;
+
+  params.limit  = Math.min(Math.max(parseInt(limit, 10)  || 50, 1), 200);
+  params.offset = Math.max(parseInt(offset, 10) || 0, 0);
+  const rows = getDb().prepare(`
+    SELECT obcina_mid, obcina_naziv, message_at, besedilo FROM vecji_obseg_messages
+    ${whereSql} ORDER BY message_at DESC LIMIT @limit OFFSET @offset
+  `).all(params);
+
+  return { rows, total };
+}
+
 let timer = null;
 function start() {
   if (timer) return;
@@ -182,4 +206,4 @@ function start() {
 }
 function stop() { clearInterval(timer); timer = null; }
 
-module.exports = { start, stop, getActive };
+module.exports = { start, stop, getActive, getHistory };
