@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Search, X, Loader, Flame, Car, Wrench, Waves, Skull, Biohazard, MapPin, Filter, History, BarChart2, Ungroup } from 'lucide-react';
+import { Search, X, Loader, Flame, Car, Wrench, Waves, Skull, Biohazard, MapPin, Filter, History, BarChart2, Ungroup, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
 
 // Slovenia's national public-safety intervention feed (fires, traffic accidents,
@@ -657,6 +657,10 @@ export default function InterventionsView({ visible }) {
   const [loading, setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError]         = useState(null);
+  // Mobile only — desktop always shows the list as a fixed sidebar (see .pm-interventions-list-toggle).
+  // Defaults closed so the map gets the full screen instead of being squeezed by a permanent
+  // bottom panel, matching MapView.jsx's mobile sidebar-overlay pattern.
+  const [listOpen, setListOpen]   = useState(false);
   const loadedOnce = useRef(false);
 
   // The map (and its Leaflet instance) fully unmounts/remounts each time this panel is
@@ -719,6 +723,35 @@ export default function InterventionsView({ visible }) {
 
   if (!visible) return null;
 
+  // Close the mobile list overlay on selection so the map's fly-to is actually visible —
+  // otherwise the 85%-width overlay would keep covering it. No-op on desktop (list isn't
+  // an overlay there).
+  const handleSelectRow = (id) => {
+    setSelected(id);
+    if (window.innerWidth <= 720) setListOpen(false);
+  };
+
+  // Shared between the desktop fixed sidebar and the mobile overlay below.
+  const listContent = (
+    <>
+      <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-3)',
+        borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
+        Prikazanih {rows.length} od {total} rezultatov {archiveMode ? '(arhiv)' : `(zadnjih ${LIVE_WINDOW_HOURS} ur)`}
+        {activeFilters ? ' · filtrirano' : ''}
+        {!archiveMode && ' — za starejše preklopi na Arhiv'}
+      </div>
+      <ResultList rows={rows} selected={selected} onSelect={handleSelectRow} />
+      {archiveMode && rows.length < total && (
+        <button onClick={() => load(true)} disabled={loadingMore} style={{
+          flexShrink: 0, padding: '0.55rem', fontSize: '0.78rem', fontWeight: 500,
+          color: 'var(--accent-blue)', background: 'var(--bg-3)', border: 'none',
+          borderTop: '1px solid var(--border-soft)', cursor: loadingMore ? 'default' : 'pointer' }}>
+          {loadingMore ? 'Nalaganje…' : `Naloži še ${Math.min(PAGE_SIZE, total - rows.length)}`}
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Toolbar filters={filters} setFilters={setFilters} municipalities={municipalities} types={types}
@@ -740,33 +773,47 @@ export default function InterventionsView({ visible }) {
           Napaka pri nalaganju dogodkov: {error}
         </div>
       ) : (
-        <div className="pm-interventions-body" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <div className="pm-interventions-body" style={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
           <InterventionsMap rows={mapRows} visible={visible} updatedAt={updatedAt} flyTo={selected} onSelect={setSelected} />
-          <div className="pm-interventions-list" style={{
+
+          {/* Desktop: fixed sidebar, always visible — hidden by CSS on mobile below */}
+          <div className="pm-interventions-list-desktop" style={{
             width: '420px', flexShrink: 0, borderLeft: '1px solid var(--border)',
             display: 'flex', flexDirection: 'column', background: 'var(--bg-1)', minHeight: 0 }}>
-            <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-3)',
-              borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
-              Prikazanih {rows.length} od {total} rezultatov {archiveMode ? '(arhiv)' : `(zadnjih ${LIVE_WINDOW_HOURS} ur)`}
-              {activeFilters ? ' · filtrirano' : ''}
-              {!archiveMode && ' — za starejše preklopi na Arhiv'}
-            </div>
-            <ResultList rows={rows} selected={selected} onSelect={setSelected} />
-            {archiveMode && rows.length < total && (
-              <button onClick={() => load(true)} disabled={loadingMore} style={{
-                flexShrink: 0, padding: '0.55rem', fontSize: '0.78rem', fontWeight: 500,
-                color: 'var(--accent-blue)', background: 'var(--bg-3)', border: 'none',
-                borderTop: '1px solid var(--border-soft)', cursor: loadingMore ? 'default' : 'pointer' }}>
-                {loadingMore ? 'Nalaganje…' : `Naloži še ${Math.min(PAGE_SIZE, total - rows.length)}`}
-              </button>
-            )}
+            {listContent}
           </div>
+
+          {/* Mobile: toggle button overlaid on the map — mirrors MapView.jsx's sidebar toggle,
+              so the map gets the full screen by default instead of a permanent bottom panel. */}
+          <button className="pm-interventions-list-toggle" onClick={() => setListOpen(o => !o)}
+            style={{ display:'none', position:'absolute', bottom:'0.6rem', left:'0.6rem', zIndex:1000,
+              background:'var(--bg-1)', border:'1px solid var(--border)', borderRadius:'0.4rem',
+              padding:'0.4rem 0.6rem', cursor:'pointer', color:'var(--text-1)',
+              fontSize:'0.75rem', fontFamily:'monospace', boxShadow:'0 2px 8px rgba(0,0,0,0.3)',
+              alignItems:'center', gap:'0.35rem' }}>
+            {listOpen ? <ChevronRight size={14}/> : <ChevronLeft size={14}/>}
+            {listOpen ? 'Skrij seznam' : `📋 ${rows.length}`}
+          </button>
+
+          {listOpen && (
+            <div className="pm-interventions-list-mobile" style={{
+              position:'absolute', top:0, left:0, bottom:0, width:'85%', maxWidth:'340px',
+              zIndex:999, display:'flex', flexDirection:'column',
+              background:'var(--bg-1)', borderRight:'1px solid var(--border)',
+              boxShadow:'4px 0 16px rgba(0,0,0,0.4)' }}>
+              {listContent}
+            </div>
+          )}
+          {listOpen && (
+            <div className="pm-interventions-list-backdrop" onClick={() => setListOpen(false)}
+              style={{ position:'absolute', inset:0, zIndex:998, background:'rgba(0,0,0,0.3)' }} />
+          )}
         </div>
       )}
       <style>{`
         @media (max-width: 720px) {
-          .pm-interventions-body { flex-direction: column; }
-          .pm-interventions-list { width: 100%; border-left: none; border-top: 1px solid var(--border); max-height: 45%; }
+          .pm-interventions-list-desktop { display: none !important; }
+          .pm-interventions-list-toggle  { display: flex !important; }
         }
       `}</style>
     </div>
