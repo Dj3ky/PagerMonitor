@@ -53,7 +53,16 @@ function ensureTable() {
     CREATE INDEX IF NOT EXISTS idx_interventions_type         ON interventions(intervention_type);
   `);
   const cols = getDb().prepare(`PRAGMA table_info(interventions)`).all().map(c => c.name);
-  if (!cols.includes('last_seen_at')) getDb().exec(`ALTER TABLE interventions ADD COLUMN last_seen_at TEXT`);
+  if (!cols.includes('last_seen_at')) {
+    getDb().exec(`ALTER TABLE interventions ADD COLUMN last_seen_at TEXT`);
+    // Backfill existing rows as "seen right now" — otherwise they'd sit at NULL forever
+    // (an already-retracted row would never appear in a future poll to set a real
+    // value) and the retraction-delete check in refresh() can never match a NULL
+    // last_seen_at, so it'd never get cleaned up. This gives every pre-existing row one
+    // real timestamp to age from: the next poll either re-confirms it or, if it's gone,
+    // it correctly ages past the grace window and gets deleted on schedule.
+    getDb().exec(`UPDATE interventions SET last_seen_at = datetime('now') WHERE last_seen_at IS NULL`);
+  }
   tableReady = true;
 }
 
@@ -178,7 +187,7 @@ function query({ limit = 50, offset = 0, municipality, type, q, from, to } = {})
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = getDb().prepare(`SELECT COUNT(*) AS n FROM interventions ${whereSql}`).get(params).n;
 
-  params.limit  = Math.min(Math.max(parseInt(limit, 10)  || 50, 1), 200);
+  params.limit  = Math.min(Math.max(parseInt(limit, 10)  || 50, 1), 400);
   params.offset = Math.max(parseInt(offset, 10) || 0, 0);
   const rows = getDb().prepare(`
     SELECT * FROM interventions ${whereSql}

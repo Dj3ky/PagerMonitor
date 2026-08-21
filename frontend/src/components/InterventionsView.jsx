@@ -12,8 +12,9 @@ const LIVE_WINDOW_HOURS = 48; // "Live" = last N hours, not just "most recent N 
                                 // Applies uniformly to confirmed and unconfirmed events alike.
 const BASEMAP_STORAGE_KEY = 'pm_interventions_basemap';
 const CLUSTER_STORAGE_KEY = 'pm_interventions_clustered';
-const LIVE_MAX_ROWS = 200; // backend's hard cap (see query() in interventions.js) — comfortably
-                             // above normal daily volume, even on a busy storm day.
+const LIVE_MAX_ROWS = 400; // backend's hard cap (see query() in interventions.js) — comfortably
+                             // above normal volume across the 48h LIVE_WINDOW_HOURS, even on a
+                             // busy storm stretch.
 
 // Icon + Slovenian label per intervention type — color no longer comes from here,
 // it's driven by tierColor() instead (time elapsed / confirmed state).
