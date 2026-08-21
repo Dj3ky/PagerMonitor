@@ -605,4 +605,10 @@ router.get('/interventions/stats', requireAuth, requireEnabled('enableInterventi
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SPIN's "Večji obseg" (major-scope) municipality overlay — see vecjiObseg.js for the source.
+const vecjiObseg = require('../services/vecjiObseg');
+router.get('/interventions/vecji-obseg', requireAuth, requireEnabled('enableInterventions'), (_req, res) => {
+  try { res.json(vecjiObseg.getActive()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 module.exports = router;

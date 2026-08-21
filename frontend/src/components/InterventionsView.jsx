@@ -129,6 +129,23 @@ function popupHtml(row) {
     </div>`;
 }
 
+// "Večji obseg" (major-scope) municipality overlay — a separate SPIN data type from
+// the point interventions above (see backend/src/services/vecjiObseg.js). Messages are
+// already sorted newest-first by the backend.
+function obsegPopupHtml(area) {
+  const msgs = (area.messages || []).map(m => `
+    <div style="margin-top:0.4rem">
+      <div style="color:var(--text-3);font-size:0.65rem">${fmtWhen(m.messageAt)}</div>
+      <div style="margin-top:0.15rem;line-height:1.4">${escHtml(m.besedilo || '')}</div>
+    </div>`).join('');
+  return `
+    <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:220px;max-width:320px;color:var(--text-1)">
+      <div style="font-weight:700;color:#a855f7">Večji obseg</div>
+      <div style="color:var(--text-3);font-size:0.72rem;margin-top:0.1rem">${escHtml(area.obcinaNaziv || '')}</div>
+      ${msgs}
+    </div>`;
+}
+
 // ── Map ──────────────────────────────────────────────────────────────────────
 function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
   const divRef = useRef(null);
@@ -137,8 +154,10 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
   const markersRef = useRef(new Map());
   const activeLayerRef = useRef(null); // whichever layer (cluster group or plain map) markers currently live on
   const tileLayerRef = useRef(null);
+  const obsegLayerRef = useRef(null); // L.layerGroup for the "Večji obseg" municipality overlay
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
   const [clustered, setClustered] = useState(() => localStorage.getItem(CLUSTER_STORAGE_KEY) !== '0');
+  const [obsegAreas, setObsegAreas] = useState([]);
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
@@ -152,13 +171,17 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
       clusterRef.current = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 45 });
       if (clustered) map.addLayer(clusterRef.current);
     }
+    // Its own plain layer group (not clustered — these are areas, not points), added once;
+    // markers render above it automatically since Leaflet's default markerPane sits above
+    // the overlayPane vector layers like polygons use.
+    obsegLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     // markersRef must be cleared here too — under StrictMode's dev-mode double-invoke
     // (mount → cleanup → mount again), leaving stale marker objects around after the
     // map/cluster group they belonged to gets destroyed means the next markers-effect
     // run tries to removeLayer() them from a *new* cluster group that never had them,
     // which throws inside Leaflet.markercluster's internal bookkeeping.
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; obsegLayerRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -222,6 +245,32 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
       marker.openPopup();
     }
   }, [flyTo, clustered]);
+
+  // "Večji obseg" overlay — independent of the point-intervention list/filters above,
+  // so it's fetched on its own timer here rather than threaded through the parent's
+  // filter-driven `load()`.
+  useEffect(() => {
+    let cancelled = false;
+    const loadObseg = () => getJson('/api/interventions/vecji-obseg')
+      .then(d => { if (!cancelled) setObsegAreas(d); }).catch(() => {});
+    loadObseg();
+    const iv = setInterval(loadObseg, REFRESH_MS);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L || !obsegLayerRef.current) return;
+    const L = window.L;
+    obsegLayerRef.current.clearLayers();
+    obsegAreas.forEach(area => {
+      (area.boundary || []).forEach(polygonRings => {
+        const poly = L.polygon(polygonRings, { color: 'rgba(168,85,247,0.9)', weight: 2, fillColor: '#a855f7', fillOpacity: 0.12 });
+        poly.bindPopup(obsegPopupHtml(area), { maxWidth: 320 });
+        obsegLayerRef.current.addLayer(poly);
+      });
+    });
+  }, [obsegAreas]);
 
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
