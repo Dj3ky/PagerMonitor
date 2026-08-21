@@ -21,6 +21,9 @@ const DETAIL_BATCH       = 40; // per tick — this hits the source's own per-id
                                  // not the same one that's IP-gated, so a higher cap is fine
 const GEOCODE_BATCH      = 10;
 const RECHECK_WINDOW_MS  = 6 * 24 * 60 * 60 * 1000; // give up on missing narrative after 6 days
+const RETRACT_GRACE_MS   = 5 * 60 * 1000; // >3x REFRESH_MS — delete still-unconfirmed rows that
+                                            // vanish from the feed (SPIN retracting a false report),
+                                            // once a single missed/slow poll can't explain the gap
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 
@@ -42,12 +45,15 @@ function ensureTable() {
       reported_at         TEXT,
       first_seen_at       TEXT NOT NULL DEFAULT (datetime('now')),
       last_checked_at     TEXT,
+      last_seen_at        TEXT,
       description_pending INTEGER NOT NULL DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS idx_interventions_reported     ON interventions(reported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_interventions_municipality ON interventions(municipality);
     CREATE INDEX IF NOT EXISTS idx_interventions_type         ON interventions(intervention_type);
   `);
+  const cols = getDb().prepare(`PRAGMA table_info(interventions)`).all().map(c => c.name);
+  if (!cols.includes('last_seen_at')) getDb().exec(`ALTER TABLE interventions ADD COLUMN last_seen_at TEXT`);
   tableReady = true;
 }
 
@@ -67,15 +73,20 @@ async function refresh() {
   const db = getDb();
 
   // 1. Discover ids from the RSS feed — the only working "list" endpoint. Each
-  //    new id gets a placeholder row; existing ones are left untouched here.
+  //    new id gets a placeholder row; existing ones just get last_seen_at bumped
+  //    (reported_at is set once and never overwritten) so step 5 below can tell a
+  //    retracted report (vanished from the feed) from one that's just still active.
   const res = await fetch(RSS_URL, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`feed HTTP ${res.status}`);
   const parsed = xmlParser.parse(await res.text());
   const items = [].concat(parsed?.rss?.channel?.item || []).filter(Boolean);
 
-  const insertPlaceholder = db.prepare(`INSERT OR IGNORE INTO interventions (id, reported_at) VALUES (?, ?)`);
-  const insertMany = db.transaction(rows => { for (const r of rows) insertPlaceholder.run(r.id, r.reportedAt); });
-  insertMany(items.map(item => ({
+  const upsertSeen = db.prepare(`
+    INSERT INTO interventions (id, reported_at, last_seen_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET last_seen_at = datetime('now')
+  `);
+  const upsertMany = db.transaction(rows => { for (const r of rows) upsertSeen.run(r.id, r.reportedAt); });
+  upsertMany(items.map(item => ({
     id: extractId(item.link),
     reportedAt: item.pubDate ? new Date(item.pubDate).toISOString() : null,
   })).filter(r => r.id));
@@ -136,6 +147,16 @@ async function refresh() {
     UPDATE interventions SET description_pending = 0
     WHERE description_pending = 1 AND first_seen_at <= datetime('now', ?)
   `).run(`-${RECHECK_WINDOW_MS / 1000} seconds`);
+
+  // 5. Delete still-unconfirmed rows that have dropped out of the feed — SPIN
+  //    retracting what turned out to be a false report, not a real event just
+  //    aging past the feed's own window (confirmed rows are never touched here).
+  //    last_seen_at IS NULL (not yet seen by this migration's upsert) never matches,
+  //    so this can't wipe out pre-existing rows before they get a chance to be re-seen.
+  db.prepare(`
+    DELETE FROM interventions
+    WHERE description_pending = 1 AND last_seen_at < datetime('now', ?)
+  `).run(`-${RETRACT_GRACE_MS / 1000} seconds`);
 }
 
 // ── Query helpers (used by the API routes) ──────────────────────────────────────
