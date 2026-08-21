@@ -24,7 +24,7 @@ function FeedHeader() {
       borderBottom:'1px solid var(--border)', borderLeft:'3px solid transparent',
       position:'sticky', top:0, zIndex:2 }}>
       <span style={{ width:'12px', flexShrink:0 }} />
-      {cell(t('messageFeed.dateTime'),   { flexShrink:0, width:'72px', textAlign:'right' })}
+      {cell(t('messageFeed.dateTime'),   { flexShrink:0, width:'90px', textAlign:'right', whiteSpace:'nowrap' })}
       {cell(t('messageFeed.source'),        { flexShrink:0, width: SOURCE_COL_WIDTH, textAlign:'center' })}
       {cell(t('messageFeed.capcode'),       { flexShrink:0, minWidth:'78px', textAlign:'center' })}
       {cell(t('messageFeed.aliasGroup'), { flexShrink:0, width: BADGE_COL_WIDTH, textAlign:'center', margin:'0 0.4rem' })}

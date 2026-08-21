@@ -145,7 +145,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             {expanded ? <ChevronDown size={11}/> : <ChevronRight size={11}/>}
           </span>
           {/* Date + Time — two lines */}
-          <div style={{ fontFamily:'monospace', flexShrink:0, width:'72px', textAlign:'right', lineHeight:1.3 }}>
+          <div style={{ fontFamily:'monospace', flexShrink:0, width:'90px', textAlign:'right', lineHeight:1.3 }}>
             <div style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>{fmtDate(msg.timestamp, locale)}</div>
             <div style={{ fontSize:'0.78rem', color:'var(--text-1)', fontWeight:700 }}>{fmtTime(msg.timestamp, locale, hour12)}</div>
           </div>
@@ -183,7 +183,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             {msg.message
               ? <HighlightedMsg text={msg.message} rules={highlightRules}
                   style={{ fontFamily:'monospace', fontSize:'0.875rem', display:'block',
-                    whiteSpace:'nowrap', color:'var(--text-1)' }} />
+                    whiteSpace:'nowrap', color:'var(--text-msg)' }} />
               : <span style={{ fontFamily:'monospace', fontSize:'0.82rem', color:'var(--text-3)', fontStyle:'italic' }}>
                   {t('messageRow.toneOnly')}
                 </span>
@@ -279,7 +279,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             </div>
           )}
           {/* Message — full wrapping on mobile */}
-          <div style={{ fontFamily:'monospace', fontSize:'0.82rem', color: msg.message ? 'var(--text-1)' : 'var(--text-3)',
+          <div style={{ fontFamily:'monospace', fontSize:'0.82rem', color: msg.message ? 'var(--text-msg)' : 'var(--text-3)',
             fontStyle: msg.message ? 'normal' : 'italic', lineHeight:1.4,
             wordBreak:'break-word', whiteSpace:'normal' }}>
             {msg.message
