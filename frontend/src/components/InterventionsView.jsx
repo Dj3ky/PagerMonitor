@@ -497,6 +497,13 @@ export default function InterventionsView({ visible }) {
   const [error, setError]         = useState(null);
   const loadedOnce = useRef(false);
 
+  // The map (and its Leaflet instance) fully unmounts/remounts each time this panel is
+  // hidden/shown again (see the `if (!visible) return null` below) — but `selected` lives
+  // here and would otherwise survive that, making the freshly remounted map replay its
+  // fly-to-marker + open-popup effect as if you'd just clicked it. Clearing it on hide
+  // means returning to the page always starts from a clean, unselected map.
+  useEffect(() => { if (!visible) setSelected(null); }, [visible]);
+
   const activeFilters = filters.q || filters.municipality || filters.type || filters.from || filters.to;
 
   // append=true adds a page onto the existing list (Load more); otherwise it's a
