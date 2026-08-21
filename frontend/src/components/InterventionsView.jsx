@@ -42,16 +42,18 @@ const TIME_LEGEND = [
   { color: '#ef4444', label: 'do 3 ure' },
   { color: '#f97316', label: 'do 6 ur' },
   { color: '#eab308', label: 'do 12 ur' },
-  { color: '#22c55e', label: 'dogodki v teku' },
+  { color: '#3b82f6', label: 'dogodki v teku' },
 ];
 
 // description_pending tracks whether SPIN has published the full narrative for
 // this event yet — empirically, that's the same signal SPIN's own map uses for
 // "confirmed" (an event with no narrative is always still in progress). Still
-// pending → active, regardless of age. Once narrative arrives, color fades from
-// red to yellow with time since report (rows past 12h are excluded via activeOnly).
+// pending → active, regardless of age — blue rather than green, since green reads
+// as "resolved/safe" everywhere else, which is backwards for a still-unfolding event.
+// Once narrative arrives, color fades from red to yellow with time since report
+// (rows past 12h are excluded via activeOnly).
 function tierColor(row) {
-  if (row.description_pending) return '#22c55e';
+  if (row.description_pending) return '#3b82f6';
   const hrs = (Date.now() - new Date(row.reported_at).getTime()) / 3600000;
   if (hrs <= 3) return '#ef4444';
   if (hrs <= 6) return '#f97316';
