@@ -5,8 +5,7 @@
 // affected občina. Both source files are static JSON, unauthenticated, keyed by the
 // same obcinaMID:
 //   - assets/data/vecjiObseg.json          — current active messages per municipality
-//   - assets/data/obcinaWTK{obcinaMID}.json — that municipality's boundary, as WKT in
-//                                             Slovenia's D96/TM survey grid (EPSG:3794)
+//   - assets/data/obcinaWTK{obcinaMID}.json — that municipality's boundary, as WKT
 // Boundaries barely ever change, so each one is fetched once and cached forever.
 const proj4 = require('proj4');
 const { getDb, getSetting } = require('./database');
@@ -18,10 +17,15 @@ const BOUNDARY_URL    = mid => `https://${FEED_HOST}/javno/assets/data/obcinaWTK
 const REFRESH_MS      = 3 * 60 * 1000;  // broader/slower-moving than point interventions
 const ACTIVE_WINDOW_MS = 10 * 60 * 1000; // >3x REFRESH_MS so one missed poll doesn't flicker it off
 
-// Same conversion already used for SMOK water stations (smokWater.js) — same feed
-// family, same national grid.
-proj4.defs('EPSG:3794', '+proj=tmerc +lat_0=0 +lon_0=15 +k=0.9999 +x_0=500000 +y_0=-5000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs +type=crs');
-const toWgs84 = proj4('EPSG:3794', 'EPSG:4326');
+// The WKT coordinates turned out to be the *old* D48/GK survey grid (Bessel ellipsoid,
+// "MGI 1901 / Slovene National Grid", EPSG:3912) rather than the newer D96/TM
+// (EPSG:3794, GRS80) used by SMOK's water-station feed — same false easting/northing
+// and central meridian as D96/TM, which is why treating it as D96/TM still produced a
+// plausible-looking but wrong shape. Confirmed by comparing against OpenStreetMap's own
+// Ilirska Bistrica boundary: this shift lands within ~10-70m of OSM's line at 5 points
+// spread around the whole ring; the D96/TM (null-shift) assumption was off by 200-600m.
+proj4.defs('EPSG:3912', '+proj=tmerc +lat_0=0 +lon_0=15 +k=0.9999 +x_0=500000 +y_0=-5000000 +ellps=bessel +towgs84=682,-203,480,0,0,0,0 +units=m +no_defs +type=crs');
+const toWgs84 = proj4('EPSG:3912', 'EPSG:4326');
 
 let tableReady = false;
 function ensureTable() {
