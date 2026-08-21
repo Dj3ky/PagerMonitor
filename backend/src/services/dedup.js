@@ -16,8 +16,33 @@ const { getDedupConfig } = require('./config');
 
 // Below this similarity, two same-capcode messages within the window are
 // treated as unrelated (e.g. two distinct dispatches to the same station),
-// not retransmissions of one page.
-const SIMILARITY_THRESHOLD = 0.55;
+// not retransmissions of one page. Kept fairly high — two genuinely different
+// dispatches sharing boilerplate phrasing ("POŽAR V ..., ... CESTA ..., GORI
+// ...") can otherwise land in the 0.55-0.65 range purely by template overlap.
+const SIMILARITY_THRESHOLD = 0.65;
+// Multimon-ng's own bracketed decode-failure placeholders (<DEL>, <EM>, ...)
+// and raw control bytes — real dispatch text never legitimately contains
+// these, so finding one is unambiguous proof this specific message is
+// corrupted, independent of how it compares to anything else.
+// String.prototype.match() resets lastIndex internally before searching, so
+// this shared global-flagged regex stays safe to reuse across calls/strings —
+// unlike RegExp.prototype.test(), which would carry lastIndex state between
+// calls and could silently skip matches on a later string.
+const JUNK_TOKEN_RE = /<[A-Z]{2,5}>/g;
+function hasJunkMarkers(text) {
+  if (text.match(JUNK_TOKEN_RE)) return true;
+  for (const ch of text) {
+    const code = ch.codePointAt(0);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+// Once corruption is confirmed via hasJunkMarkers, matching switches to this
+// much more permissive LCS-based ratio — unlike edit-distance similarity, it
+// isn't penalized for multiple separate corrupted patches shifting the rest
+// of the string out of character-for-character alignment, which is exactly
+// what a batch with more than one bad codeword looks like.
+const JUNK_LCS_THRESHOLD = 0.5;
 // Retransmission corruption on POCSAG/FLEX almost always starts clean and
 // degrades from some point onward — it doesn't scramble the beginning. So a
 // long shared prefix is treated as a retransmission match even when the
@@ -73,11 +98,35 @@ function commonPrefixLen(a, b) {
   return i;
 }
 
+function lcsLen(a, b) {
+  const m = a.length, n = b.length;
+  let prev = new Array(n + 1).fill(0);
+  let curr = new Array(n + 1).fill(0);
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], curr[j - 1]);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+function lcsRatio(a, b) {
+  const minLen = Math.min(a.length, b.length);
+  return minLen === 0 ? 0 : lcsLen(a, b) / minLen;
+}
+
 // True if b looks like a retransmission of a — the whole strings are close,
-// they share a long prefix before one of them degrades into corruption, or
-// the shorter one is a too-short-to-be-real fragment loosely aligned with it.
+// one/both carry known decode-failure markers and still share most of their
+// content in order, they share a long prefix before one degrades into
+// corruption, or the shorter one is a too-short-to-be-real fragment loosely
+// aligned with it.
 function looksLikeRetransmission(a, b) {
   if (similarity(a, b) >= SIMILARITY_THRESHOLD) return true;
+
+  if (hasJunkMarkers(a) || hasJunkMarkers(b)) {
+    if (lcsRatio(a, b) >= JUNK_LCS_THRESHOLD) return true;
+  }
 
   const prefixLen = commonPrefixLen(a, b);
   const minLen = Math.min(a.length, b.length);
@@ -100,8 +149,8 @@ function looksLikeRetransmission(a, b) {
 // pay for itself; excluding their length from the count first closes that.
 function scoreText(text) {
   if (!text) return 0;
-  const junkTokens = text.match(/<[A-Z]{2,5}>/g) || [];
-  const stripped = text.replace(/<[A-Z]{2,5}>/g, '');
+  const junkTokens = text.match(JUNK_TOKEN_RE) || [];
+  const stripped = text.replace(JUNK_TOKEN_RE, '');
   let controlChars = 0;
   for (const ch of stripped) {
     const code = ch.codePointAt(0);
