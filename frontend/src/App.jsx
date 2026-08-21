@@ -194,10 +194,15 @@ export default function App() {
     return () => { cancelled = true; };
   }, [latestSha, serverStatus?.gitHash, JSON.stringify((serverStatus?.sdrClients ?? []).map(c => c.gitHash))]);
 
+  // Jump to page 0 only when a genuinely new message arrives at the top (id changes).
+  // Using messages.length here would also fire when "load more" appends older
+  // history at the end, which changes length without a new message — that was
+  // resetting the user back to page 0 whenever they paged to the end and loaded more.
+  const newestId = messages[0]?.id ?? 0;
   useEffect(() => {
     if (paused && messages.length > 0) setNewCount(n => n + 1);
     else setPage(0);
-  }, [messages.length]);
+  }, [newestId]);
 
   // Browser notifications — subscribe directly to raw WS events, not React state.
   // This fires once per live message, regardless of React batching, and never
