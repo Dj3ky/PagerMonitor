@@ -175,24 +175,27 @@ async function checkStatus() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         status.error = body?.error?.message || `HTTP ${res.status} — check your API key`;
-      } else {
-        // Bonus: fetch available chat models for the UI dropdown.
-        // Optional — failure here does not affect connected status.
-        try {
-          const mRes = await fetch('https://api.groq.com/openai/v1/models', {
-            headers: { 'Authorization': `Bearer ${cfg.groqKey}` },
-            signal: AbortSignal.timeout(5000),
-          });
-          if (mRes.ok) {
-            const mData = await mRes.json();
-            status.availableModels = (mData.data || [])
-              .map(m => m.id)
-              .filter(id => !/(whisper|guard|distil)/i.test(id))
-              .sort();
-          }
-        } catch (_) {}
       }
     } catch (e) { status.connected = false; status.error = e.message; }
+
+    // Fetch available chat models for the UI dropdown independently of the probe
+    // above — the probe uses the currently *saved* model, so if that model was
+    // deprecated/renamed by Groq the probe fails, but the key itself may still be
+    // valid. Gating this on probe success would leave the user stuck: unable to
+    // discover a working model because the only known model is a dead one.
+    try {
+      const mRes = await fetch('https://api.groq.com/openai/v1/models', {
+        headers: { 'Authorization': `Bearer ${cfg.groqKey}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (mRes.ok) {
+        const mData = await mRes.json();
+        status.availableModels = (mData.data || [])
+          .map(m => m.id)
+          .filter(id => !/(whisper|guard|distil)/i.test(id))
+          .sort();
+      }
+    } catch (_) {}
 
   } else if (cfg.provider === 'openai') {
     if (!cfg.openaiKey) { status.connected = false; status.error = 'No API key configured'; return status; }

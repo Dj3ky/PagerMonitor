@@ -297,7 +297,7 @@ function StationMap({ stations, visible, updatedAt, regions, alerts }) {
   );
   useEffect(() => { localStorage.setItem(METRIC_STORAGE_KEY, metric); }, [metric]);
   const [showWarnAreas, setShowWarnAreas] = useState(
-    () => localStorage.getItem(WARN_AREAS_STORAGE_KEY) !== '0'
+    () => localStorage.getItem(WARN_AREAS_STORAGE_KEY) === '1'
   );
   useEffect(() => { localStorage.setItem(WARN_AREAS_STORAGE_KEY, showWarnAreas ? '1' : '0'); }, [showWarnAreas]);
 

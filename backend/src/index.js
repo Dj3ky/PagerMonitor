@@ -17,6 +17,7 @@ const arsoQuakes                = require('./services/arsoQuakes');
 const openskyAircraft           = require('./services/openskyAircraft');
 const napTraffic                = require('./services/napTraffic');
 const interventions              = require('./services/interventions');
+const vecjiObseg                 = require('./services/vecjiObseg');
 const { loadSdrConfigIntoEnv } = require('./services/config');
 const { ensureDefaultAdmin, initSessions } = require('./services/auth');
 const { initWebPush } = require('./services/webpush');
@@ -187,6 +188,7 @@ async function main() {
   openskyAircraft.start();
   napTraffic.start();
   interventions.start();
+  vecjiObseg.start();
 
   const shutdown = sig => {
     logger.info(`${sig} received`);
@@ -197,6 +199,7 @@ async function main() {
     openskyAircraft.stop();
     napTraffic.stop();
     interventions.stop();
+    vecjiObseg.stop();
     closeWebSocket();
     server.close(() => process.exit(0));
     setTimeout(() => { logger.warn('Forced exit after 5s'); process.exit(0); }, 5000).unref();

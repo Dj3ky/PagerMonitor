@@ -12,6 +12,8 @@ const LIVE_WINDOW_HOURS = 24; // "Live" = last N hours, not just "most recent N 
                                 // Applies uniformly to confirmed and unconfirmed events alike.
 const BASEMAP_STORAGE_KEY = 'pm_interventions_basemap';
 const CLUSTER_STORAGE_KEY = 'pm_interventions_clustered';
+const LIVE_MAX_ROWS = 200; // backend's hard cap (see query() in interventions.js) — comfortably
+                             // above normal daily volume, even on a busy storm day.
 
 // Icon + Slovenian label per intervention type — color no longer comes from here,
 // it's driven by tierColor() instead (time elapsed / confirmed state).
@@ -42,16 +44,18 @@ const TIME_LEGEND = [
   { color: '#ef4444', label: 'do 3 ure' },
   { color: '#f97316', label: 'do 6 ur' },
   { color: '#eab308', label: 'do 12 ur' },
-  { color: '#22c55e', label: 'dogodki v teku' },
+  { color: '#3b82f6', label: 'dogodki v teku' },
 ];
 
 // description_pending tracks whether SPIN has published the full narrative for
 // this event yet — empirically, that's the same signal SPIN's own map uses for
 // "confirmed" (an event with no narrative is always still in progress). Still
-// pending → active, regardless of age. Once narrative arrives, color fades from
-// red to yellow with time since report (rows past 12h are excluded via activeOnly).
+// pending → active, regardless of age — blue rather than green, since green reads
+// as "resolved/safe" everywhere else, which is backwards for a still-unfolding event.
+// Once narrative arrives, color fades from red to yellow with time since report
+// (rows past 12h are excluded via activeOnly).
 function tierColor(row) {
-  if (row.description_pending) return '#22c55e';
+  if (row.description_pending) return '#3b82f6';
   const hrs = (Date.now() - new Date(row.reported_at).getTime()) / 3600000;
   if (hrs <= 3) return '#ef4444';
   if (hrs <= 6) return '#f97316';
@@ -125,6 +129,23 @@ function popupHtml(row) {
     </div>`;
 }
 
+// "Večji obseg" (major-scope) municipality overlay — a separate SPIN data type from
+// the point interventions above (see backend/src/services/vecjiObseg.js). Messages are
+// already sorted newest-first by the backend.
+function obsegPopupHtml(area) {
+  const msgs = (area.messages || []).map(m => `
+    <div style="margin-top:0.4rem">
+      <div style="color:var(--text-3);font-size:0.65rem">${fmtWhen(m.messageAt)}</div>
+      <div style="margin-top:0.15rem;line-height:1.4">${escHtml(m.besedilo || '')}</div>
+    </div>`).join('');
+  return `
+    <div style="font-family:system-ui,-apple-system,sans-serif;font-size:0.8rem;min-width:220px;max-width:320px;color:var(--text-1)">
+      <div style="font-weight:700;color:#a855f7">Večji obseg</div>
+      <div style="color:var(--text-3);font-size:0.72rem;margin-top:0.1rem">${escHtml(area.obcinaNaziv || '')}</div>
+      ${msgs}
+    </div>`;
+}
+
 // ── Map ──────────────────────────────────────────────────────────────────────
 function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
   const divRef = useRef(null);
@@ -133,8 +154,10 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
   const markersRef = useRef(new Map());
   const activeLayerRef = useRef(null); // whichever layer (cluster group or plain map) markers currently live on
   const tileLayerRef = useRef(null);
+  const obsegLayerRef = useRef(null); // L.layerGroup for the "Večji obseg" municipality overlay
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
   const [clustered, setClustered] = useState(() => localStorage.getItem(CLUSTER_STORAGE_KEY) !== '0');
+  const [obsegAreas, setObsegAreas] = useState([]);
 
   useEffect(() => {
     if (mapRef.current || !divRef.current || !window.L) return;
@@ -148,13 +171,17 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
       clusterRef.current = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 45 });
       if (clustered) map.addLayer(clusterRef.current);
     }
+    // Its own plain layer group (not clustered — these are areas, not points), added once;
+    // markers render above it automatically since Leaflet's default markerPane sits above
+    // the overlayPane vector layers like polygons use.
+    obsegLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     // markersRef must be cleared here too — under StrictMode's dev-mode double-invoke
     // (mount → cleanup → mount again), leaving stale marker objects around after the
     // map/cluster group they belonged to gets destroyed means the next markers-effect
     // run tries to removeLayer() them from a *new* cluster group that never had them,
     // which throws inside Leaflet.markercluster's internal bookkeeping.
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; obsegLayerRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -219,6 +246,32 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     }
   }, [flyTo, clustered]);
 
+  // "Večji obseg" overlay — independent of the point-intervention list/filters above,
+  // so it's fetched on its own timer here rather than threaded through the parent's
+  // filter-driven `load()`.
+  useEffect(() => {
+    let cancelled = false;
+    const loadObseg = () => getJson('/api/interventions/vecji-obseg')
+      .then(d => { if (!cancelled) setObsegAreas(d); }).catch(() => {});
+    loadObseg();
+    const iv = setInterval(loadObseg, REFRESH_MS);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L || !obsegLayerRef.current) return;
+    const L = window.L;
+    obsegLayerRef.current.clearLayers();
+    obsegAreas.forEach(area => {
+      (area.boundary || []).forEach(polygonRings => {
+        const poly = L.polygon(polygonRings, { color: 'rgba(168,85,247,0.9)', weight: 2, fillColor: '#a855f7', fillOpacity: 0.12 });
+        poly.bindPopup(obsegPopupHtml(area), { maxWidth: 320 });
+        obsegLayerRef.current.addLayer(poly);
+      });
+    });
+  }, [obsegAreas]);
+
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       <LastUpdated updatedAt={updatedAt} />
@@ -254,15 +307,29 @@ function StatBar({ label, value, max, color }) {
   );
 }
 
+const STATS_DAYS = 30;
+
 function StatsModal({ onClose }) {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    getJson('/api/interventions/stats?days=30').then(setStats).catch(e => setError(e.message));
+    getJson(`/api/interventions/stats?days=${STATS_DAYS}`).then(setStats).catch(e => setError(e.message));
   }, []);
 
-  const maxDaily = Math.max(...(stats?.daily || []).map(r => r.n), 1);
+  // The backend only returns days that had at least one event — backfill the rest as
+  // zero here so a quiet day shows as an empty bar instead of silently disappearing
+  // from the list (which would make the 30-day window look shorter/uneven than it is).
+  const dailyFilled = useMemo(() => {
+    const counts = new Map((stats?.daily || []).map(r => [r.day, r.n]));
+    const out = [];
+    for (let i = STATS_DAYS - 1; i >= 0; i--) {
+      const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      out.push({ day, n: counts.get(day) || 0 });
+    }
+    return out;
+  }, [stats]);
+  const maxDaily = Math.max(...dailyFilled.map(r => r.n), 1);
 
   // The backend groups by the raw SPIN intervention_type string, but several distinct
   // raw values can all fall into typeStyle()'s "Drugo" catch-all (or any other bucket) —
@@ -281,14 +348,14 @@ function StatsModal({ onClose }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', alignItems: 'center',
       justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ width: 'min(480px,92vw)', maxHeight: '80vh', overflowY: 'auto', background: 'var(--bg-1)',
-        border: '1px solid var(--border)', borderRadius: '0.6rem', boxShadow: '0 4px 24px rgba(0,0,0,0.4)', padding: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.9rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-1)' }}>
-            <BarChart2 size={16} style={{ color: 'var(--accent-blue)' }} /> Statistika dogodkov
+      <div style={{ width: 'min(640px,94vw)', maxHeight: '84vh', overflowY: 'auto', background: 'var(--bg-1)',
+        border: '1px solid var(--border)', borderRadius: '0.75rem', boxShadow: '0 4px 24px rgba(0,0,0,0.4)', padding: '1.5rem 1.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.3rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1rem', fontWeight: 700, color: 'var(--text-1)' }}>
+            <BarChart2 size={18} style={{ color: 'var(--accent-blue)' }} /> Statistika dogodkov
           </div>
           <button onClick={onClose} title="Zapri" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex' }}>
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
 
@@ -300,20 +367,18 @@ function StatsModal({ onClose }) {
           </div>
         ) : (
           <>
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '0.4rem' }}>
-              Dogodkov na dan — zadnjih 30 dni
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '0.6rem' }}>
+              Dogodkov na dan — zadnjih {STATS_DAYS} dni
             </div>
-            <div style={{ marginBottom: '1rem' }}>
-              {stats.daily.length === 0
-                ? <div style={{ color: 'var(--text-3)', fontSize: '0.75rem' }}>Ni podatkov</div>
-                : stats.daily.map(r => (
-                  <StatBar key={r.day} label={new Date(r.day + 'T12:00:00').toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit' })}
-                    value={r.n} max={maxDaily} color="var(--accent-blue)" />
-                ))}
+            <div style={{ marginBottom: '1.6rem' }}>
+              {dailyFilled.map(r => (
+                <StatBar key={r.day} label={new Date(r.day + 'T12:00:00').toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit' })}
+                  value={r.n} max={maxDaily} color="var(--accent-blue)" />
+              ))}
             </div>
 
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '0.4rem' }}>
-              Po vrsti dogodka — zadnjih 30 dni
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '0.6rem' }}>
+              Po vrsti dogodka — zadnjih {STATS_DAYS} dni
             </div>
             <div>
               {byTypeGrouped.length === 0
@@ -330,7 +395,8 @@ function StatsModal({ onClose }) {
 }
 
 // ── Filter toolbar ───────────────────────────────────────────────────────────
-function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setArchiveMode, onShowStats }) {
+function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setArchiveMode,
+  archiveDataType, setArchiveDataType, onShowStats }) {
   const [qInput, setQInput] = useState(filters.q);
   useEffect(() => {
     const t = setTimeout(() => setFilters(f => ({ ...f, q: qInput })), 350);
@@ -365,10 +431,12 @@ function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setA
         {municipalities.map(m => <option key={m} value={m}>{m}</option>)}
       </select>
 
-      <select value={filters.type} onChange={e => setFilters(f => ({ ...f, type: e.target.value }))} style={selStyle}>
-        <option value="">Vse vrste</option>
-        {types.map(t => <option key={t} value={t}>{t}</option>)}
-      </select>
+      {archiveDataType !== 'obseg' && (
+        <select value={filters.type} onChange={e => setFilters(f => ({ ...f, type: e.target.value }))} style={selStyle}>
+          <option value="">Vse vrste</option>
+          {types.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      )}
 
       <button onClick={() => setArchiveMode(v => !v)} title="Preišči celotno zgodovino namesto zadnjih dogodkov" style={{
         display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.6rem', borderRadius: '0.4rem',
@@ -390,6 +458,15 @@ function Toolbar({ filters, setFilters, municipalities, types, archiveMode, setA
 
       {archiveMode && (
         <>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '0.4rem', overflow: 'hidden' }}>
+            {[['dogodki', 'Dogodki'], ['obseg', 'Večji obseg']].map(([id, label]) => (
+              <button key={id} onClick={() => setArchiveDataType(id)} style={{
+                padding: '0.3rem 0.55rem', fontSize: '0.75rem', fontWeight: 500, cursor: 'pointer', border: 'none',
+                background: archiveDataType === id ? 'color-mix(in srgb, var(--accent-blue) 12%, transparent)' : 'var(--bg-3)',
+                color: archiveDataType === id ? 'var(--accent-blue)' : 'var(--text-2)',
+              }}>{label}</button>
+            ))}
+          </div>
           <input type="date" value={filters.from} onChange={e => setFilters(f => ({ ...f, from: e.target.value }))} style={selStyle} />
           <span style={{ color: 'var(--text-3)', fontSize: '0.75rem' }}>–</span>
           <input type="date" value={filters.to} onChange={e => setFilters(f => ({ ...f, to: e.target.value }))} style={selStyle} />
@@ -477,6 +554,92 @@ function ResultList({ rows, selected, onSelect }) {
   );
 }
 
+// ── Večji obseg archive list ───────────────────────────────────────────────────
+// Self-contained, unlike ResultList — it has its own fetch/pagination since it's a
+// different data shape (municipality + free text, no lat/lng point) rather than
+// something that plugs into the point-intervention rows/map/selection machinery above.
+const OBSEG_PAGE_SIZE = 50;
+
+function ObsegHistoryList({ filters }) {
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async (append = false) => {
+    append ? setLoadingMore(true) : setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: String(OBSEG_PAGE_SIZE), offset: append ? String(rows.length) : '0' });
+      if (filters.q)            params.set('q', filters.q);
+      if (filters.municipality) params.set('municipality', filters.municipality);
+      if (filters.from)         params.set('from', filters.from);
+      if (filters.to)           params.set('to', filters.to + 'T23:59:59');
+      const { rows: page, total: n } = await getJson(`/api/interventions/vecji-obseg/history?${params}`);
+      setRows(prev => append ? [...prev, ...page] : page);
+      setTotal(n);
+      setError(null);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); setLoadingMore(false); }
+  }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { load(false); }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
+        <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} /> Nalaganje…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'var(--accent-red)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+        Napaka pri nalaganju: {error}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-3)',
+        borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
+        Prikazanih {rows.length} od {total} rezultatov (večji obseg)
+      </div>
+      {!rows.length ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--text-3)', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>
+          Noben dogodek ne ustreza tem filtrom.
+        </div>
+      ) : (
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {rows.map((r, i) => (
+            <div key={`${r.obcina_mid}-${r.message_at}-${i}`} style={{
+              padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-soft)', maxWidth: '640px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#a855f7', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-1)' }}>{r.obcina_naziv}</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: '0.15rem' }}>{fmtWhen(r.message_at)}</div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-2)', marginTop: '0.3rem', lineHeight: 1.4 }}>{r.besedilo}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {rows.length < total && (
+        <button onClick={() => load(true)} disabled={loadingMore} style={{
+          flexShrink: 0, padding: '0.55rem', fontSize: '0.78rem', fontWeight: 500,
+          color: 'var(--accent-blue)', background: 'var(--bg-3)', border: 'none',
+          borderTop: '1px solid var(--border-soft)', cursor: loadingMore ? 'default' : 'pointer' }}>
+          {loadingMore ? 'Nalaganje…' : `Naloži še ${Math.min(OBSEG_PAGE_SIZE, total - rows.length)}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Main panel ───────────────────────────────────────────────────────────────
 const PAGE_SIZE = 100;
 
@@ -487,6 +650,7 @@ export default function InterventionsView({ visible }) {
   const [types, setTypes]         = useState([]);
   const [filters, setFilters]     = useState({ q: '', municipality: '', type: '', from: '', to: '' });
   const [archiveMode, setArchiveMode] = useState(false);
+  const [archiveDataType, setArchiveDataType] = useState('dogodki'); // 'dogodki' | 'obseg' — only relevant while archiveMode
   const [showStats, setShowStats] = useState(false);
   const [selected, setSelected]   = useState(null);
   const [updatedAt, setUpdatedAt] = useState(null);
@@ -494,6 +658,16 @@ export default function InterventionsView({ visible }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError]         = useState(null);
   const loadedOnce = useRef(false);
+
+  // The map (and its Leaflet instance) fully unmounts/remounts each time this panel is
+  // hidden/shown again (see the `if (!visible) return null` below) — but `selected` lives
+  // here and would otherwise survive that, making the freshly remounted map replay its
+  // fly-to-marker + open-popup effect as if you'd just clicked it. Clearing it on hide
+  // means returning to the page always starts from a clean, unselected map.
+  useEffect(() => { if (!visible) setSelected(null); }, [visible]);
+  // Leaving Arhiv always resets back to the normal Dogodki view, so re-opening Arhiv
+  // later doesn't silently land on the Večji obseg list from a previous session.
+  useEffect(() => { if (!archiveMode) setArchiveDataType('dogodki'); }, [archiveMode]);
 
   const activeFilters = filters.q || filters.municipality || filters.type || filters.from || filters.to;
 
@@ -514,6 +688,11 @@ export default function InterventionsView({ visible }) {
         // entries stay reachable only through Archive, even on a quiet feed. Applies
         // the same cutoff whether or not the event has been confirmed yet.
         params.set('from', new Date(Date.now() - LIVE_WINDOW_HOURS * 3600000).toISOString());
+        // Live mode has no "load more" (it re-fetches from scratch every REFRESH_MS anyway),
+        // so request the backend's actual max instead of the archive page size — a busy
+        // 24h window (storms etc.) can otherwise silently lose events past PAGE_SIZE with
+        // no way to reach them.
+        params.set('limit', String(LIVE_MAX_ROWS));
       }
       const { rows: page, total: n } = await getJson(`/api/interventions?${params}`);
       setRows(prev => append ? [...prev, ...page] : page);
@@ -543,9 +722,13 @@ export default function InterventionsView({ visible }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Toolbar filters={filters} setFilters={setFilters} municipalities={municipalities} types={types}
-        archiveMode={archiveMode} setArchiveMode={setArchiveMode} onShowStats={() => setShowStats(true)} />
+        archiveMode={archiveMode} setArchiveMode={setArchiveMode}
+        archiveDataType={archiveDataType} setArchiveDataType={setArchiveDataType}
+        onShowStats={() => setShowStats(true)} />
       {showStats && <StatsModal onClose={() => setShowStats(false)} />}
-      {loading && !loadedOnce.current ? (
+      {archiveMode && archiveDataType === 'obseg' ? (
+        <ObsegHistoryList filters={filters} />
+      ) : loading && !loadedOnce.current ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '0.6rem', color: 'var(--text-3)', fontFamily: 'monospace', fontSize: '0.82rem' }}>
           <Loader size={20} style={{ animation: 'spin 0.8s linear infinite' }} />
