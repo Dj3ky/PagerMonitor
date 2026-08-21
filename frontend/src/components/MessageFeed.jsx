@@ -11,7 +11,7 @@ const SOURCE_COL_WIDTH = '120px';
 function FeedHeader() {
   const { t } = useTranslation();
   const cell = (label, style) => (
-    <span style={{ fontFamily:'monospace', fontSize:'0.6rem', fontWeight:700,
+    <span style={{ fontFamily:'monospace', fontSize:'0.68rem', fontWeight:700,
       textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-3)', ...style }}>
       {label}
     </span>
@@ -26,9 +26,9 @@ function FeedHeader() {
       <span style={{ width:'12px', flexShrink:0 }} />
       {cell(t('messageFeed.dateTime'),   { flexShrink:0, minWidth:'62px', textAlign:'right' })}
       {cell(t('messageFeed.source'),        { flexShrink:0, width: SOURCE_COL_WIDTH, textAlign:'center' })}
-      {cell(t('messageFeed.capcode'),       { flexShrink:0, minWidth:'70px', textAlign:'center' })}
+      {cell(t('messageFeed.capcode'),       { flexShrink:0, minWidth:'78px', textAlign:'center' })}
       {cell(t('messageFeed.aliasGroup'), { flexShrink:0, width: BADGE_COL_WIDTH, textAlign:'center' })}
-      {cell(t('messageFeed.message'),       { flex:1 })}
+      {cell(t('messageFeed.message'),       { flex:1, marginLeft:'0.35rem' })}
     </div>
   );
 }

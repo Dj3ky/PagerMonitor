@@ -6,7 +6,7 @@ import { adminFetchAliases, adminSaveAlias, adminDeleteAlias, adminDeleteAllAlia
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
-const EMPTY = { capcode:'', name:'', color:'#00ff9d', notes:'', group_id:'', row_color:'', row_sound:'', is_global:false };
+const EMPTY = { capcode:'', name:'', color:'#d869b5', notes:'', group_id:'', row_color:'', row_sound:'', is_global:false };
 
 // Searchable replacement for a plain <select> of groups — with dozens/hundreds of groups a
 // native dropdown means scrolling through everything to find one by eye. Typing filters by

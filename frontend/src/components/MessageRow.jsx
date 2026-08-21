@@ -46,7 +46,7 @@ const SOURCE_COL_W = '120px';
 function Badge({ label, color, title, onClick }) {
   return (
     <span onClick={e => { e.stopPropagation(); onClick?.(); }} title={title ? `${label} — ${title}` : label}
-      style={{ fontSize:'0.62rem', fontWeight:600, padding:'0.1rem 0.4rem', borderRadius:'0.75rem',
+      style={{ fontSize:'0.7rem', fontWeight:600, padding:'0.12rem 0.45rem', borderRadius:'0.75rem',
         color, background:color+'22', border:`1px solid ${color}44`,
         display:'inline-block', maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis',
         whiteSpace:'nowrap', flexShrink:0, boxSizing:'border-box',
@@ -146,8 +146,8 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
           </span>
           {/* Date + Time — two lines */}
           <div style={{ fontFamily:'monospace', flexShrink:0, minWidth:'62px', textAlign:'right', lineHeight:1.3 }}>
-            <div style={{ fontSize:'0.65rem', color:'var(--text-2)' }}>{fmtDate(msg.timestamp, locale)}</div>
-            <div style={{ fontSize:'0.72rem', color:'var(--text-2)' }}>{fmtTime(msg.timestamp, locale, hour12)}</div>
+            <div style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>{fmtDate(msg.timestamp, locale)}</div>
+            <div style={{ fontSize:'0.78rem', color:'var(--text-1)', fontWeight:700 }}>{fmtTime(msg.timestamp, locale, hour12)}</div>
           </div>
           <div title={clientLabel || undefined}
             style={{ flexShrink:0, width:SOURCE_COL_W, minWidth:SOURCE_COL_W,
@@ -162,8 +162,8 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
           <span onClick={e => { e.stopPropagation(); onFilter?.('capcode', msg.capcode); }}
             title={t('messageRow.clickToFilter')}
             style={{ fontFamily:'monospace', fontSize:'0.75rem', fontWeight:700,
-              color:'var(--accent-amber)', flexShrink:0, minWidth:'70px', cursor:'pointer',
-              borderRadius:'0.3rem', padding:'0.1rem 0.35rem', textAlign:'center',
+              color:'var(--accent-amber)', flexShrink:0, minWidth:'78px', cursor:'pointer',
+              borderRadius:'0.3rem', padding:'0.15rem 0.5rem', textAlign:'center',
               background:'color-mix(in srgb,var(--accent-amber) 8%,transparent)',
               border:'1px solid color-mix(in srgb,var(--accent-amber) 22%,transparent)',
               transition:'background 0.1s' }}
@@ -171,19 +171,19 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             onMouseLeave={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber) 8%,transparent)'}>
             {msg.capcode}
           </span>
-          {/* Badge column — fixed width keeps message aligned; wrap so both badges are always visible */}
-          <div style={{ flexShrink:0, width:BADGE_COL_W, display:'flex', alignItems:'flex-start', justifyContent:'center', gap:'0.3rem', flexWrap:'wrap' }}>
+          {/* Badge column — fixed width keeps message aligned; always stack so row rhythm is consistent regardless of label length */}
+          <div style={{ flexShrink:0, width:BADGE_COL_W, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'0.2rem' }}>
             {alias     && <Badge label={alias}     color={aliasColor} title={t('messageRow.filterByAlias')}  onClick={() => onFilter?.('alias',alias)} />}
             {groupName && <Badge label={groupName} color={groupColor} title={t('messageRow.filterByGroup')}  onClick={() => onFilter?.('group',groupName)} />}
           </div>
           {/* Message */}
-          <div style={{ flex:1, minWidth:0, overflow:'hidden',
+          <div style={{ flex:1, minWidth:0, overflow:'hidden', marginLeft:'0.35rem',
             WebkitMaskImage:'linear-gradient(to right, black 82%, transparent 100%)',
             maskImage:'linear-gradient(to right, black 82%, transparent 100%)' }}>
             {msg.message
               ? <HighlightedMsg text={msg.message} rules={highlightRules}
                   style={{ fontFamily:'monospace', fontSize:'0.875rem', display:'block',
-                    whiteSpace:'nowrap', color:'var(--text-2)' }} />
+                    whiteSpace:'nowrap', color:'var(--text-1)' }} />
               : <span style={{ fontFamily:'monospace', fontSize:'0.82rem', color:'var(--text-3)', fontStyle:'italic' }}>
                   {t('messageRow.toneOnly')}
                 </span>
@@ -230,8 +230,8 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
           {/* Top line: time + capcode + icons */}
           <div style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
             <span style={{ fontFamily:'monospace', flexShrink:0, lineHeight:1.3 }}>
-              <span style={{ fontSize:'0.62rem', color:'var(--text-2)' }}>{fmtDate(msg.timestamp, locale)} </span>
-              <span style={{ fontSize:'0.7rem', color:'var(--text-2)' }}>{fmtTime(msg.timestamp, locale, hour12)}</span>
+              <span style={{ fontSize:'0.68rem', color:'var(--text-3)' }}>{fmtDate(msg.timestamp, locale)} </span>
+              <span style={{ fontSize:'0.76rem', color:'var(--text-1)', fontWeight:700 }}>{fmtTime(msg.timestamp, locale, hour12)}</span>
             </span>
             {clientLabel && <Badge label={clientLabel} color={clientColor} title={t('messageRow.messageSource')} />}
             <span onClick={e => { e.stopPropagation(); onFilter?.('capcode', msg.capcode); }}
@@ -279,7 +279,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             </div>
           )}
           {/* Message — full wrapping on mobile */}
-          <div style={{ fontFamily:'monospace', fontSize:'0.82rem', color: msg.message ? 'var(--text-2)' : 'var(--text-3)',
+          <div style={{ fontFamily:'monospace', fontSize:'0.82rem', color: msg.message ? 'var(--text-1)' : 'var(--text-3)',
             fontStyle: msg.message ? 'normal' : 'italic', lineHeight:1.4,
             wordBreak:'break-word', whiteSpace:'normal' }}>
             {msg.message
