@@ -174,10 +174,10 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
               {[t('messageFeed.dateTime'), t('messageFeed.source'), t('messageFeed.capcode'), t('messageFeed.aliasGroup'), t('messageFeed.message')].map((h, i) => (
                 <span key={h} style={{ fontFamily:'monospace', fontSize:'0.68rem', fontWeight:700,
                   textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-3)',
-                  ...(i === 0 ? { flexShrink:0, minWidth:'62px', textAlign:'right' } :
+                  ...(i === 0 ? { flexShrink:0, width:'72px', textAlign:'right' } :
                       i === 1 ? { flexShrink:0, width: SOURCE_COL_WIDTH, textAlign:'center' } :
                       i === 2 ? { flexShrink:0, minWidth:'78px', textAlign:'center' } :
-                      i === 3 ? { flexShrink:0, width:'130px', textAlign:'center' } : { flex:1, marginLeft:'0.35rem' }) }}>
+                      i === 3 ? { flexShrink:0, width:'150px', textAlign:'center', margin:'0 0.4rem' } : { flex:1, marginLeft:'0.35rem' }) }}>
                   {h}
                 </span>
               ))}

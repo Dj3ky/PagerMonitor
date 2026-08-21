@@ -5,7 +5,7 @@ import { useSite } from '../context/SiteContext.jsx';
 import { fetchLastSeen, saveLastSeen } from '../utils/api.js';
 import { usePtrScroll } from '../hooks/usePtrScroll.js';
 
-const BADGE_COL_WIDTH = '130px';
+const BADGE_COL_WIDTH = '150px';
 const SOURCE_COL_WIDTH = '120px';
 
 function FeedHeader() {
@@ -24,10 +24,10 @@ function FeedHeader() {
       borderBottom:'1px solid var(--border)', borderLeft:'3px solid transparent',
       position:'sticky', top:0, zIndex:2 }}>
       <span style={{ width:'12px', flexShrink:0 }} />
-      {cell(t('messageFeed.dateTime'),   { flexShrink:0, minWidth:'62px', textAlign:'right' })}
+      {cell(t('messageFeed.dateTime'),   { flexShrink:0, width:'72px', textAlign:'right' })}
       {cell(t('messageFeed.source'),        { flexShrink:0, width: SOURCE_COL_WIDTH, textAlign:'center' })}
       {cell(t('messageFeed.capcode'),       { flexShrink:0, minWidth:'78px', textAlign:'center' })}
-      {cell(t('messageFeed.aliasGroup'), { flexShrink:0, width: BADGE_COL_WIDTH, textAlign:'center' })}
+      {cell(t('messageFeed.aliasGroup'), { flexShrink:0, width: BADGE_COL_WIDTH, textAlign:'center', margin:'0 0.4rem' })}
       {cell(t('messageFeed.message'),       { flex:1, marginLeft:'0.35rem' })}
     </div>
   );

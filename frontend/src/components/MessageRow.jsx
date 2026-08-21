@@ -40,7 +40,7 @@ function HighlightedMsg({ text, rules, style }) {
 }
 
 // Fixed-width columns keep alignment in desktop feed
-const BADGE_COL_W = '130px';
+const BADGE_COL_W = '150px';
 const SOURCE_COL_W = '120px';
 
 function Badge({ label, color, title, onClick }) {
@@ -145,7 +145,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             {expanded ? <ChevronDown size={11}/> : <ChevronRight size={11}/>}
           </span>
           {/* Date + Time — two lines */}
-          <div style={{ fontFamily:'monospace', flexShrink:0, minWidth:'62px', textAlign:'right', lineHeight:1.3 }}>
+          <div style={{ fontFamily:'monospace', flexShrink:0, width:'72px', textAlign:'right', lineHeight:1.3 }}>
             <div style={{ fontSize:'0.7rem', color:'var(--text-3)' }}>{fmtDate(msg.timestamp, locale)}</div>
             <div style={{ fontSize:'0.78rem', color:'var(--text-1)', fontWeight:700 }}>{fmtTime(msg.timestamp, locale, hour12)}</div>
           </div>
@@ -172,7 +172,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
             {msg.capcode}
           </span>
           {/* Badge column — fixed width keeps message aligned; always stack so row rhythm is consistent regardless of label length */}
-          <div style={{ flexShrink:0, width:BADGE_COL_W, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'0.2rem' }}>
+          <div style={{ flexShrink:0, width:BADGE_COL_W, margin:'0 0.4rem', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'0.2rem' }}>
             {alias     && <Badge label={alias}     color={aliasColor} title={t('messageRow.filterByAlias')}  onClick={() => onFilter?.('alias',alias)} />}
             {groupName && <Badge label={groupName} color={groupColor} title={t('messageRow.filterByGroup')}  onClick={() => onFilter?.('group',groupName)} />}
           </div>
