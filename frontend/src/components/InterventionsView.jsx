@@ -7,7 +7,7 @@ import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './w
 // technical assistance, etc) — see backend/src/services/interventions.js for the
 // source and polling details. Live view + filterable/searchable archive.
 const REFRESH_MS = 60 * 1000;
-const LIVE_WINDOW_HOURS = 24; // "Live" = last N hours, not just "most recent N rows" — anything
+const LIVE_WINDOW_HOURS = 48; // "Live" = last N hours, not just "most recent N rows" — anything
                                 // older is only reachable via Archive, even if the feed's been quiet.
                                 // Applies uniformly to confirmed and unconfirmed events alike.
 const BASEMAP_STORAGE_KEY = 'pm_interventions_basemap';
@@ -38,28 +38,34 @@ const TYPE_LEGEND = [
   { Icon: MapPin,    label: 'Drugo' },
 ];
 
-// Time-since-report tiers for confirmed (closed) events, plus the special
-// "still in progress" state for anything not yet in SPIN's confirmed feed.
+// Time-since-report tiers for confirmed (closed) events, fading from red (freshest)
+// to gray (oldest still-live, out to LIVE_WINDOW_HOURS) — plus the special "still in
+// progress" state for anything not yet confirmed, which sits outside this aging scale
+// entirely (see tierColor()'s comment for why that's a separate axis, not a 5th step).
 const TIME_LEGEND = [
   { color: '#ef4444', label: 'do 3 ure' },
   { color: '#f97316', label: 'do 6 ur' },
   { color: '#eab308', label: 'do 12 ur' },
+  { color: '#6b7280', label: 'do 48 ur' },
   { color: '#3b82f6', label: 'dogodki v teku' },
 ];
 
 // description_pending tracks whether SPIN has published the full narrative for
 // this event yet — empirically, that's the same signal SPIN's own map uses for
 // "confirmed" (an event with no narrative is always still in progress). Still
-// pending → active, regardless of age — blue rather than green, since green reads
-// as "resolved/safe" everywhere else, which is backwards for a still-unfolding event.
-// Once narrative arrives, color fades from red to yellow with time since report
-// (rows past 12h are excluded via activeOnly).
+// pending → blue, and deliberately outside the red-to-gray aging scale below rather
+// than treated as "0 hours old": it answers a different question (has this even been
+// confirmed at all) than the aging tiers do (how stale is this since it was reported),
+// and folding it into the gradient would misleadingly suggest it's "fresh" rather than
+// "status unknown." Once narrative arrives, color fades from red through gray with
+// time since report, out to LIVE_WINDOW_HOURS (older rows are excluded server-side).
 function tierColor(row) {
   if (row.description_pending) return '#3b82f6';
   const hrs = (Date.now() - new Date(row.reported_at).getTime()) / 3600000;
   if (hrs <= 3) return '#ef4444';
   if (hrs <= 6) return '#f97316';
-  return '#eab308';
+  if (hrs <= 12) return '#eab308';
+  return '#6b7280';
 }
 
 function Legend() {
