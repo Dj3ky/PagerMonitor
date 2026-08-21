@@ -157,7 +157,8 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem">
         <strong style="color:#8b5cf6">${site.name}</strong><br/>
         <span style="color:#888;font-size:0.7rem">ReCO ${site.reco} · ${site.region}</span><br/>
-        <span style="color:#888;font-size:0.7rem">Kanal ${site.channel} · ${site.elevation} m n.m.</span>
+        <span style="color:#888;font-size:0.7rem">Kanal ${site.channel} · ${site.elevation} m n.m.</span><br/>
+        <span style="color:#888;font-size:0.7rem">Rx ${site.rxFreq?.toFixed(4)} MHz</span>
       </div>`)));
 
     group.addTo(map);

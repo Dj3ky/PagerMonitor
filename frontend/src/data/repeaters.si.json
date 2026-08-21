@@ -6,7 +6,8 @@
     "region": "Zahodno Štajerska",
     "lat": 46.183028,
     "lon": 15.208167,
-    "elevation": 921
+    "elevation": 921,
+    "rxFreq": 173.5125
   },
   {
     "reco": "Celje",
@@ -15,7 +16,8 @@
     "region": "Zahodno Štajerska",
     "lat": 46.372228,
     "lon": 14.889817,
-    "elevation": 1558
+    "elevation": 1558,
+    "rxFreq": 173.4
   },
   {
     "reco": "Celje",
@@ -24,7 +26,8 @@
     "region": "Zahodno Štajerska",
     "lat": 46.220558,
     "lon": 14.924169,
-    "elevation": 470
+    "elevation": 470,
+    "rxFreq": 173.5125
   },
   {
     "reco": "Celje",
@@ -33,7 +36,8 @@
     "region": "Zahodno Štajerska",
     "lat": 46.1238,
     "lon": 15.238583,
-    "elevation": 600
+    "elevation": 600,
+    "rxFreq": 173.2125
   },
   {
     "reco": "Celje",
@@ -42,7 +46,8 @@
     "region": "Zahodno Štajerska",
     "lat": 46.164717,
     "lon": 15.562819,
-    "elevation": 548
+    "elevation": 548,
+    "rxFreq": 173.2875
   },
   {
     "reco": "Celje",
@@ -51,7 +56,8 @@
     "region": "Zahodno Štajerska",
     "lat": 46.403381,
     "lon": 15.392569,
-    "elevation": 755
+    "elevation": 755,
+    "rxFreq": 173.375
   },
   {
     "reco": "Celje",
@@ -60,7 +66,8 @@
     "region": "Zahodno Štajerska",
     "lat": 46.428864,
     "lon": 14.683072,
-    "elevation": 1200
+    "elevation": 1200,
+    "rxFreq": 173.5625
   },
   {
     "reco": "Slovenj Gradec",
@@ -69,7 +76,8 @@
     "region": "Koroška",
     "lat": 46.640378,
     "lon": 15.252678,
-    "elevation": 1000
+    "elevation": 1000,
+    "rxFreq": 173.3875
   },
   {
     "reco": "Slovenj Gradec",
@@ -78,7 +86,8 @@
     "region": "Koroška",
     "lat": 46.485078,
     "lon": 14.963731,
-    "elevation": 1682
+    "elevation": 1682,
+    "rxFreq": 173.4125
   },
   {
     "reco": "Slovenj Gradec",
@@ -87,7 +96,8 @@
     "region": "Koroška",
     "lat": 46.493853,
     "lon": 14.865164,
-    "elevation": 866
+    "elevation": 866,
+    "rxFreq": 173.3375
   },
   {
     "reco": "Nova Gorica",
@@ -96,7 +106,8 @@
     "region": "Severno primorska",
     "lat": 45.998433,
     "lon": 13.656275,
-    "elevation": 656
+    "elevation": 656,
+    "rxFreq": 173.55
   },
   {
     "reco": "Nova Gorica",
@@ -105,7 +116,8 @@
     "region": "Severno primorska",
     "lat": 46.012622,
     "lon": 14.013083,
-    "elevation": 805
+    "elevation": 805,
+    "rxFreq": 173.5125
   },
   {
     "reco": "Nova Gorica",
@@ -114,7 +126,8 @@
     "region": "Severno primorska",
     "lat": 45.909331,
     "lon": 13.934886,
-    "elevation": 953
+    "elevation": 953,
+    "rxFreq": 173.5125
   },
   {
     "reco": "Nova Gorica",
@@ -123,7 +136,8 @@
     "region": "Severno primorska",
     "lat": 46.142894,
     "lon": 13.865044,
-    "elevation": 956
+    "elevation": 956,
+    "rxFreq": 173.0875
   },
   {
     "reco": "Nova Gorica",
@@ -132,7 +146,8 @@
     "region": "Severno primorska",
     "lat": 45.8923,
     "lon": 14.078867,
-    "elevation": 1260
+    "elevation": 1260,
+    "rxFreq": 173.375
   },
   {
     "reco": "Nova Gorica",
@@ -141,7 +156,8 @@
     "region": "Severno primorska",
     "lat": 46.278372,
     "lon": 13.454136,
-    "elevation": 1660
+    "elevation": 1660,
+    "rxFreq": 173.5625
   },
   {
     "reco": "Nova Gorica",
@@ -150,7 +166,8 @@
     "region": "Severno primorska",
     "lat": 46.194556,
     "lon": 13.627425,
-    "elevation": 1243
+    "elevation": 1243,
+    "rxFreq": 173.1875
   },
   {
     "reco": "Nova Gorica",
@@ -159,7 +176,8 @@
     "region": "Severno primorska",
     "lat": 45.841414,
     "lon": 13.642772,
-    "elevation": 260
+    "elevation": 260,
+    "rxFreq": 173.3
   },
   {
     "reco": "Brežice",
@@ -168,7 +186,8 @@
     "region": "Posavska",
     "lat": 46.065383,
     "lon": 15.455336,
-    "elevation": 873
+    "elevation": 873,
+    "rxFreq": 173.1375
   },
   {
     "reco": "Brežice",
@@ -177,7 +196,8 @@
     "region": "Posavska",
     "lat": 45.969617,
     "lon": 15.460708,
-    "elevation": 411
+    "elevation": 411,
+    "rxFreq": 173.5625
   },
   {
     "reco": "Brežice",
@@ -186,7 +206,8 @@
     "region": "Posavska",
     "lat": 45.985931,
     "lon": 15.279269,
-    "elevation": 590
+    "elevation": 590,
+    "rxFreq": 173.4375
   },
   {
     "reco": "Koper",
@@ -195,7 +216,8 @@
     "region": "Primorska",
     "lat": 45.520506,
     "lon": 13.576153,
-    "elevation": 92
+    "elevation": 92,
+    "rxFreq": 173.4125
   },
   {
     "reco": "Koper",
@@ -204,7 +226,8 @@
     "region": "Primorska",
     "lat": 45.503503,
     "lon": 13.643908,
-    "elevation": 270
+    "elevation": 270,
+    "rxFreq": 173.2125
   },
   {
     "reco": "Koper",
@@ -213,7 +236,8 @@
     "region": "Primorska",
     "lat": 45.500686,
     "lon": 13.735844,
-    "elevation": 391
+    "elevation": 391,
+    "rxFreq": 173.1125
   },
   {
     "reco": "Kranj",
@@ -222,7 +246,8 @@
     "region": "Gorenjska",
     "lat": 46.264703,
     "lon": 13.840917,
-    "elevation": 1388
+    "elevation": 1388,
+    "rxFreq": 173.1375
   },
   {
     "reco": "Kranj",
@@ -231,7 +256,8 @@
     "region": "Gorenjska",
     "lat": 46.499514,
     "lon": 13.783481,
-    "elevation": 1256
+    "elevation": 1256,
+    "rxFreq": 173.1375
   },
   {
     "reco": "Kranj",
@@ -240,7 +266,8 @@
     "region": "Gorenjska",
     "lat": 46.075989,
     "lon": 14.080967,
-    "elevation": 767
+    "elevation": 767,
+    "rxFreq": 173.1375
   },
   {
     "reco": "Kranj",
@@ -249,7 +276,8 @@
     "region": "Gorenjska",
     "lat": 46.296311,
     "lon": 14.528933,
-    "elevation": 1666
+    "elevation": 1666,
+    "rxFreq": 173.1125
   },
   {
     "reco": "Kranj",
@@ -258,7 +286,8 @@
     "region": "Gorenjska",
     "lat": 46.171078,
     "lon": 14.261225,
-    "elevation": 1021
+    "elevation": 1021,
+    "rxFreq": 173.3375
   },
   {
     "reco": "Kranj",
@@ -267,7 +296,8 @@
     "region": "Gorenjska",
     "lat": 46.376106,
     "lon": 14.246039,
-    "elevation": 1462
+    "elevation": 1462,
+    "rxFreq": 173.2875
   },
   {
     "reco": "Kranj",
@@ -276,7 +306,8 @@
     "region": "Gorenjska",
     "lat": 46.482661,
     "lon": 13.987158,
-    "elevation": 1631
+    "elevation": 1631,
+    "rxFreq": 173.2625
   },
   {
     "reco": "Ljubljana",
@@ -285,7 +316,8 @@
     "region": "Ljubljanska",
     "lat": 45.928525,
     "lon": 14.4711,
-    "elevation": 1111
+    "elevation": 1111,
+    "rxFreq": 173.5375
   },
   {
     "reco": "Ljubljana",
@@ -294,7 +326,8 @@
     "region": "Ljubljanska",
     "lat": 46.128875,
     "lon": 14.463492,
-    "elevation": 669
+    "elevation": 669,
+    "rxFreq": 173.4375
   },
   {
     "reco": "Ljubljana",
@@ -303,7 +336,8 @@
     "region": "Ljubljanska",
     "lat": 45.971139,
     "lon": 14.514744,
-    "elevation": 295
+    "elevation": 295,
+    "rxFreq": 173.1625
   },
   {
     "reco": "Ljubljana",
@@ -312,7 +346,8 @@
     "region": "Ljubljanska",
     "lat": 46.052033,
     "lon": 14.709447,
-    "elevation": 773
+    "elevation": 773,
+    "rxFreq": 173.1875
   },
   {
     "reco": "Ljubljana",
@@ -321,7 +356,8 @@
     "region": "Ljubljanska",
     "lat": 46.326458,
     "lon": 14.587269,
-    "elevation": 585
+    "elevation": 585,
+    "rxFreq": 173.4
   },
   {
     "reco": "Ljubljana",
@@ -330,7 +366,8 @@
     "region": "Ljubljanska",
     "lat": 45.975714,
     "lon": 14.240258,
-    "elevation": 800
+    "elevation": 800,
+    "rxFreq": 173.2125
   },
   {
     "reco": "Ljubljana",
@@ -339,7 +376,8 @@
     "region": "Ljubljanska",
     "lat": 45.814814,
     "lon": 14.695336,
-    "elevation": 869
+    "elevation": 869,
+    "rxFreq": 173.3875
   },
   {
     "reco": "Ljubljana",
@@ -348,7 +386,8 @@
     "region": "Ljubljanska",
     "lat": 45.589739,
     "lon": 14.718911,
-    "elevation": 1084
+    "elevation": 1084,
+    "rxFreq": 173.2375
   },
   {
     "reco": "Murska Sobota",
@@ -357,7 +396,8 @@
     "region": "Pomurska",
     "lat": 46.776647,
     "lon": 16.201178,
-    "elevation": 384
+    "elevation": 384,
+    "rxFreq": 173.4375
   },
   {
     "reco": "Murska Sobota",
@@ -366,7 +406,8 @@
     "region": "Pomurska",
     "lat": 46.664272,
     "lon": 15.956472,
-    "elevation": 317
+    "elevation": 317,
+    "rxFreq": 173.2125
   },
   {
     "reco": "Murska Sobota",
@@ -375,7 +416,8 @@
     "region": "Pomurska",
     "lat": 46.657725,
     "lon": 16.15905,
-    "elevation": 188
+    "elevation": 188,
+    "rxFreq": 173.3375
   },
   {
     "reco": "Murska Sobota",
@@ -384,7 +426,8 @@
     "region": "Pomurska",
     "lat": 46.564319,
     "lon": 16.459767,
-    "elevation": 290
+    "elevation": 290,
+    "rxFreq": 173.1875
   },
   {
     "reco": "Murska Sobota",
@@ -393,7 +436,8 @@
     "region": "Pomurska",
     "lat": 46.519211,
     "lon": 16.198089,
-    "elevation": 173
+    "elevation": 173,
+    "rxFreq": 173.4125
   },
   {
     "reco": "Maribor",
@@ -402,7 +446,8 @@
     "region": "Vzhodno štajerska",
     "lat": 46.598981,
     "lon": 15.531672,
-    "elevation": 796
+    "elevation": 796,
+    "rxFreq": 173.5125
   },
   {
     "reco": "Maribor",
@@ -411,7 +456,8 @@
     "region": "Vzhodno štajerska",
     "lat": 46.289464,
     "lon": 15.599517,
-    "elevation": 1030
+    "elevation": 1030,
+    "rxFreq": 173.2625
   },
   {
     "reco": "Maribor",
@@ -420,7 +466,8 @@
     "region": "Vzhodno štajerska",
     "lat": 46.675869,
     "lon": 15.769997,
-    "elevation": 397
+    "elevation": 397,
+    "rxFreq": 173.5375
   },
   {
     "reco": "Maribor",
@@ -429,7 +476,8 @@
     "region": "Vzhodno štajerska",
     "lat": 46.526167,
     "lon": 15.793194,
-    "elevation": 397
+    "elevation": 397,
+    "rxFreq": 173.2375
   },
   {
     "reco": "Novo mesto",
@@ -438,7 +486,8 @@
     "region": "Dolenjska",
     "lat": 45.760167,
     "lon": 15.317025,
-    "elevation": 1158
+    "elevation": 1158,
+    "rxFreq": 173.3125
   },
   {
     "reco": "Novo mesto",
@@ -447,7 +496,8 @@
     "region": "Dolenjska",
     "lat": 45.631481,
     "lon": 15.102461,
-    "elevation": 1009
+    "elevation": 1009,
+    "rxFreq": 173.0875
   },
   {
     "reco": "Novo mesto",
@@ -456,7 +506,8 @@
     "region": "Dolenjska",
     "lat": 45.8934,
     "lon": 15.002272,
-    "elevation": 569
+    "elevation": 569,
+    "rxFreq": 173.3625
   },
   {
     "reco": "Trbovlje",
@@ -465,7 +516,8 @@
     "region": "Zasavska",
     "lat": 46.18745,
     "lon": 15.107319,
-    "elevation": 1096
+    "elevation": 1096,
+    "rxFreq": 173.55
   },
   {
     "reco": "Trbovlje",
@@ -474,7 +526,8 @@
     "region": "Zasavska",
     "lat": 46.088425,
     "lon": 15.073736,
-    "elevation": 1213
+    "elevation": 1213,
+    "rxFreq": 173.2375
   },
   {
     "reco": "Trbovlje",
@@ -483,7 +536,8 @@
     "region": "Zasavska",
     "lat": 46.180053,
     "lon": 14.943878,
-    "elevation": 629
+    "elevation": 629,
+    "rxFreq": 173.1375
   },
   {
     "reco": "Postojna",
@@ -492,7 +546,8 @@
     "region": "Notranjska",
     "lat": 45.581594,
     "lon": 14.124928,
-    "elevation": 756
+    "elevation": 756,
+    "rxFreq": 173.4375
   },
   {
     "reco": "Postojna",
@@ -501,7 +556,8 @@
     "region": "Notranjska",
     "lat": 45.795283,
     "lon": 13.906614,
-    "elevation": 509
+    "elevation": 509,
+    "rxFreq": 173.5125
   },
   {
     "reco": "Postojna",
@@ -510,7 +566,8 @@
     "region": "Notranjska",
     "lat": 45.778939,
     "lon": 14.230006,
-    "elevation": 761
+    "elevation": 761,
+    "rxFreq": 173.3875
   },
   {
     "reco": "Postojna",
@@ -519,7 +576,8 @@
     "region": "Notranjska",
     "lat": 45.789906,
     "lon": 14.408133,
-    "elevation": 1101
+    "elevation": 1101,
+    "rxFreq": 173.5625
   },
   {
     "reco": "Postojna",
@@ -528,7 +586,8 @@
     "region": "Notranjska",
     "lat": 45.683844,
     "lon": 15.539056,
-    "elevation": 1059
+    "elevation": 1059,
+    "rxFreq": 173.1625
   },
   {
     "reco": "Postojna",
@@ -537,7 +596,8 @@
     "region": "Notranjska",
     "lat": 45.771622,
     "lon": 14.052756,
-    "elevation": 1262
+    "elevation": 1262,
+    "rxFreq": 173.2375
   },
   {
     "reco": "Postojna",
@@ -546,7 +606,8 @@
     "region": "Notranjska",
     "lat": 45.614367,
     "lon": 14.028069,
-    "elevation": 803
+    "elevation": 803,
+    "rxFreq": 173.1625
   },
   {
     "reco": "Postojna",
@@ -555,7 +616,8 @@
     "region": "Notranjska",
     "lat": 45.7027,
     "lon": 13.888017,
-    "elevation": 552
+    "elevation": 552,
+    "rxFreq": 173.0875
   },
   {
     "reco": "Ptuj",
@@ -564,7 +626,8 @@
     "region": "Podravska",
     "lat": 46.290278,
     "lon": 15.933833,
-    "elevation": 502
+    "elevation": 502,
+    "rxFreq": 173.1125
   },
   {
     "reco": "Ptuj",
@@ -573,7 +636,8 @@
     "region": "Podravska",
     "lat": 46.452917,
     "lon": 16.193639,
-    "elevation": 300
+    "elevation": 300,
+    "rxFreq": 173.5625
   },
   {
     "reco": "Ptuj",
@@ -582,6 +646,7 @@
     "region": "Podravska",
     "lat": 46.319347,
     "lon": 15.735531,
-    "elevation": 570
+    "elevation": 570,
+    "rxFreq": 173.1625
   }
 ]
