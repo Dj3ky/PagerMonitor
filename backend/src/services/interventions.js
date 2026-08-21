@@ -24,6 +24,14 @@ const RECHECK_WINDOW_MS  = 6 * 24 * 60 * 60 * 1000; // give up on missing narrat
 const RETRACT_GRACE_MS   = 5 * 60 * 1000; // >3x REFRESH_MS — delete still-unconfirmed rows that
                                             // vanish from the feed (SPIN retracting a false report),
                                             // once a single missed/slow poll can't explain the gap
+const RETRACT_MAX_AGE_MS = 12 * 60 * 60 * 1000; // only auto-delete recently-reported rows — the RSS
+                                                  // feed's own window is volume-limited (count-capped,
+                                                  // not time-capped), so an older still-unconfirmed row
+                                                  // can drop out simply because a busy day pushed it
+                                                  // out, not because SPIN retracted it. Past this age,
+                                                  // "no longer in the feed" is no longer a reliable
+                                                  // retraction signal, so it's left alone instead
+                                                  // (falls back to the RECHECK_WINDOW_MS give-up path).
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 
@@ -158,14 +166,20 @@ async function refresh() {
   `).run(`-${RECHECK_WINDOW_MS / 1000} seconds`);
 
   // 5. Delete still-unconfirmed rows that have dropped out of the feed — SPIN
-  //    retracting what turned out to be a false report, not a real event just
-  //    aging past the feed's own window (confirmed rows are never touched here).
-  //    last_seen_at IS NULL (not yet seen by this migration's upsert) never matches,
-  //    so this can't wipe out pre-existing rows before they get a chance to be re-seen.
+  //    retracting what turned out to be a false report, not a real event just aging
+  //    past the feed's own (volume-limited, not time-limited) window. The reported_at
+  //    bound is what tells those two cases apart: a genuine retraction shows up as
+  //    "gone" soon after it was first reported, while a real-but-slow-to-confirm event
+  //    dropping out on a busy day would only happen much later. Confirmed rows are
+  //    never touched here. last_seen_at IS NULL (not yet seen by this migration's
+  //    upsert) never matches either comparison, so this can't wipe out pre-existing
+  //    rows before they get a chance to be re-seen.
   db.prepare(`
     DELETE FROM interventions
-    WHERE description_pending = 1 AND last_seen_at < datetime('now', ?)
-  `).run(`-${RETRACT_GRACE_MS / 1000} seconds`);
+    WHERE description_pending = 1
+      AND last_seen_at < datetime('now', ?)
+      AND reported_at >= datetime('now', ?)
+  `).run(`-${RETRACT_GRACE_MS / 1000} seconds`, `-${RETRACT_MAX_AGE_MS / 1000} seconds`);
 }
 
 // ── Query helpers (used by the API routes) ──────────────────────────────────────
