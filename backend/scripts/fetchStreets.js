@@ -63,7 +63,7 @@ function postOverpass(host, query) {
           'User-Agent':     'PagerMonitor-fetchStreets/1.0',
           'Accept':         'application/json',
         },
-        timeout: 120_000,
+        timeout: 130_000, // a bit above the [timeout:120] query hint so the server's own cutoff wins the race
       },
       res => {
         if (res.statusCode !== 200) {
