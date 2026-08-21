@@ -6,6 +6,7 @@ import { geocodeAddress, parseLocation } from '../utils/parseLocation.js';
 import { useSite } from '../context/SiteContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
+import repeatersSI from '../data/repeaters.si.json';
 
 const TILE_URL  = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
@@ -52,6 +53,8 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
   const [total,       setTotal]       = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [layerMode,   setLayerMode]   = useState('markers'); // 'markers' | 'cluster' | 'heat'
+  const [showRepeaters, setShowRepeaters] = useState(false);
+  const repeaterLayerRef = useRef(null);
   const [dateFrom,    setDateFrom]    = useState('');
   const [dateTo,      setDateTo]      = useState('');
 
@@ -130,6 +133,37 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
       }).addTo(map);
     }
   }, [layerMode, mapReady, mapMessages]);
+
+  // ── Repeater sites overlay (Slovenia only) ────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+    const L = window.L;
+
+    if (geocodeCountry !== 'si' || !showRepeaters) {
+      if (repeaterLayerRef.current) { try { map.removeLayer(repeaterLayerRef.current); } catch (_) {} }
+      return;
+    }
+
+    const group = L.layerGroup(repeatersSI.map(site => L.marker([site.lat, site.lon], {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="display:flex;align-items:center;justify-content:center;width:18px;height:18px;
+          border-radius:50%;background:#8b5cf6;border:2px solid #fff;box-shadow:0 0 6px #8b5cf6;
+          font-size:0.65rem;line-height:1;">📡</div>`,
+        iconSize:[18,18], iconAnchor:[9,9], popupAnchor:[0,-9],
+      }),
+      zIndexOffset: 800,
+    }).bindPopup(`<div style="font-family:monospace;font-size:0.8rem">
+        <strong style="color:#8b5cf6">${site.name}</strong><br/>
+        <span style="color:#888;font-size:0.7rem">ReCO ${site.reco} · ${site.region}</span><br/>
+        <span style="color:#888;font-size:0.7rem">Kanal ${site.channel} · ${site.elevation} m n.m.</span>
+      </div>`)));
+
+    group.addTo(map);
+    repeaterLayerRef.current = group;
+    return () => { try { map.removeLayer(group); } catch (_) {} };
+  }, [showRepeaters, geocodeCountry, mapReady]);
 
   // Keep ref in sync so the visible top-up always uses current params
   useEffect(() => {
@@ -668,6 +702,21 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
                 {label}
               </button>
             ))}
+            {geocodeCountry === 'si' && (
+              <button onClick={() => setShowRepeaters(s => !s)} title="Repetitorji ReCO"
+                style={{
+                  width:'28px', height:'26px', borderRadius:'0.3rem', border:'none', cursor:'pointer',
+                  fontSize:'0.85rem', display:'flex', alignItems:'center', justifyContent:'center',
+                  color: showRepeaters ? '#8b5cf6' : 'var(--text-2)',
+                  background: showRepeaters
+                    ? 'color-mix(in srgb, #8b5cf6 20%, var(--bg-3))'
+                    : 'transparent',
+                  outline: showRepeaters ? '1px solid #8b5cf6' : 'none',
+                  transition:'all 0.15s',
+                }}>
+                📡
+              </button>
+            )}
           </div>
 
           {/* Mobile: toggle sidebar button — shown by CSS on small screens */}

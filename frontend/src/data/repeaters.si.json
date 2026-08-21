@@ -1,0 +1,587 @@
+[
+  {
+    "reco": "Celje",
+    "channel": "01",
+    "name": "MALIČ",
+    "region": "Zahodno Štajerska",
+    "lat": 46.183028,
+    "lon": 15.208167,
+    "elevation": 921
+  },
+  {
+    "reco": "Celje",
+    "channel": "32",
+    "name": "GOLTE",
+    "region": "Zahodno Štajerska",
+    "lat": 46.372228,
+    "lon": 14.889817,
+    "elevation": 1558
+  },
+  {
+    "reco": "Celje",
+    "channel": "01",
+    "name": "LOČICA – TROJANE",
+    "region": "Zahodno Štajerska",
+    "lat": 46.220558,
+    "lon": 14.924169,
+    "elevation": 470
+  },
+  {
+    "reco": "Celje",
+    "channel": "03",
+    "name": "ŠTUCINOV – HRIB",
+    "region": "Zahodno Štajerska",
+    "lat": 46.1238,
+    "lon": 15.238583,
+    "elevation": 600
+  },
+  {
+    "reco": "Celje",
+    "channel": "04",
+    "name": "RUDNICA",
+    "region": "Zahodno Štajerska",
+    "lat": 46.164717,
+    "lon": 15.562819,
+    "elevation": 548
+  },
+  {
+    "reco": "Celje",
+    "channel": "08",
+    "name": "GORENJE",
+    "region": "Zahodno Štajerska",
+    "lat": 46.403381,
+    "lon": 15.392569,
+    "elevation": 755
+  },
+  {
+    "reco": "Celje",
+    "channel": "09",
+    "name": "HUDA PEČ",
+    "region": "Zahodno Štajerska",
+    "lat": 46.428864,
+    "lon": 14.683072,
+    "elevation": 1200
+  },
+  {
+    "reco": "Slovenj Gradec",
+    "channel": "05",
+    "name": "KAPUNAR",
+    "region": "Koroška",
+    "lat": 46.640378,
+    "lon": 15.252678,
+    "elevation": 1000
+  },
+  {
+    "reco": "Slovenj Gradec",
+    "channel": "06",
+    "name": "URŠLJA GORA PLEŠIVEC",
+    "region": "Koroška",
+    "lat": 46.485078,
+    "lon": 14.963731,
+    "elevation": 1682
+  },
+  {
+    "reco": "Slovenj Gradec",
+    "channel": "13",
+    "name": "ŠUMAHOV VRH",
+    "region": "Koroška",
+    "lat": 46.493853,
+    "lon": 14.865164,
+    "elevation": 866
+  },
+  {
+    "reco": "Nova Gorica",
+    "channel": "30",
+    "name": "SVETA GORA",
+    "region": "Severno primorska",
+    "lat": 45.998433,
+    "lon": 13.656275,
+    "elevation": 656
+  },
+  {
+    "reco": "Nova Gorica",
+    "channel": "01",
+    "name": "KOBALOVA PLANINA",
+    "region": "Severno primorska",
+    "lat": 46.012622,
+    "lon": 14.013083,
+    "elevation": 805
+  },
+  {
+    "reco": "Nova Gorica",
+    "channel": "07",
+    "name": "SINJI VRH",
+    "region": "Severno primorska",
+    "lat": 45.909331,
+    "lon": 13.934886,
+    "elevation": 953
+  },
+  {
+    "reco": "Nova Gorica",
+    "channel": "24",
+    "name": "ČRVOV VRH",
+    "region": "Severno primorska",
+    "lat": 46.142894,
+    "lon": 13.865044,
+    "elevation": 956
+  },
+  {
+    "reco": "Nova Gorica",
+    "channel": "08",
+    "name": "JAVORNIK",
+    "region": "Severno primorska",
+    "lat": 45.8923,
+    "lon": 14.078867,
+    "elevation": 1260
+  },
+  {
+    "reco": "Nova Gorica",
+    "channel": "09",
+    "name": "KOBARIŠKI STOL",
+    "region": "Severno primorska",
+    "lat": 46.278372,
+    "lon": 13.454136,
+    "elevation": 1660
+  },
+  {
+    "reco": "Nova Gorica",
+    "channel": "22",
+    "name": "KUK",
+    "region": "Severno primorska",
+    "lat": 46.194556,
+    "lon": 13.627425,
+    "elevation": 1243
+  },
+  {
+    "reco": "Nova Gorica",
+    "channel": "31",
+    "name": "CERJE",
+    "region": "Severno primorska",
+    "lat": 45.841414,
+    "lon": 13.642772,
+    "elevation": 260
+  },
+  {
+    "reco": "Brežice",
+    "channel": "10",
+    "name": "BOHOR",
+    "region": "Posavska",
+    "lat": 46.065383,
+    "lon": 15.455336,
+    "elevation": 873
+  },
+  {
+    "reco": "Brežice",
+    "channel": "27",
+    "name": "ČRETEŽ",
+    "region": "Posavska",
+    "lat": 45.969617,
+    "lon": 15.460708,
+    "elevation": 411
+  },
+  {
+    "reco": "Brežice",
+    "channel": "02",
+    "name": "LAZE",
+    "region": "Posavska",
+    "lat": 45.985931,
+    "lon": 15.279269,
+    "elevation": 590
+  },
+  {
+    "reco": "Koper",
+    "channel": "06",
+    "name": "BELI KRIŽ",
+    "region": "Primorska",
+    "lat": 45.520506,
+    "lon": 13.576153,
+    "elevation": 92
+  },
+  {
+    "reco": "Koper",
+    "channel": "11",
+    "name": "MALIJA",
+    "region": "Primorska",
+    "lat": 45.503503,
+    "lon": 13.643908,
+    "elevation": 270
+  },
+  {
+    "reco": "Koper",
+    "channel": "12",
+    "name": "POLJANE",
+    "region": "Primorska",
+    "lat": 45.500686,
+    "lon": 13.735844,
+    "elevation": 391
+  },
+  {
+    "reco": "Kranj",
+    "channel": "10",
+    "name": "VOGEL",
+    "region": "Gorenjska",
+    "lat": 46.264703,
+    "lon": 13.840917,
+    "elevation": 1388
+  },
+  {
+    "reco": "Kranj",
+    "channel": "10",
+    "name": "BRVOGI",
+    "region": "Gorenjska",
+    "lat": 46.499514,
+    "lon": 13.783481,
+    "elevation": 1256
+  },
+  {
+    "reco": "Kranj",
+    "channel": "10",
+    "name": "KOPRIVNIK",
+    "region": "Gorenjska",
+    "lat": 46.075989,
+    "lon": 14.080967,
+    "elevation": 767
+  },
+  {
+    "reco": "Kranj",
+    "channel": "12",
+    "name": "KRVAVEC",
+    "region": "Gorenjska",
+    "lat": 46.296311,
+    "lon": 14.528933,
+    "elevation": 1666
+  },
+  {
+    "reco": "Kranj",
+    "channel": "13",
+    "name": "LUBNIK",
+    "region": "Gorenjska",
+    "lat": 46.171078,
+    "lon": 14.261225,
+    "elevation": 1021
+  },
+  {
+    "reco": "Kranj",
+    "channel": "14",
+    "name": "DOBRČA",
+    "region": "Gorenjska",
+    "lat": 46.376106,
+    "lon": 14.246039,
+    "elevation": 1462
+  },
+  {
+    "reco": "Kranj",
+    "channel": "21",
+    "name": "DOVŠKA BABA",
+    "region": "Gorenjska",
+    "lat": 46.482661,
+    "lon": 13.987158,
+    "elevation": 1631
+  },
+  {
+    "reco": "Ljubljana",
+    "channel": "15",
+    "name": "KRIM",
+    "region": "Ljubljanska",
+    "lat": 45.928525,
+    "lon": 14.4711,
+    "elevation": 1111
+  },
+  {
+    "reco": "Ljubljana",
+    "channel": "16",
+    "name": "ŠMARNA GORA",
+    "region": "Ljubljanska",
+    "lat": 46.128875,
+    "lon": 14.463492,
+    "elevation": 669
+  },
+  {
+    "reco": "Ljubljana",
+    "channel": "29",
+    "name": "IG",
+    "region": "Ljubljanska",
+    "lat": 45.971139,
+    "lon": 14.514744,
+    "elevation": 295
+  },
+  {
+    "reco": "Ljubljana",
+    "channel": "17",
+    "name": "JANČE",
+    "region": "Ljubljanska",
+    "lat": 46.052033,
+    "lon": 14.709447,
+    "elevation": 773
+  },
+  {
+    "reco": "Ljubljana",
+    "channel": "32",
+    "name": "KAMNIŠKA BISTRICA",
+    "region": "Ljubljanska",
+    "lat": 46.326458,
+    "lon": 14.587269,
+    "elevation": 585
+  },
+  {
+    "reco": "Ljubljana",
+    "channel": "18",
+    "name": "ULOVKA",
+    "region": "Ljubljanska",
+    "lat": 45.975714,
+    "lon": 14.240258,
+    "elevation": 800
+  },
+  {
+    "reco": "Ljubljana",
+    "channel": "19",
+    "name": "GRMADA",
+    "region": "Ljubljanska",
+    "lat": 45.814814,
+    "lon": 14.695336,
+    "elevation": 869
+  },
+  {
+    "reco": "Ljubljana",
+    "channel": "20",
+    "name": "MEDVEDJEK - TRAVA",
+    "region": "Ljubljanska",
+    "lat": 45.589739,
+    "lon": 14.718911,
+    "elevation": 1084
+  },
+  {
+    "reco": "Murska Sobota",
+    "channel": "02",
+    "name": "KUŠTANOVCI",
+    "region": "Pomurska",
+    "lat": 46.776647,
+    "lon": 16.201178,
+    "elevation": 384
+  },
+  {
+    "reco": "Murska Sobota",
+    "channel": "03",
+    "name": "POLICE",
+    "region": "Pomurska",
+    "lat": 46.664272,
+    "lon": 15.956472,
+    "elevation": 317
+  },
+  {
+    "reco": "Murska Sobota",
+    "channel": "13",
+    "name": "MURSKA SOBOTA",
+    "region": "Pomurska",
+    "lat": 46.657725,
+    "lon": 16.15905,
+    "elevation": 188
+  },
+  {
+    "reco": "Murska Sobota",
+    "channel": "22",
+    "name": "LENDAVSKE GORICE",
+    "region": "Pomurska",
+    "lat": 46.564319,
+    "lon": 16.459767,
+    "elevation": 290
+  },
+  {
+    "reco": "Murska Sobota",
+    "channel": "06",
+    "name": "LJUTOMER",
+    "region": "Pomurska",
+    "lat": 46.519211,
+    "lon": 16.198089,
+    "elevation": 173
+  },
+  {
+    "reco": "Maribor",
+    "channel": "01",
+    "name": "ŽAVCARJEV VRH",
+    "region": "Vzhodno štajerska",
+    "lat": 46.598981,
+    "lon": 15.531672,
+    "elevation": 796
+  },
+  {
+    "reco": "Maribor",
+    "channel": "21",
+    "name": "BOČ",
+    "region": "Vzhodno štajerska",
+    "lat": 46.289464,
+    "lon": 15.599517,
+    "elevation": 1030
+  },
+  {
+    "reco": "Maribor",
+    "channel": "15",
+    "name": "ZGORNJA VELKA",
+    "region": "Vzhodno štajerska",
+    "lat": 46.675869,
+    "lon": 15.769997,
+    "elevation": 397
+  },
+  {
+    "reco": "Maribor",
+    "channel": "20",
+    "name": "ŽIKARCE",
+    "region": "Vzhodno štajerska",
+    "lat": 46.526167,
+    "lon": 15.793194,
+    "elevation": 397
+  },
+  {
+    "reco": "Novo mesto",
+    "channel": "23",
+    "name": "TRDINOV VRH",
+    "region": "Dolenjska",
+    "lat": 45.760167,
+    "lon": 15.317025,
+    "elevation": 1158
+  },
+  {
+    "reco": "Novo mesto",
+    "channel": "24",
+    "name": "MIRNA GORA",
+    "region": "Dolenjska",
+    "lat": 45.631481,
+    "lon": 15.102461,
+    "elevation": 1009
+  },
+  {
+    "reco": "Novo mesto",
+    "channel": "25",
+    "name": "VRHTREBNJE",
+    "region": "Dolenjska",
+    "lat": 45.8934,
+    "lon": 15.002272,
+    "elevation": 569
+  },
+  {
+    "reco": "Trbovlje",
+    "channel": "30",
+    "name": "MRZLICA",
+    "region": "Zasavska",
+    "lat": 46.18745,
+    "lon": 15.107319,
+    "elevation": 1096
+  },
+  {
+    "reco": "Trbovlje",
+    "channel": "20",
+    "name": "KUM",
+    "region": "Zasavska",
+    "lat": 46.088425,
+    "lon": 15.073736,
+    "elevation": 1213
+  },
+  {
+    "reco": "Trbovlje",
+    "channel": "10",
+    "name": "ČEMŠENIK",
+    "region": "Zasavska",
+    "lat": 46.180053,
+    "lon": 14.943878,
+    "elevation": 629
+  },
+  {
+    "reco": "Postojna",
+    "channel": "02",
+    "name": "PREGARJE",
+    "region": "Notranjska",
+    "lat": 45.581594,
+    "lon": 14.124928,
+    "elevation": 756
+  },
+  {
+    "reco": "Postojna",
+    "channel": "07",
+    "name": "ŠTJAK",
+    "region": "Notranjska",
+    "lat": 45.795283,
+    "lon": 13.906614,
+    "elevation": 509
+  },
+  {
+    "reco": "Postojna",
+    "channel": "05",
+    "name": "PEČNA REBER",
+    "region": "Notranjska",
+    "lat": 45.778939,
+    "lon": 14.230006,
+    "elevation": 761
+  },
+  {
+    "reco": "Postojna",
+    "channel": "27",
+    "name": "SLIVNICA",
+    "region": "Notranjska",
+    "lat": 45.789906,
+    "lon": 14.408133,
+    "elevation": 1101
+  },
+  {
+    "reco": "Postojna",
+    "channel": "29 A",
+    "name": "LOŠKA DOLINA",
+    "region": "Notranjska",
+    "lat": 45.683844,
+    "lon": 15.539056,
+    "elevation": 1059
+  },
+  {
+    "reco": "Postojna",
+    "channel": "26",
+    "name": "NANOS",
+    "region": "Notranjska",
+    "lat": 45.771622,
+    "lon": 14.052756,
+    "elevation": 1262
+  },
+  {
+    "reco": "Postojna",
+    "channel": "28",
+    "name": "ARTVIŽE",
+    "region": "Notranjska",
+    "lat": 45.614367,
+    "lon": 14.028069,
+    "elevation": 803
+  },
+  {
+    "reco": "Postojna",
+    "channel": "24",
+    "name": "ZIDOVNIK",
+    "region": "Notranjska",
+    "lat": 45.7027,
+    "lon": 13.888017,
+    "elevation": 552
+  },
+  {
+    "reco": "Ptuj",
+    "channel": "12",
+    "name": "SVETI AVGUŠTIN",
+    "region": "Podravska",
+    "lat": 46.290278,
+    "lon": 15.933833,
+    "elevation": 502
+  },
+  {
+    "reco": "Ptuj",
+    "channel": "27",
+    "name": "VELIKI BREBROVNIK",
+    "region": "Podravska",
+    "lat": 46.452917,
+    "lon": 16.193639,
+    "elevation": 300
+  },
+  {
+    "reco": "Ptuj",
+    "channel": "29",
+    "name": "JELOVICE",
+    "region": "Podravska",
+    "lat": 46.319347,
+    "lon": 15.735531,
+    "elevation": 570
+  }
+]
