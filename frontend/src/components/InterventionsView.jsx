@@ -12,6 +12,8 @@ const LIVE_WINDOW_HOURS = 24; // "Live" = last N hours, not just "most recent N 
                                 // Applies uniformly to confirmed and unconfirmed events alike.
 const BASEMAP_STORAGE_KEY = 'pm_interventions_basemap';
 const CLUSTER_STORAGE_KEY = 'pm_interventions_clustered';
+const LIVE_MAX_ROWS = 200; // backend's hard cap (see query() in interventions.js) — comfortably
+                             // above normal daily volume, even on a busy storm day.
 
 // Icon + Slovenian label per intervention type — color no longer comes from here,
 // it's driven by tierColor() instead (time elapsed / confirmed state).
@@ -256,15 +258,29 @@ function StatBar({ label, value, max, color }) {
   );
 }
 
+const STATS_DAYS = 30;
+
 function StatsModal({ onClose }) {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    getJson('/api/interventions/stats?days=30').then(setStats).catch(e => setError(e.message));
+    getJson(`/api/interventions/stats?days=${STATS_DAYS}`).then(setStats).catch(e => setError(e.message));
   }, []);
 
-  const maxDaily = Math.max(...(stats?.daily || []).map(r => r.n), 1);
+  // The backend only returns days that had at least one event — backfill the rest as
+  // zero here so a quiet day shows as an empty bar instead of silently disappearing
+  // from the list (which would make the 30-day window look shorter/uneven than it is).
+  const dailyFilled = useMemo(() => {
+    const counts = new Map((stats?.daily || []).map(r => [r.day, r.n]));
+    const out = [];
+    for (let i = STATS_DAYS - 1; i >= 0; i--) {
+      const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      out.push({ day, n: counts.get(day) || 0 });
+    }
+    return out;
+  }, [stats]);
+  const maxDaily = Math.max(...dailyFilled.map(r => r.n), 1);
 
   // The backend groups by the raw SPIN intervention_type string, but several distinct
   // raw values can all fall into typeStyle()'s "Drugo" catch-all (or any other bucket) —
@@ -283,14 +299,14 @@ function StatsModal({ onClose }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', alignItems: 'center',
       justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ width: 'min(480px,92vw)', maxHeight: '80vh', overflowY: 'auto', background: 'var(--bg-1)',
-        border: '1px solid var(--border)', borderRadius: '0.6rem', boxShadow: '0 4px 24px rgba(0,0,0,0.4)', padding: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.9rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-1)' }}>
-            <BarChart2 size={16} style={{ color: 'var(--accent-blue)' }} /> Statistika dogodkov
+      <div style={{ width: 'min(640px,94vw)', maxHeight: '84vh', overflowY: 'auto', background: 'var(--bg-1)',
+        border: '1px solid var(--border)', borderRadius: '0.75rem', boxShadow: '0 4px 24px rgba(0,0,0,0.4)', padding: '1.5rem 1.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.3rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1rem', fontWeight: 700, color: 'var(--text-1)' }}>
+            <BarChart2 size={18} style={{ color: 'var(--accent-blue)' }} /> Statistika dogodkov
           </div>
           <button onClick={onClose} title="Zapri" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex' }}>
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
 
@@ -302,20 +318,18 @@ function StatsModal({ onClose }) {
           </div>
         ) : (
           <>
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '0.4rem' }}>
-              Dogodkov na dan — zadnjih 30 dni
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '0.6rem' }}>
+              Dogodkov na dan — zadnjih {STATS_DAYS} dni
             </div>
-            <div style={{ marginBottom: '1rem' }}>
-              {stats.daily.length === 0
-                ? <div style={{ color: 'var(--text-3)', fontSize: '0.75rem' }}>Ni podatkov</div>
-                : stats.daily.map(r => (
-                  <StatBar key={r.day} label={new Date(r.day + 'T12:00:00').toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit' })}
-                    value={r.n} max={maxDaily} color="var(--accent-blue)" />
-                ))}
+            <div style={{ marginBottom: '1.6rem' }}>
+              {dailyFilled.map(r => (
+                <StatBar key={r.day} label={new Date(r.day + 'T12:00:00').toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit' })}
+                  value={r.n} max={maxDaily} color="var(--accent-blue)" />
+              ))}
             </div>
 
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '0.4rem' }}>
-              Po vrsti dogodka — zadnjih 30 dni
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '0.6rem' }}>
+              Po vrsti dogodka — zadnjih {STATS_DAYS} dni
             </div>
             <div>
               {byTypeGrouped.length === 0
@@ -523,6 +537,11 @@ export default function InterventionsView({ visible }) {
         // entries stay reachable only through Archive, even on a quiet feed. Applies
         // the same cutoff whether or not the event has been confirmed yet.
         params.set('from', new Date(Date.now() - LIVE_WINDOW_HOURS * 3600000).toISOString());
+        // Live mode has no "load more" (it re-fetches from scratch every REFRESH_MS anyway),
+        // so request the backend's actual max instead of the archive page size — a busy
+        // 24h window (storms etc.) can otherwise silently lose events past PAGE_SIZE with
+        // no way to reach them.
+        params.set('limit', String(LIVE_MAX_ROWS));
       }
       const { rows: page, total: n } = await getJson(`/api/interventions?${params}`);
       setRows(prev => append ? [...prev, ...page] : page);
