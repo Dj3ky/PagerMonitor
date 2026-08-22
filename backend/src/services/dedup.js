@@ -177,6 +177,7 @@ function sweepStale(now) {
 function evaluate(capcode, message) {
   const cfg = getDedupConfig();
   if (!cfg.enabled || !message) return { duplicate: false };
+  if (cfg.exceptCapcodes.includes(capcode)) return { duplicate: false };
   const now = Date.now();
   const windowMs = cfg.windowSeconds * 1000;
 
