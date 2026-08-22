@@ -306,7 +306,7 @@ function sendActivity(channelId, active) {
 // continuously either way) — flushed as a burst the moment forwarding turns on, so a listener
 // who joins right as a transmission starts (the common auto-listen case) doesn't lose the
 // first word or two to the round-trip time of the server telling us to start forwarding.
-const PREROLL_MS = 500;
+const PREROLL_MS = 1000;
 const preRollBuffers = new Map(); // channelId -> [{ t, payload }]
 
 function recordPreRoll(channelId, payload) {
