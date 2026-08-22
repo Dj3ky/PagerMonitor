@@ -195,13 +195,55 @@ function AliasFilterDropdown({ aliases, selected, onChange }) {
   );
 }
 
-export default function FilterBar({ filters, onChange, groups=[], aliases=[], paused, onTogglePause, newCount,
+// Flat source checkbox list with search, keyed by source ID (matches m.client_id) since
+// unlike group/alias names, source labels aren't guaranteed unique (e.g. two dongles both
+// falling back to "Dongle 1"/"Dongle 2"-style defaults would collide on name).
+function SourceFilterDropdown({ sources, selected, onChange }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
+  useOutsideClose(open, setOpen, [triggerRef, popoverRef]);
+
+  if (!sources.length) return null;
+
+  const q       = search.trim().toLowerCase();
+  const visible = q ? sources.filter(s => s.label?.toLowerCase().includes(q)) : sources;
+  const toggle  = id => onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]);
+
+  return (
+    <div style={{ position:'relative' }}>
+      <DropdownTrigger triggerRef={triggerRef} label={t('filterBar.sourceFilter')} count={selected.length}
+        onClick={() => setOpen(o => !o)} />
+      {open && (
+        <FilterPopover triggerRef={triggerRef} popoverRef={popoverRef}>
+          <input className="pm-input" style={{ ...S.input, width:'100%' }}
+            placeholder={t('filterBar.searchSources')} value={search}
+            onChange={e => setSearch(e.target.value)} autoFocus />
+          {q && !visible.length && <div style={S.emptyHint}>{t('filterBar.noMatches')}</div>}
+          {visible.map(s => (
+            <label key={s.id} style={S.checkRow}>
+              <input type="checkbox" checked={selected.includes(s.id)} onChange={() => toggle(s.id)}
+                style={{ accentColor:'var(--accent-blue)' }} />
+              <span style={{ color:'var(--accent-blue)', fontWeight:600 }}>{s.label}</span>
+            </label>
+          ))}
+        </FilterPopover>
+      )}
+    </div>
+  );
+}
+
+export default function FilterBar({ filters, onChange, groups=[], aliases=[], sources=[], paused, onTogglePause, newCount,
   pageSize, onPageSize, pageOptions, page, totalPages, onPage, totalMessages }) {
   const { t } = useTranslation();
 
-  const hasText  = filters.capcode || filters.keyword;
-  const hasAlias = filters.alias.length > 0;
-  const hasGroup = filters.group.length > 0;
+  const hasText   = filters.capcode || filters.keyword;
+  const hasAlias  = filters.alias.length > 0;
+  const hasGroup  = filters.group.length > 0;
+  const hasSource = filters.source.length > 0;
+  const sourceLabel = id => sources.find(s => s.id === id)?.label || id;
 
   return (
     <div style={S.bar}>
@@ -215,23 +257,29 @@ export default function FilterBar({ filters, onChange, groups=[], aliases=[], pa
         <input style={{ ...S.input, width:'140px', minWidth:'60px' }} placeholder={t('filterBar.keywordPlaceholder')}
           value={filters.keyword} onChange={e => onChange({ ...filters, keyword: e.target.value })} />
 
-        {/* Group/alias multi-select dropdowns — desktop only, no room for these on phone */}
+        {/* Source/group/alias multi-select dropdowns — desktop only, no room for these on phone */}
         <div className="pm-filter-desktop-only" style={{ display:'flex', gap:'0.4rem', flexShrink:0 }}>
+          <SourceFilterDropdown sources={sources} selected={filters.source}
+            onChange={ids => onChange({ ...filters, source: ids })} />
           <GroupFilterDropdown groups={groups} selected={filters.group}
             onChange={ids => onChange({ ...filters, group: ids })} />
           <AliasFilterDropdown aliases={aliases} selected={filters.alias}
             onChange={ids => onChange({ ...filters, alias: ids })} />
         </div>
 
-        {(hasText || hasAlias || hasGroup) && (
-          <button onClick={() => onChange({ capcode:'', keyword:'', alias:[], group:[] })}
+        {(hasText || hasAlias || hasGroup || hasSource) && (
+          <button onClick={() => onChange({ capcode:'', keyword:'', alias:[], group:[], source:[] })}
             style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.15rem', flexShrink:0 }}
             title={t('filterBar.clearAll')}>
             <X size={13} />
           </button>
         )}
 
-        {/* Active alias/group badges — one per selected value */}
+        {/* Active source/alias/group badges — one per selected value */}
+        {filters.source.map(v => (
+          <ActiveBadge key={`source-${v}`} label={t('filterBar.sourceBadge', { value: sourceLabel(v) })} color="var(--accent-blue)"
+            onRemove={() => onChange({ ...filters, source: filters.source.filter(x => x !== v) })} />
+        ))}
         {filters.alias.map(v => (
           <ActiveBadge key={`alias-${v}`} label={t('filterBar.aliasBadge', { value: v })} color="var(--accent-green)"
             onRemove={() => onChange({ ...filters, alias: filters.alias.filter(x => x !== v) })} />

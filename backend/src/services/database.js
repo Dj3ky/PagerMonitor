@@ -620,6 +620,30 @@ function getLocalDongleLabel(sourceId) {
   return getLocalDongleLabelMap().get(sourceId) || null;
 }
 
+// Source filter options for the feed UI — every distinct m.client_id a message can carry,
+// covering both local dongles (configured in SdrControl.jsx) and remote SDR clients (each a
+// whole Pi, one client_id per machine regardless of how many dongles it runs). Local dongles
+// fall back from label → serial → device index → positional "Dongle N"; remote clients fall
+// back from their admin-set display name to their raw client id, since they have no device index.
+function getSourceOptions() {
+  const options = [];
+  const dongles = getSetting('dongle_configs', null);
+  if (Array.isArray(dongles)) {
+    dongles.forEach((dongle, i) => {
+      const id = buildDongleSourceId(dongle);
+      if (id === 'dongle-') return;
+      const label = String(dongle?.label || '').trim() || String(dongle?.serial || '').trim()
+        || String(dongle?.device ?? '').trim() || `Dongle ${i + 1}`;
+      options.push({ id, label });
+    });
+  }
+  try {
+    const { getClients } = require('./clientTracker');
+    for (const c of getClients()) options.push({ id: c.id, label: c.displayName || c.id });
+  } catch (_) {}
+  return options;
+}
+
 function enrichSourceLabels(rows) {
   const list = Array.isArray(rows) ? rows : [rows];
   for (const row of list) {
@@ -1450,4 +1474,5 @@ module.exports = {
   getMessageNotes, addMessageNote, deleteMessageNote, getNoteCounts,
   saveDbSession, deleteDbSession, loadActiveSessions, pruneExpiredSessions,
   upsertUserLocation, getUserLocations, deleteUserLocation, enrichSourceLabels, getLocalDongleLabel,
+  getSourceOptions,
 };

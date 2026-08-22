@@ -12,7 +12,7 @@ const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, de
         ALIAS_GROUP_JOIN_SQL, ALIAS_GROUP_SELECT_SQL, enrichSourceLabels,
         getTrackedAircraft, getTrackedAircraftById, insertTrackedAircraft,
         updateTrackedAircraftEnabled, updateTrackedAircraftIcao24, setTrackedAircraftOrgId,
-        deleteTrackedAircraftById } = require('../services/database');
+        deleteTrackedAircraftById, getSourceOptions } = require('../services/database');
 
 const ICAO24_RE = /^[0-9a-f]{6}$/;
 const { getStatus }      = require('../services/sdr');
@@ -176,6 +176,9 @@ router.delete('/aliases/:capcode', requireEditor, (req, res) => { deleteAlias(re
 
 router.get('/groups', requireAuth, (req, res) => { try { res.json(getGroups(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); } });
 router.get('/rules',  requireAuth, (req, res) => { try { res.json(getHighlightRules(req.session.orgId)); } catch (e) { res.status(500).json({ error: e.message }); } });
+
+// Source filter options — local dongles (SDR admin form) plus remote SDR clients. Instance-wide, not org-scoped.
+router.get('/sources', requireAuth, (_req, res) => { try { res.json(getSourceOptions()); } catch (e) { res.status(500).json({ error: e.message }); } });
 
 // Feed filter — exposed so clients know when a filter is active (mode only, no sensitive data)
 router.get('/feed-filter', requireAuth, (req, res) => {
