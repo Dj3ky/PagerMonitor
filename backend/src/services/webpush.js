@@ -69,7 +69,11 @@ async function sendPushPerUser(msg, orgId) {
     data:  { capcode: msg.capcode, timestamp: msg.timestamp },
   };
 
-  const eligible = subs.filter(sub => _matchesPushPrefs(msg, sub));
+  // A user with a live WS connection already gets this message in-app — sending push too
+  // would just queue up and replay as a notification burst next time they were briefly
+  // offline. See websocket.js's isUserConnected.
+  const { isUserConnected } = require('./websocket');
+  const eligible = subs.filter(sub => _matchesPushPrefs(msg, sub) && !isUserConnected(sub.user_id));
   await Promise.allSettled(eligible.map(sub => _send(sub, payload)));
 }
 
