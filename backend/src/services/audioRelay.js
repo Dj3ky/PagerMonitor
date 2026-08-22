@@ -127,9 +127,40 @@ function decodeFrame(buf) {
   return { channelId: buf.readUInt32LE(0), payload: buf.subarray(FRAME_HEADER_BYTES) };
 }
 
+// Recent audio kept per channel regardless of listeners (mirrors client/src/index.js's own
+// pre-roll for the remote-forwarding-not-yet-on case) — covers local dongles, which always
+// flow frames here, and any remote channel that's already forwarding for an existing
+// listener. Flushed to a browser the instant it joins so it doesn't lose the first word or
+// two while activity detection + the listen_start round-trip catch up.
+const PREROLL_MS = 500;
+const preRollBuffers = new Map(); // channelId -> [{ t, payload }]
+
+function recordPreRoll(channelId, payload) {
+  const id = Number(channelId);
+  let buf = preRollBuffers.get(id);
+  if (!buf) { buf = []; preRollBuffers.set(id, buf); }
+  const now = Date.now();
+  buf.push({ t: now, payload });
+  while (buf.length && now - buf[0].t > PREROLL_MS) buf.shift();
+}
+
+function flushPreRoll(channelId, ws) {
+  const buf = preRollBuffers.get(Number(channelId));
+  if (!buf || buf.length === 0) return;
+  // recordPreRoll only trims on a new push — a channel that's gone quiet stops getting
+  // trimmed at all, so re-check staleness here too rather than trusting whatever's still
+  // sitting in the array from whenever it was last fed.
+  const cutoff = Date.now() - PREROLL_MS;
+  for (const { t, payload } of buf) {
+    if (t < cutoff) continue;
+    if (ws.readyState === WebSocket.OPEN) { try { ws.send(encodeFrame(channelId, payload), { binary: true }); } catch (_) {} }
+  }
+}
+
 // ── Fan-out to browsers + internal subscribers currently listening to a channel ───────
 function fanOutFrame(channelId, payload) {
   const id = Number(channelId);
+  recordPreRoll(id, payload);
   const wsSet = listeners.get(id);
   if (wsSet && wsSet.size > 0) {
     const frame = encodeFrame(id, payload);
@@ -308,6 +339,11 @@ function handleBrowserListen(ws, channelId) {
   if (!set) { set = new Set(); listeners.set(id, set); }
   set.add(ws);
   (ws._listeningChannels || (ws._listeningChannels = new Set())).add(id);
+  // Covers local channels (always have recent frames buffered) and any remote channel
+  // that was already forwarding for another listener. A remote channel that was cold
+  // (wasActive false) has nothing buffered here yet — client/src/index.js flushes its own
+  // pre-roll once our 'start' below reaches it instead.
+  flushPreRoll(id, ws);
   if (!wasActive) setRemoteForwarding(id, true);
 }
 
