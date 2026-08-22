@@ -109,6 +109,11 @@ export default function App() {
 
   useEffect(() => { window.__pagermonitor_sound = soundEnabled; }, [soundEnabled]);
 
+  // Lets useBrowserNotifications tell "tab focused, looking at the feed" (skip popup,
+  // it's already visible) apart from "tab focused, but the feed is hidden behind the
+  // profile/settings overlay" (still show it — the user can't actually see new messages).
+  useEffect(() => { window.__pagermonitor_feed_covered = showProfile; }, [showProfile]);
+
   // Sync push subscription with the browser notification bell
   useEffect(() => {
     if (!user || user.isGuest) return;

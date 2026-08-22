@@ -61,11 +61,13 @@ export function useBrowserNotifications() {
 
   const notify = useCallback((msg) => {
     if (!supported || !enabled || Notification.permission !== 'granted') return;
-    // Only notify when the page is open-but-unfocused (visible, background window).
-    // If focused, the user can already see it. If hidden/minimised, the service
-    // worker's push handler is the one responsible for notifying (see sw.js) —
-    // firing here too would duplicate it.
-    if (document.visibilityState !== 'visible' || document.hasFocus()) return;
+    // If hidden/minimised, the service worker's push handler is the one responsible
+    // for notifying (see sw.js) — firing here too would duplicate it.
+    if (document.visibilityState !== 'visible') return;
+    // Otherwise: skip only if the user can actually see the feed right now (tab
+    // focused AND not covered by the profile/settings overlay — see App.jsx). Focused
+    // but on that overlay means new messages are landing behind it, unseen.
+    if (document.hasFocus() && !window.__pagermonitor_feed_covered) return;
 
     try {
       const alias   = msg.alias_name || msg.alias || msg.capcode;
