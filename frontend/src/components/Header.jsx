@@ -253,14 +253,21 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
               </form>
             </div>
 
-            {/* Feed/Map/Archive/Weather live in BottomNav on native — redundant here */}
+            {/* Feed/Map/Weather always live in BottomNav on native — redundant here. Archive
+                is conditional: BottomNav swaps it for SPIN on native when interventions are
+                enabled (rarely-used slot), so surface Archive here instead in that case —
+                and correspondingly skip SPIN here on native then, since it's in BottomNav. */}
             {!isNative && (
               <>
-                <MenuRow icon={<Rss size={16}/>}     label={t('header.nav.feed')}    active={view==='feed'}    onClick={() => nav('feed')} />
-                <MenuRow icon={<Map size={16}/>}     label={t('header.nav.map')}     active={view==='map'}     onClick={() => nav('map')} />
-                <MenuRow icon={<Archive size={16}/>} label={t('header.nav.archive')} active={view==='archive'} onClick={() => nav('archive')} />
-                <MenuRow icon={<CloudRain size={16}/>} label={t('header.nav.weather')} active={view==='weather'} onClick={() => nav('weather')} />
+                <MenuRow icon={<Rss size={16}/>} label={t('header.nav.feed')} active={view==='feed'} onClick={() => nav('feed')} />
+                <MenuRow icon={<Map size={16}/>} label={t('header.nav.map')}  active={view==='map'}  onClick={() => nav('map')} />
               </>
+            )}
+            {(!isNative || showInterventions) && (
+              <MenuRow icon={<Archive size={16}/>} label={t('header.nav.archive')} active={view==='archive'} onClick={() => nav('archive')} />
+            )}
+            {!isNative && (
+              <MenuRow icon={<CloudRain size={16}/>} label={t('header.nav.weather')} active={view==='weather'} onClick={() => nav('weather')} />
             )}
             {showAircraft && (
               <MenuRow icon={<Plane size={16}/>} label={t('header.nav.aircraft')} active={view==='aircraft'} onClick={() => nav('aircraft')} badge={anyAirborne} />
@@ -268,7 +275,7 @@ export default function Header({ wsStatus, soundEnabled, onToggleSound, browserN
             {showTraffic && (
               <MenuRow icon={<Camera size={16}/>} label={t('header.nav.traffic')} active={view==='traffic'} onClick={() => nav('traffic')} />
             )}
-            {showInterventions && (
+            {showInterventions && !isNative && (
               <MenuRow icon={<Siren size={16}/>} label="SPIN" active={view==='interventions'} onClick={() => nav('interventions')} />
             )}
             {!isGuest && (user?.role === 'admin' || user?.role === 'editor') && (

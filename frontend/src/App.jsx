@@ -404,7 +404,8 @@ export default function App() {
 
       {isNative && (
         <BottomNav view={view} setView={handleSetView}
-          menuOpen={mobileMenuOpen} onMenuOpenChange={setMobileMenuOpen} />
+          menuOpen={mobileMenuOpen} onMenuOpenChange={setMobileMenuOpen}
+          showInterventions={showInterventions} />
       )}
 
       {/* Location sharing prompt — shown once on first open */}
