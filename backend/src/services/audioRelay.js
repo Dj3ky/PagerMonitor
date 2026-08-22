@@ -132,7 +132,7 @@ function decodeFrame(buf) {
 // flow frames here, and any remote channel that's already forwarding for an existing
 // listener. Flushed to a browser the instant it joins so it doesn't lose the first word or
 // two while activity detection + the listen_start round-trip catch up.
-const PREROLL_MS = 500;
+const PREROLL_MS = 1000;
 const preRollBuffers = new Map(); // channelId -> [{ t, payload }]
 
 function recordPreRoll(channelId, payload) {
