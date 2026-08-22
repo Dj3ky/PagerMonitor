@@ -57,9 +57,7 @@ async function sendFcmPerUser(msg, orgId) {
   if (!rows.length) return;
 
   const alias = msg.alias_name || msg.alias || msg.capcode;
-  // Skip users with a live WS connection — see webpush.js's sendPushPerUser for why.
-  const { isUserConnected } = require('./websocket');
-  const eligible = rows.filter(row => _matchesPushPrefs(msg, row) && !isUserConnected(row.user_id));
+  const eligible = rows.filter(row => _matchesPushPrefs(msg, row));
   await Promise.allSettled(eligible.map(row => _send(row.token, {
     title: `📟 ${alias}`,
     body:  msg.message || '(tone / numeric only)',

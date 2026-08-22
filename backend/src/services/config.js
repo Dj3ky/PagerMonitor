@@ -109,20 +109,26 @@ function saveNotifFilter(orgId, cfg) {
 }
 
 // ── Dedup ─────────────────────────────────────────────────────────────────────
-const DEDUP_DEFAULTS = { enabled: true, windowSeconds: 30 };
+// exceptCapcodes: capcodes exempt from deduplication — every message from these
+// is always shown/stored, even if it looks like a retransmission of another.
+const DEDUP_DEFAULTS = { enabled: true, windowSeconds: 30, exceptCapcodes: [] };
 
 function getDedupConfig() {
   const raw = getSetting('dedup_config', null);
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEDUP_DEFAULTS };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEDUP_DEFAULTS, exceptCapcodes: [] };
   return {
-    enabled:       typeof raw.enabled === 'boolean' ? raw.enabled : DEDUP_DEFAULTS.enabled,
-    windowSeconds: typeof raw.windowSeconds === 'number' && raw.windowSeconds >= 0 ? raw.windowSeconds : DEDUP_DEFAULTS.windowSeconds,
+    enabled:        typeof raw.enabled === 'boolean' ? raw.enabled : DEDUP_DEFAULTS.enabled,
+    windowSeconds:  typeof raw.windowSeconds === 'number' && raw.windowSeconds >= 0 ? raw.windowSeconds : DEDUP_DEFAULTS.windowSeconds,
+    exceptCapcodes: Array.isArray(raw.exceptCapcodes) ? raw.exceptCapcodes.map(c => normCapcode(String(c))) : [],
   };
 }
 function saveDedupConfig(cfg) {
   setSetting('dedup_config', {
-    enabled:       cfg.enabled === false ? false : true,
-    windowSeconds: Math.max(0, Math.min(300, parseInt(cfg.windowSeconds,10)||0)),
+    enabled:        cfg.enabled === false ? false : true,
+    windowSeconds:  Math.max(0, Math.min(300, parseInt(cfg.windowSeconds,10)||0)),
+    exceptCapcodes: Array.isArray(cfg.exceptCapcodes)
+                      ? [...new Set(cfg.exceptCapcodes.map(c => normCapcode(String(c))).filter(Boolean))]
+                      : [],
   });
   logger.info('Dedup config saved');
 }

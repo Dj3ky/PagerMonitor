@@ -11,7 +11,7 @@ const crypto  = require('crypto');
 const express = require('express');
 const router  = express.Router();
 
-const { insertMessage, getSetting, getAliasNameForCapcode } = require('../services/database');
+const { insertMessage, getSetting, getAliasNameForCapcode, normCapcode } = require('../services/database');
 const { broadcast }             = require('../services/websocket');
 const { broadcastAll, notifyAll } = require('../services/fanout');
 const { parseLocation, geocodeAddress } = require('../utils/parseLocation');
@@ -40,11 +40,17 @@ function requireClientKey(req, res, next) {
 // POST /client/message — receive a decoded message from a remote client
 router.post('/message', requireClientKey, (req, res) => {
   try {
-    const { protocol, baud, capcode, funcbits, message, raw, timestamp, clientId, freq, protocols } = req.body;
+    const { protocol, baud, capcode: rawCapcode, funcbits, message, raw, timestamp, clientId, freq, protocols } = req.body;
 
-    if (!capcode || !protocol) {
+    if (!rawCapcode || !protocol) {
       return res.status(400).json({ error: 'capcode and protocol required' });
     }
+
+    // Decoders (and remote clients) don't agree on zero-padding capcodes — sdr.js
+    // normalizes at parse time for local ingestion; do the same here so a remote
+    // client's capcode matches dedup exceptions, aliases, and feed filters the
+    // same way a locally-ingested one already does.
+    const capcode = normCapcode(String(rawCapcode).trim());
 
     const dedupResult = dedup.evaluate(capcode, message);
     if (dedupResult.duplicate) {
