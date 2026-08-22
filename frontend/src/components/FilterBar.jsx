@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Filter, Pause, Play, X, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -23,7 +24,7 @@ const S = {
   select: { background:'var(--bg-3)', border:'1px solid var(--border)', borderRadius:'0.35rem',
             color:'var(--text-2)', cursor:'pointer', padding:'0.25rem 0.4rem', fontSize:'0.75rem',
             fontFamily:'monospace' },
-  popover: { position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:20,
+  popover: { position:'fixed', zIndex:2500,
              background:'var(--bg-1)', border:'1px solid var(--border)', borderRadius:'0.5rem',
              boxShadow:'0 4px 16px rgba(0,0,0,0.3)', padding:'0.5rem', width:'240px',
              maxHeight:'320px', overflowY:'auto', display:'flex', flexDirection:'column', gap:'0.15rem' },
@@ -44,23 +45,23 @@ function ActiveBadge({ label, color, onRemove }) {
   );
 }
 
-// Closes an open popover on any click outside its trigger+panel — same pattern as the
-// account menu in Header.jsx.
-function useOutsideClose(open, setOpen) {
-  const ref = useRef(null);
+// Closes an open popover on any click outside both its trigger and its panel — same
+// pattern as the account menu in Header.jsx, extended to two refs since the panel is
+// portaled out to <body> (see FilterPopover) and so is no longer a DOM descendant of
+// the trigger it visually belongs to.
+function useOutsideClose(open, setOpen, refs) {
   useEffect(() => {
     if (!open) return;
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const h = e => { if (!refs.some(r => r.current?.contains(e.target))) setOpen(false); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, [open, setOpen]);
-  return ref;
+  }, [open]);
 }
 
-function DropdownTrigger({ label, count, onClick }) {
+function DropdownTrigger({ triggerRef, label, count, onClick }) {
   const active = count > 0;
   return (
-    <button type="button" onClick={onClick} style={{
+    <button ref={triggerRef} type="button" onClick={onClick} style={{
       display:'flex', alignItems:'center', gap:'0.3rem', flexShrink:0,
       background: active ? 'color-mix(in srgb, var(--accent-blue) 12%, transparent)' : 'var(--bg-3)',
       border:'1px solid', borderColor: active ? 'color-mix(in srgb, var(--accent-blue) 35%, transparent)' : 'var(--border)',
@@ -72,6 +73,23 @@ function DropdownTrigger({ label, count, onClick }) {
   );
 }
 
+// Portals the panel to <body>, positioned with `fixed` coordinates read off the trigger's
+// bounding rect. Rendering it as a normal in-flow child (the original approach) put it
+// inside row1, whose overflowX:'auto' implicitly resolves overflowY to 'auto' too (CSS
+// spec: an explicit x + a visible y computes the y to auto) — that silently clipped the
+// dropdown to the filter bar's own height, hiding it behind the message feed below.
+function FilterPopover({ triggerRef, popoverRef, children }) {
+  const [rect, setRect] = useState(null);
+  useEffect(() => { setRect(triggerRef.current?.getBoundingClientRect() ?? null); }, [triggerRef]);
+  if (!rect) return null;
+  return createPortal(
+    <div ref={popoverRef} style={{ ...S.popover, top: rect.bottom + 4, left: rect.left }}>
+      {children}
+    </div>,
+    document.body
+  );
+}
+
 // Group/parent-group checkbox tree with search — mirrors GroupPicker in
 // admin/FeedFilter.jsx, but keyed by group NAME rather than id, since that's what
 // messages carry (m.group_name/m.parent_group_name) and what the click-to-filter
@@ -80,7 +98,9 @@ function GroupFilterDropdown({ groups, selected, onChange }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const ref = useOutsideClose(open, setOpen);
+  const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
+  useOutsideClose(open, setOpen, [triggerRef, popoverRef]);
 
   if (!groups.length) return null;
 
@@ -100,10 +120,11 @@ function GroupFilterDropdown({ groups, selected, onChange }) {
   const visibleTop  = q ? topLevel.filter(g => nameMatches(g) || subOf(g.id).some(nameMatches)) : topLevel;
 
   return (
-    <div ref={ref} style={{ position:'relative' }}>
-      <DropdownTrigger label={t('filterBar.groupFilter')} count={selected.length} onClick={() => setOpen(o => !o)} />
+    <div style={{ position:'relative' }}>
+      <DropdownTrigger triggerRef={triggerRef} label={t('filterBar.groupFilter')} count={selected.length}
+        onClick={() => setOpen(o => !o)} />
       {open && (
-        <div style={S.popover}>
+        <FilterPopover triggerRef={triggerRef} popoverRef={popoverRef}>
           <input className="pm-input" style={{ ...S.input, width:'100%' }}
             placeholder={t('filterBar.searchGroups')} value={search}
             onChange={e => setSearch(e.target.value)} autoFocus />
@@ -130,7 +151,7 @@ function GroupFilterDropdown({ groups, selected, onChange }) {
               </div>
             );
           })}
-        </div>
+        </FilterPopover>
       )}
     </div>
   );
@@ -141,7 +162,9 @@ function AliasFilterDropdown({ aliases, selected, onChange }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const ref = useOutsideClose(open, setOpen);
+  const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
+  useOutsideClose(open, setOpen, [triggerRef, popoverRef]);
 
   if (!aliases.length) return null;
 
@@ -150,10 +173,11 @@ function AliasFilterDropdown({ aliases, selected, onChange }) {
   const toggle  = name => onChange(selected.includes(name) ? selected.filter(x => x !== name) : [...selected, name]);
 
   return (
-    <div ref={ref} style={{ position:'relative' }}>
-      <DropdownTrigger label={t('filterBar.aliasFilter')} count={selected.length} onClick={() => setOpen(o => !o)} />
+    <div style={{ position:'relative' }}>
+      <DropdownTrigger triggerRef={triggerRef} label={t('filterBar.aliasFilter')} count={selected.length}
+        onClick={() => setOpen(o => !o)} />
       {open && (
-        <div style={S.popover}>
+        <FilterPopover triggerRef={triggerRef} popoverRef={popoverRef}>
           <input className="pm-input" style={{ ...S.input, width:'100%' }}
             placeholder={t('filterBar.searchAliases')} value={search}
             onChange={e => setSearch(e.target.value)} autoFocus />
@@ -165,7 +189,7 @@ function AliasFilterDropdown({ aliases, selected, onChange }) {
               <span style={{ color: a.color || 'var(--accent-green)', fontWeight:600 }}>{a.name}</span>
             </label>
           ))}
-        </div>
+        </FilterPopover>
       )}
     </div>
   );
