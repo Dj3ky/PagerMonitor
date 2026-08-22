@@ -34,6 +34,11 @@ export function useWebSocket(backendUrl) {
   const wsRef          = useRef(null);
   const timerRef       = useRef(null);
   const shuttingDownRef = useRef(false);
+  // Set once the user has fetched older history via "Load More" — past that point we must
+  // stop capping `messages` at MAX_MESSAGES, or the very next live message (or reconnect
+  // catch-up fetch) would slice the array back down to MAX_MESSAGES and silently drop the
+  // older messages Load More just fetched, even though Load More itself never caps.
+  const extendedRef = useRef(false);
 
   // Derive WebSocket URL — MUST use wss:// when page is loaded over https://
   // otherwise browsers block it as mixed content
@@ -76,7 +81,8 @@ export function useWebSocket(backendUrl) {
                 const ids  = new Set(prev.map(m => m.id));
                 const fresh = rows.filter(m => !ids.has(m.id));
                 if (!fresh.length) return prev;
-                return [...fresh, ...prev].slice(0, MAX_MESSAGES);
+                const next = [...fresh, ...prev];
+                return extendedRef.current || next.length <= MAX_MESSAGES ? next : next.slice(0, MAX_MESSAGES);
               });
             }
           })
@@ -109,7 +115,7 @@ export function useWebSocket(backendUrl) {
         if (data.type === 'message') {
           setMessages(prev => {
             const next = [data, ...prev];
-            return next.length > MAX_MESSAGES ? next.slice(0, MAX_MESSAGES) : next;
+            return !extendedRef.current && next.length > MAX_MESSAGES ? next.slice(0, MAX_MESSAGES) : next;
           });
           // Normal sound alert
           if (window.__pagermonitor_sound) {
@@ -129,7 +135,7 @@ export function useWebSocket(backendUrl) {
           setMessages(prev => {
             if (prev.find(m => m.id === data.id)) return prev;
             const next = [{ ...data, type:'message', isKeywordAlert:true }, ...prev];
-            return next.length > MAX_MESSAGES ? next.slice(0, MAX_MESSAGES) : next;
+            return !extendedRef.current && next.length > MAX_MESSAGES ? next.slice(0, MAX_MESSAGES) : next;
           });
           // Play keyword alert sound via global
           const sound = data.matchedAlerts?.[0]?.sound || 'alert';
@@ -195,12 +201,14 @@ export function useWebSocket(backendUrl) {
     setMessages(prev => {
       const ids   = new Set(prev.map(m => m.id));
       const fresh = history.filter(m => !ids.has(m.id));
-      return [...prev, ...fresh].slice(0, MAX_MESSAGES);
+      const next  = [...prev, ...fresh];
+      return extendedRef.current || next.length <= MAX_MESSAGES ? next : next.slice(0, MAX_MESSAGES);
     });
   }, []);
 
   // Append older messages at the bottom (load more)
   const appendHistory = useCallback((older) => {
+    extendedRef.current = true; // stop capping at MAX_MESSAGES — see extendedRef above
     setMessages(prev => {
       const ids   = new Set(prev.map(m => m.id));
       const fresh = older.filter(m => !ids.has(m.id));
