@@ -35,6 +35,7 @@ export const deleteTrackedAircraft    = (id) => req('DELETE', `/api/aircraft/tra
 export const fetchActiveVoiceChannels = () => req('GET', '/api/voice-channels/active');
 export const fetchFeedFilter = () => req('GET', '/api/feed-filter');
 export const fetchGroups   = () => req('GET', '/api/groups');
+export const fetchSources  = () => req('GET', '/api/sources');
 export const fetchRules    = () => req('GET', '/api/rules');
 export const saveAlias     = (capcode, body) => req('PUT',    `/api/aliases/${capcode}`, body);
 export const deleteAlias   = (capcode)        => req('DELETE', `/api/aliases/${capcode}`, undefined);
