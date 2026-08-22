@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, LocateFixed, Users, Loader } from 'lucide-react';
-import { fetchMap, saveMessageLocation, clearMessageLocation, fetchUserLocations } from '../utils/api.js';
+import { fetchMap, saveMessageLocation, clearMessageLocation, fetchUserLocations, fetchGasilskeRegije } from '../utils/api.js';
 import { geocodeAddress, parseLocation } from '../utils/parseLocation.js';
 import { useSite } from '../context/SiteContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getCountryCenter } from '../utils/countryCenters.js';
+import { regijaColor } from '../utils/gasilskeRegije.js';
 import repeatersSI from '../data/repeaters.si.json';
 
 const TILE_URL  = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -36,7 +37,7 @@ function Flash({ msg }) {
 
 export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplete, onLocationResolved, visible, resetKey, locationSharing }) {
   const { t } = useTranslation();
-  const { mapDotColor = '#00ff9d', mapMaxAgeDays = 30, geocodeCountry = '', locale, hour12 } = useSite();
+  const { mapDotColor = '#00ff9d', mapMaxAgeDays = 30, geocodeCountry = '', locale, hour12, enableInterventions } = useSite();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -55,6 +56,8 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
   const [layerMode,   setLayerMode]   = useState('markers'); // 'markers' | 'cluster' | 'heat'
   const [showRepeaters, setShowRepeaters] = useState(false);
   const repeaterLayerRef = useRef(null);
+  const [showRegije, setShowRegije] = useState(false);
+  const regijeLayerRef = useRef(null); // L.geoJSON — fetched lazily on first toggle-on, kept afterwards
   const [dateFrom,    setDateFrom]    = useState('');
   const [dateTo,      setDateTo]      = useState('');
 
@@ -102,7 +105,7 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
 
     mapRef.current = map;
     setMapReady(true);
-    return () => { map.remove(); mapRef.current = null; clusterRef.current = null; heatRef.current = null; setMapReady(false); };
+    return () => { map.remove(); mapRef.current = null; clusterRef.current = null; heatRef.current = null; regijeLayerRef.current = null; setMapReady(false); };
   }, []);
 
   // Switch between layer modes
@@ -165,6 +168,35 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
     repeaterLayerRef.current = group;
     return () => { try { map.removeLayer(group); } catch (_) {} };
   }, [showRepeaters, geocodeCountry, mapReady]);
+
+  // ── Gasilska regija overlay (Slovenia only) — fetched once on first toggle-on
+  // (a few MB, not worth downloading for everyone who never opens this layer) and
+  // kept in regijeLayerRef afterwards so re-toggling just adds/removes it.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+
+    if (geocodeCountry !== 'si' || !showRegije) {
+      if (regijeLayerRef.current && map.hasLayer(regijeLayerRef.current)) map.removeLayer(regijeLayerRef.current);
+      return;
+    }
+    if (regijeLayerRef.current) { regijeLayerRef.current.addTo(map); return; }
+
+    let cancelled = false;
+    fetchGasilskeRegije().then(geojson => {
+      if (cancelled || !mapRef.current) return;
+      const layer = window.L.geoJSON(geojson, {
+        style: f => {
+          const c = regijaColor(f.properties.regija);
+          return { color: c, weight: 2, fillColor: c, fillOpacity: 0.1 };
+        },
+      });
+      layer.eachLayer(l => l.bindTooltip(l.feature.properties.regija, { sticky: true }));
+      regijeLayerRef.current = layer;
+      layer.addTo(mapRef.current);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [showRegije, geocodeCountry, mapReady]);
 
   // Keep ref in sync so the visible top-up always uses current params
   useEffect(() => {
@@ -716,6 +748,21 @@ export default function MapView({ messages: liveMessages, flyToMsg, onFlyComplet
                   transition:'all 0.15s',
                 }}>
                 📡
+              </button>
+            )}
+            {geocodeCountry === 'si' && enableInterventions && (
+              <button onClick={() => setShowRegije(s => !s)} title="Gasilske regije"
+                style={{
+                  width:'28px', height:'26px', borderRadius:'0.3rem', border:'none', cursor:'pointer',
+                  fontSize:'0.85rem', display:'flex', alignItems:'center', justifyContent:'center',
+                  color: showRegije ? '#22c55e' : 'var(--text-2)',
+                  background: showRegije
+                    ? 'color-mix(in srgb, #22c55e 20%, var(--bg-3))'
+                    : 'transparent',
+                  outline: showRegije ? '1px solid #22c55e' : 'none',
+                  transition:'all 0.15s',
+                }}>
+                🗺️
               </button>
             )}
           </div>

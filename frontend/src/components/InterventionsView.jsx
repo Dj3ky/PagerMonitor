@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Search, X, Loader, Flame, Car, Wrench, Waves, Skull, Biohazard, MapPin, Filter, History, BarChart2, Ungroup, ChevronLeft, ChevronRight, Map as MapIcon } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
+import { regijaColor } from '../utils/gasilskeRegije.js';
 
 // Slovenia's national public-safety intervention feed (fires, traffic accidents,
 // technical assistance, etc) — see backend/src/services/interventions.js for the
@@ -13,20 +14,6 @@ const LIVE_WINDOW_HOURS = 48; // "Live" = last N hours, not just "most recent N 
 const BASEMAP_STORAGE_KEY = 'pm_interventions_basemap';
 const CLUSTER_STORAGE_KEY = 'pm_interventions_clustered';
 const REGIJE_STORAGE_KEY  = 'pm_interventions_regije';
-
-// Gasilska regija (fire-brigade region) outlines — see backend/data/gasilske_regije.geojson
-// and the fetchObcineBoundaries/dissolveGasilskeRegije scripts that build it. Fixed order
-// so each region gets a stable hue rather than one that shifts if the GeoJSON is rebuilt
-// with features in a different order.
-const REGIJA_ORDER = [
-  'Bela krajina', 'Celjska', 'Dolenjska', 'Gorenjska', 'Koroška', 'Ljubljana I',
-  'Ljubljana II', 'Ljubljana III', 'Mariborska', 'Notranjska', 'Obalno-kraška',
-  'Podravska', 'Pomurska', 'Posavska', 'Saša', 'Severno-primorska', 'Zasavska',
-];
-function regijaColor(regija) {
-  const i = REGIJA_ORDER.indexOf(regija);
-  return `hsl(${i >= 0 ? (i * 360 / REGIJA_ORDER.length) : 0}, 65%, 55%)`;
-}
 const LIVE_MAX_ROWS = 400; // backend's hard cap (see query() in interventions.js) — comfortably
                              // above normal volume across the 48h LIVE_WINDOW_HOURS, even on a
                              // busy storm stretch.

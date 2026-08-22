@@ -155,3 +155,4 @@ export const adminDeleteOrg     = (id) => A('DELETE', `/admin/organizations/${id
 export const postUserLocation   = (lat, lng) => req('POST',   '/api/user-location', { lat, lng });
 export const deleteUserLocation = ()         => req('DELETE', '/api/user-location');
 export const fetchUserLocations = ()         => A('GET', '/admin/user-locations');
+export const fetchGasilskeRegije = ()        => req('GET', '/api/interventions/gasilske-regije');
