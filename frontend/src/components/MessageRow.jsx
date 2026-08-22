@@ -326,6 +326,21 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
               <div style={{ marginTop:'0.6rem', display:'flex', flexDirection:'column', gap:'0.35rem', alignItems:'flex-end' }}
                 onClick={e => e.stopPropagation()}>
                 <div style={{ display:'flex', gap:'0.4rem' }}>
+                  {msg.capcode && (
+                    <button
+                      onClick={() => onAddAlias?.(msg.capcode)}
+                      title={t('messageRow.addAliasTitle')}
+                      style={{ display:'flex', alignItems:'center', gap:'0.3rem',
+                        fontSize:'0.7rem', fontFamily:'monospace', fontWeight:600,
+                        padding:'0.25rem 0.6rem', borderRadius:'0.35rem', cursor:'pointer',
+                        background:'color-mix(in srgb,var(--accent-amber,#f59e0b) 10%,transparent)',
+                        border:'1px solid color-mix(in srgb,var(--accent-amber,#f59e0b) 30%,transparent)',
+                        color:'var(--accent-amber,#f59e0b)', transition:'background 0.1s' }}
+                      onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber,#f59e0b) 20%,transparent)'}
+                      onMouseLeave={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber,#f59e0b) 10%,transparent)'}>
+                      <Tag size={11}/>{t('messageRow.addAlias')}
+                    </button>
+                  )}
                   <button
                     disabled={reGeocoding}
                     onClick={async () => {
@@ -356,21 +371,6 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
                     <RefreshCw size={11} style={{ animation: reGeocoding ? 'spin 1s linear infinite' : 'none' }}/>
                     {reGeocoding ? t('messageRow.geocoding') : t('messageRow.regeocode')}
                   </button>
-                  {msg.capcode && (
-                    <button
-                      onClick={() => onAddAlias?.(msg.capcode)}
-                      title={t('messageRow.addAliasTitle')}
-                      style={{ display:'flex', alignItems:'center', gap:'0.3rem',
-                        fontSize:'0.7rem', fontFamily:'monospace', fontWeight:600,
-                        padding:'0.25rem 0.6rem', borderRadius:'0.35rem', cursor:'pointer',
-                        background:'color-mix(in srgb,var(--accent-amber,#f59e0b) 10%,transparent)',
-                        border:'1px solid color-mix(in srgb,var(--accent-amber,#f59e0b) 30%,transparent)',
-                        color:'var(--accent-amber,#f59e0b)', transition:'background 0.1s' }}
-                      onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber,#f59e0b) 20%,transparent)'}
-                      onMouseLeave={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber,#f59e0b) 10%,transparent)'}>
-                      <Tag size={11}/>{t('messageRow.addAlias')}
-                    </button>
-                  )}
                   <button
                     disabled={deleting}
                     onClick={async () => {
