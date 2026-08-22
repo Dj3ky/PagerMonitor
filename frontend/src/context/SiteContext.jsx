@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import i18n from '../i18n.js';
+import { useAuth } from './AuthContext.jsx';
 
 // geocodeCountry/locale blank by default (unconfigured) — see admin.js's
 // SITE_SETTINGS_DEFAULTS for why this can't default to Slovenia anymore.
@@ -10,6 +11,7 @@ const BASE    = import.meta.env.VITE_BACKEND_URL || '';
 const SiteContext = createContext({ ...DEFAULT, settingsLoaded: false, update: () => {} });
 
 export function SiteProvider({ children }) {
+  const { user } = useAuth();
   const [settings, setSettings]         = useState(DEFAULT);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
@@ -43,11 +45,14 @@ export function SiteProvider({ children }) {
       .finally(() => setSettingsLoaded(true));
   }, []);
 
-  // UI language follows the site locale setting: sl-SI switches to Slovenian,
-  // everything else (including unconfigured) falls back to English.
+  // UI language follows the site locale setting (sl-SI → Slovenian, everything else →
+  // English) — but a logged-in user's own uiLanguage preference, if set, wins over that
+  // site default. Note this only ever touches i18next's UI text; date/time formatting
+  // still follows `locale` above for every user, deliberately not tied to this override.
   useEffect(() => {
-    i18n.changeLanguage(settings.locale === 'sl-SI' ? 'sl' : 'en');
-  }, [settings.locale]);
+    const siteLang = settings.locale === 'sl-SI' ? 'sl' : 'en';
+    i18n.changeLanguage(user?.uiLanguage || siteLang);
+  }, [settings.locale, user?.uiLanguage]);
 
   const update = (patch) => {
     setSettings(s => {

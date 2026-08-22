@@ -85,6 +85,7 @@ async function login(username, password) {
   return {
     token, username: user.username, role: user.role,
     orgId: user.org_id, orgName: org?.name || null, isPlatformAdmin: !!user.is_platform_admin,
+    uiLanguage: user.ui_language || null,
   };
 }
 

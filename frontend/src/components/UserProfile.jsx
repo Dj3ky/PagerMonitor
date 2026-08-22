@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag, Siren, ShieldCheck, ShieldAlert, ChevronRight, ChevronDown } from 'lucide-react';
+import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag, Siren, ShieldCheck, ShieldAlert, ChevronRight, ChevronDown, Languages } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -162,8 +162,11 @@ function Flash({ msg }) {
 export default function UserProfile({ onClose }) {
   const { t } = useTranslation();
   const MODES = useModes();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [email, setEmail]   = useState('');
+  const [uiLanguage, setUiLanguage] = useState(user?.uiLanguage || '');
+  const [langSaving, setLangSaving] = useState(false);
+  const [langMsg, setLangMsg]       = useState(null);
   const [prefs, setPrefs]   = useState({
     enabled:false, mode:'all', group_ids:[], capcodes:[], keywords:[],
     alias_color_from_group:false,
@@ -184,13 +187,14 @@ export default function UserProfile({ onClose }) {
   const [dndGranted, setDndGranted] = useState(null); // null = unknown/not native yet
 
   const flashEmail = (t,m) => { setEmailMsg({type:t,text:m}); setTimeout(()=>setEmailMsg(null),3000); };
+  const flashLang  = (t,m) => { setLangMsg({type:t,text:m});  setTimeout(()=>setLangMsg(null),3000); };
   const flashPw    = (t,m) => { setPwMsg({type:t,text:m});    setTimeout(()=>setPwMsg(null),3000); };
   const flashPref  = (t,m) => { setPrefMsg({type:t,text:m});  setTimeout(()=>setPrefMsg(null),3000); };
   const flashTest  = (t,m) => { setTestMsg({type:t,text:m});  setTimeout(()=>setTestMsg(null),5000); };
 
   useEffect(() => {
     // Load current email and prefs
-    api('GET', '/auth/me').then(d => setEmail(d.email || '')).catch(() => {});
+    api('GET', '/auth/me').then(d => { setEmail(d.email || ''); setUiLanguage(d.uiLanguage || ''); }).catch(() => {});
     api('GET', '/auth/me/notif-prefs').then(setPrefs).catch(() => {});
     api('GET', '/admin/groups').then(d => setGroups(Array.isArray(d) ? d : [])).catch(() => {});
     api('GET', '/admin/aliases').then(d => setAliases(Array.isArray(d) ? d : [])).catch(() => {});
@@ -212,6 +216,17 @@ export default function UserProfile({ onClose }) {
     try { await api('PUT', '/auth/me/email', { email }); flashEmail('ok', t('userProfile.emailSaved')); }
     catch (e) { flashEmail('err', e.message); }
     finally { setSaving(false); }
+  };
+
+  const saveLanguage = async (lang) => {
+    setUiLanguage(lang);
+    setLangSaving(true);
+    try {
+      await api('PUT', '/auth/me/language', { uiLanguage: lang || null });
+      await refreshUser();
+      flashLang('ok', t('userProfile.languageSaved'));
+    } catch (e) { flashLang('err', e.message); }
+    finally { setLangSaving(false); }
   };
 
   const savePrefs = async () => {
@@ -295,6 +310,22 @@ export default function UserProfile({ onClose }) {
               style={{ marginTop:'0.5rem' }}>
               <Save size={13}/> {t('userProfile.saveEmail')}
             </button>
+          </div>
+
+          {/* UI language — overrides the site-wide default for this account only;
+              does not affect date/time formatting, which always follows the site setting. */}
+          <div className="pm-card">
+            <div className="pm-section-title"><Languages size={13}/> {t('userProfile.uiLanguage')}</div>
+            <p style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.6rem', lineHeight:1.5 }}>
+              {t('userProfile.uiLanguageHint')}
+            </p>
+            <select className="pm-input" value={uiLanguage} disabled={langSaving}
+              onChange={e => saveLanguage(e.target.value)}>
+              <option value="">{t('userProfile.followSiteDefault')}</option>
+              <option value="en">English</option>
+              <option value="sl">Slovenščina</option>
+            </select>
+            <Flash msg={langMsg} />
           </div>
 
 	          {/* Notification prefs */}

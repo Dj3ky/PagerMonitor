@@ -5,6 +5,7 @@ const { register, login, destroySession, requireAuth, requireAdmin, requirePlatf
 const {
   getUsers, getUserById, countUsers, deleteUser, updateUserRole, updateUserEmail, setUserOrg,
   setUserPlatformAdmin, getInviteByCode, consumeInvite, addAuditLog, getDb, getOrganization,
+  updateUserUiLanguage,
 } = require('../services/database');
 const logger = require('../utils/logger');
 
@@ -73,6 +74,7 @@ router.get('/me', requireAuth, (req, res) => {
     id: req.session.userId, username: req.session.username, role: req.session.role,
     orgId: req.session.orgId, orgName: org?.name || null, isPlatformAdmin: !!req.session.isPlatformAdmin,
     email: u?.email || '',
+    uiLanguage: u?.ui_language || null,
   });
 });
 
@@ -182,6 +184,21 @@ router.get('/setup', (_req, res) => {
 router.put('/me/email', requireAuth, (req, res) => {
   try {
     updateUserEmail(req.session.userId, req.body.email);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// PUT /auth/me/language — user overrides their own UI language, independent of the
+// site-wide locale setting (which still governs date/time formatting for everyone).
+// null clears the override so the site default applies again.
+const UI_LANGUAGES = ['en', 'sl'];
+router.put('/me/language', requireAuth, (req, res) => {
+  try {
+    const lang = req.body.uiLanguage;
+    if (lang != null && !UI_LANGUAGES.includes(lang)) {
+      return res.status(400).json({ error: 'Invalid language' });
+    }
+    updateUserUiLanguage(req.session.userId, lang || null);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });

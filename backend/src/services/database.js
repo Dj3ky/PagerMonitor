@@ -275,6 +275,10 @@ function _migrate() {
     db.exec('ALTER TABLE users ADD COLUMN email TEXT');
     logger.info('Migration: added email to users');
   }
+  if (!userColumns.includes('ui_language')) {
+    db.exec('ALTER TABLE users ADD COLUMN ui_language TEXT');
+    logger.info('Migration: added ui_language to users');
+  }
   if (!userColumns.includes('org_id')) {
     db.exec('ALTER TABLE users ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL');
     db.exec('ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0');
@@ -985,6 +989,7 @@ function createUser(username, hash, role, orgId, isPlatformAdmin = false) {
 }
 function updateUserPassword(id, hash)  { getDb().prepare('UPDATE users SET password=? WHERE id=?').run(hash, id); }
 function updateUserEmail(id, email) { getDb().prepare('UPDATE users SET email=? WHERE id=?').run(email || null, id); }
+function updateUserUiLanguage(id, lang) { getDb().prepare('UPDATE users SET ui_language=? WHERE id=?').run(lang || null, id); }
 function setUserOrg(userId, orgId) { getDb().prepare('UPDATE users SET org_id=? WHERE id=?').run(orgId, userId); }
 function setUserPlatformAdmin(userId, isPlatformAdmin) { getDb().prepare('UPDATE users SET is_platform_admin=? WHERE id=?').run(isPlatformAdmin ? 1 : 0, userId); }
 
@@ -1373,6 +1378,7 @@ module.exports = {
   createOrganization, getOrganizations, getOrganization, renameOrganization, deleteOrganization,
   createInvite, getInviteByCode, listInvites, revokeInvite, consumeInvite,
   getUsers, getUserById, getUserByUsername, createUser, updateUserPassword, updateUserRole, updateUserEmail,
+  updateUserUiLanguage,
   deleteUser, touchUserLogin, countUsers, setUserOrg, setUserPlatformAdmin,
   getLastSeenId, setLastSeenId,
   getUserNotifPrefs, setUserNotifPrefs, getAllUsersWithPrefs, normCapcode, groupMatchesSelection,
