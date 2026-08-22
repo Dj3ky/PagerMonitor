@@ -184,8 +184,8 @@ export default function FeedFilter() {
       </h2>
 
       <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginBottom: '1rem', lineHeight: 1.6 }}>
-        Controls which messages are processed. Filtered messages are <strong style={{ color: 'var(--accent-red, #f87171)' }}>completely ignored</strong> —
-        not saved to the database, not shown in the feed or archive, and no notifications are sent.
+        Controls which messages are shown. Filtered messages are <strong style={{ color: 'var(--accent-red, #f87171)' }}>hidden</strong> —
+        not shown in the live feed or archive, and no notifications are sent. They are still stored and can be found via search.
       </p>
 
       {isFiltering && (
@@ -196,7 +196,7 @@ export default function FeedFilter() {
           border: '1px solid color-mix(in srgb, var(--accent-yellow, #f59e0b) 30%, transparent)',
           color: 'var(--accent-yellow, #f59e0b)',
         }}>
-          ⚠ Feed filter is active — some messages are being completely ignored (not saved, no notifications).
+          ⚠ Feed filter is active — some messages are hidden from the feed/archive and won't trigger notifications (they're still stored and searchable).
         </div>
       )}
 
