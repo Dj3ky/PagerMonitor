@@ -271,6 +271,7 @@ export default function App() {
       setSearchQuery('');
       setSearchHasMore(false);
       setSearchCursor(null);
+      setLoadingMoreSearch(false); // a discarded load-more's own finally won't clear this — see the guard below
       // Only return to feed when leaving search — don't override admin/map/archive on initial mount
       setView(prev => {
         const next = prev === 'search' ? 'feed' : prev;
@@ -282,6 +283,7 @@ export default function App() {
     const requestId = ++searchRequestId.current;
     setSearching(true);
     setSearchQuery(q);
+    setLoadingMoreSearch(false); // same as above — starting a new search supersedes any in-flight load-more
     try {
       const r = await fetchSearch(q);
       if (searchRequestId.current !== requestId) return; // superseded by a newer search/clear
@@ -457,6 +459,7 @@ export default function App() {
               onClear={() => {
                 searchRequestId.current++; // invalidate any in-flight search/load-more
                 setSearchResults(null); setSearchQuery(''); setSearchHasMore(false); setSearchCursor(null);
+                setLoadingMoreSearch(false); // a discarded load-more's own finally won't clear this
                 handleSetView('feed');
               }} />
           </div>
