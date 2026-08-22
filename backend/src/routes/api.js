@@ -92,7 +92,9 @@ router.get('/history', requireAuth, (req, res) => {
 router.get('/search', requireAuth, (req, res) => {
   const q = (req.query.q||'').trim();
   if (!q) return res.status(400).json({ error: 'q required' });
-  try { res.json(searchMessages(req.session.orgId, q, Math.min(parseInt(req.query.limit||'100',10), 500))); }
+  const limit  = Math.min(parseInt(req.query.limit||'100',10), 500);
+  const before = parseInt(req.query.before||'0',10) || null; // load matches older than this id
+  try { res.json(searchMessages(req.session.orgId, q, limit, before)); }
   catch (e) { res.status(500).json({ error: 'Search failed' }); }
 });
 

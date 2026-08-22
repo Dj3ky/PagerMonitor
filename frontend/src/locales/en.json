@@ -84,7 +84,8 @@
     "resultCount_other": "{{count}} results",
     "searchResults": "Search results",
     "backToFeed": "Back to feed",
-    "noResults": "No results found"
+    "noResults": "No results found",
+    "loadMore": "Load more results"
   },
   "messageRow": {
     "messageSource": "Message source",
