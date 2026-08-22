@@ -25,34 +25,52 @@ const { getAllClientConfigs } = require('../services/clientTracker');
 
 router.get('/history', requireAuth, (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit || '200', 10), 1000);
-  const before = parseInt(req.query.before || '0', 10); // load messages older than this id
   const orgId  = req.session.orgId;
+  // Filtering happens in JS (passesFeedFilter, below) after the SQL LIMIT, so a single
+  // fixed-size raw batch can come back mostly (or entirely) filtered out under an
+  // aggressive feed filter, well short of `limit` — even though plenty more unfiltered
+  // history exists further back. Loop, advancing the cursor past each raw batch, until
+  // either `limit` filtered rows are collected or the table is genuinely exhausted.
+  // MAX_SCAN bounds the worst case (a filter that matches almost nothing) so this can't
+  // turn into a full-table scan on one request.
+  const MAX_SCAN = 5000;
+  let cursor = parseInt(req.query.before || '0', 10) || null; // null = start from newest
   try {
-    const db   = require('../services/database').getDb();
-    // Fetch a larger batch then filter so we return close to `limit` rows even with aggressive filters.
-    // Max over-fetch is capped at 2× limit to avoid scanning the whole table on empty filters.
-    const fetchLimit = limit * 2;
-    const rows = before > 0
-      ? db.prepare(`
-          SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
-                 c.display_name as client_name, c.color as client_color,
-                 (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
-          FROM messages m
-          ${ALIAS_GROUP_JOIN_SQL}
-          LEFT JOIN sdr_clients c ON c.id = m.client_id
-          WHERE m.id < ?
-          ORDER BY m.id DESC LIMIT ?
-        `).all(orgId, orgId, orgId, before, fetchLimit)
-      : db.prepare(`
-          SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
-                 c.display_name as client_name, c.color as client_color,
-                 (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
-          FROM messages m
-          ${ALIAS_GROUP_JOIN_SQL}
-          LEFT JOIN sdr_clients c ON c.id = m.client_id
-          ORDER BY m.id DESC LIMIT ?
-        `).all(orgId, orgId, orgId, fetchLimit);
-    res.json(enrichSourceLabels(rows).filter(r => passesFeedFilter(r, orgId)).slice(0, limit));
+    const db = require('../services/database').getDb();
+    let collected = [];
+    let scanned = 0;
+    while (collected.length < limit && scanned < MAX_SCAN) {
+      const batchSize = Math.min(limit * 2, MAX_SCAN - scanned);
+      const rows = cursor
+        ? db.prepare(`
+            SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
+                   c.display_name as client_name, c.color as client_color,
+                   (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
+            FROM messages m
+            ${ALIAS_GROUP_JOIN_SQL}
+            LEFT JOIN sdr_clients c ON c.id = m.client_id
+            WHERE m.id < ?
+            ORDER BY m.id DESC LIMIT ?
+          `).all(orgId, orgId, orgId, cursor, batchSize)
+        : db.prepare(`
+            SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
+                   c.display_name as client_name, c.color as client_color,
+                   (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
+            FROM messages m
+            ${ALIAS_GROUP_JOIN_SQL}
+            LEFT JOIN sdr_clients c ON c.id = m.client_id
+            ORDER BY m.id DESC LIMIT ?
+          `).all(orgId, orgId, orgId, batchSize);
+
+      scanned += rows.length;
+      if (!rows.length) break; // reached the real beginning of the table
+
+      cursor = rows[rows.length - 1].id;
+      collected = collected.concat(enrichSourceLabels(rows).filter(r => passesFeedFilter(r, orgId)));
+
+      if (rows.length < batchSize) break; // that batch itself reached the end of the table
+    }
+    res.json(collected.slice(0, limit));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
