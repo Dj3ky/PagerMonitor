@@ -1,4 +1,6 @@
-import { Filter, Pause, Play, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Filter, Pause, Play, X, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 const S = {
@@ -22,6 +24,13 @@ const S = {
   select: { background:'var(--bg-3)', border:'1px solid var(--border)', borderRadius:'0.35rem',
             color:'var(--text-2)', cursor:'pointer', padding:'0.25rem 0.4rem', fontSize:'0.75rem',
             fontFamily:'monospace' },
+  popover: { position:'fixed', zIndex:2500,
+             background:'var(--bg-1)', border:'1px solid var(--border)', borderRadius:'0.5rem',
+             boxShadow:'0 4px 16px rgba(0,0,0,0.3)', padding:'0.5rem', width:'240px',
+             maxHeight:'320px', overflowY:'auto', display:'flex', flexDirection:'column', gap:'0.15rem' },
+  checkRow: { display:'flex', alignItems:'center', gap:'0.35rem', fontSize:'0.76rem', cursor:'pointer',
+              padding:'0.22rem 0.3rem', borderRadius:'0.3rem' },
+  emptyHint: { fontSize:'0.72rem', color:'var(--text-3)', padding:'0.2rem 0.3rem' },
 };
 
 function ActiveBadge({ label, color, onRemove }) {
@@ -36,13 +45,163 @@ function ActiveBadge({ label, color, onRemove }) {
   );
 }
 
-export default function FilterBar({ filters, onChange, paused, onTogglePause, newCount,
+// Closes an open popover on any click outside both its trigger and its panel — same
+// pattern as the account menu in Header.jsx, extended to two refs since the panel is
+// portaled out to <body> (see FilterPopover) and so is no longer a DOM descendant of
+// the trigger it visually belongs to.
+function useOutsideClose(open, setOpen, refs) {
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (!refs.some(r => r.current?.contains(e.target))) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+}
+
+function DropdownTrigger({ triggerRef, label, count, onClick }) {
+  const active = count > 0;
+  return (
+    <button ref={triggerRef} type="button" onClick={onClick} style={{
+      display:'flex', alignItems:'center', gap:'0.3rem', flexShrink:0,
+      background: active ? 'color-mix(in srgb, var(--accent-blue) 12%, transparent)' : 'var(--bg-3)',
+      border:'1px solid', borderColor: active ? 'color-mix(in srgb, var(--accent-blue) 35%, transparent)' : 'var(--border)',
+      borderRadius:'0.4rem', color: active ? 'var(--accent-blue)' : 'var(--text-2)',
+      padding:'0.3rem 0.55rem', fontSize:'0.75rem', fontFamily:'monospace', cursor:'pointer' }}>
+      {label}{active && <span style={{ fontWeight:700 }}>({count})</span>}
+      <ChevronDown size={12} />
+    </button>
+  );
+}
+
+// Portals the panel to <body>, positioned with `fixed` coordinates read off the trigger's
+// bounding rect. Rendering it as a normal in-flow child (the original approach) put it
+// inside row1, whose overflowX:'auto' implicitly resolves overflowY to 'auto' too (CSS
+// spec: an explicit x + a visible y computes the y to auto) — that silently clipped the
+// dropdown to the filter bar's own height, hiding it behind the message feed below.
+function FilterPopover({ triggerRef, popoverRef, children }) {
+  const [rect, setRect] = useState(null);
+  useEffect(() => { setRect(triggerRef.current?.getBoundingClientRect() ?? null); }, [triggerRef]);
+  if (!rect) return null;
+  return createPortal(
+    <div ref={popoverRef} style={{ ...S.popover, top: rect.bottom + 4, left: rect.left }}>
+      {children}
+    </div>,
+    document.body
+  );
+}
+
+// Group/parent-group checkbox tree with search — mirrors GroupPicker in
+// admin/FeedFilter.jsx, but keyed by group NAME rather than id, since that's what
+// messages carry (m.group_name/m.parent_group_name) and what the click-to-filter
+// badges already match against. Selecting a parent selects all its children with it.
+function GroupFilterDropdown({ groups, selected, onChange }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
+  useOutsideClose(open, setOpen, [triggerRef, popoverRef]);
+
+  if (!groups.length) return null;
+
+  const topLevel = groups.filter(g => !g.parent_id);
+  const subOf    = pid => groups.filter(g => g.parent_id === pid);
+
+  const toggleParent = g => {
+    const childNames = subOf(g.id).map(c => c.name);
+    const isSelected  = selected.includes(g.name);
+    const without     = selected.filter(x => x !== g.name && !childNames.includes(x));
+    onChange(isSelected ? without : [...without, g.name, ...childNames]);
+  };
+  const toggleLeaf = name => onChange(selected.includes(name) ? selected.filter(x => x !== name) : [...selected, name]);
+
+  const q           = search.trim().toLowerCase();
+  const nameMatches = g => g.name?.toLowerCase().includes(q);
+  const visibleTop  = q ? topLevel.filter(g => nameMatches(g) || subOf(g.id).some(nameMatches)) : topLevel;
+
+  return (
+    <div style={{ position:'relative' }}>
+      <DropdownTrigger triggerRef={triggerRef} label={t('filterBar.groupFilter')} count={selected.length}
+        onClick={() => setOpen(o => !o)} />
+      {open && (
+        <FilterPopover triggerRef={triggerRef} popoverRef={popoverRef}>
+          <input className="pm-input" style={{ ...S.input, width:'100%' }}
+            placeholder={t('filterBar.searchGroups')} value={search}
+            onChange={e => setSearch(e.target.value)} autoFocus />
+          {q && !visibleTop.length && <div style={S.emptyHint}>{t('filterBar.noMatches')}</div>}
+          {visibleTop.map(g => {
+            const children       = subOf(g.id);
+            const shownChildren  = q && !nameMatches(g) ? children.filter(nameMatches) : children;
+            const parentSelected = selected.includes(g.name);
+            return (
+              <div key={g.id}>
+                <label style={S.checkRow}>
+                  <input type="checkbox" checked={parentSelected} onChange={() => toggleParent(g)}
+                    style={{ accentColor: g.color || 'var(--accent-purple)' }} />
+                  <span style={{ color: g.color || 'var(--accent-purple)', fontWeight:600 }}>{g.name}</span>
+                </label>
+                {shownChildren.map(sub => (
+                  <label key={sub.id} style={{ ...S.checkRow, marginLeft:'1.1rem' }}
+                    title={parentSelected ? t('filterBar.includedViaParent') : undefined}>
+                    <input type="checkbox" checked={parentSelected || selected.includes(sub.name)}
+                      disabled={parentSelected} onChange={() => toggleLeaf(sub.name)} />
+                    <span style={{ color: sub.color }}>{sub.name}</span>
+                  </label>
+                ))}
+              </div>
+            );
+          })}
+        </FilterPopover>
+      )}
+    </div>
+  );
+}
+
+// Flat alias checkbox list with search, keyed by alias NAME (matches m.alias_name/m.alias).
+function AliasFilterDropdown({ aliases, selected, onChange }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
+  useOutsideClose(open, setOpen, [triggerRef, popoverRef]);
+
+  if (!aliases.length) return null;
+
+  const q       = search.trim().toLowerCase();
+  const visible = q ? aliases.filter(a => a.name?.toLowerCase().includes(q)) : aliases;
+  const toggle  = name => onChange(selected.includes(name) ? selected.filter(x => x !== name) : [...selected, name]);
+
+  return (
+    <div style={{ position:'relative' }}>
+      <DropdownTrigger triggerRef={triggerRef} label={t('filterBar.aliasFilter')} count={selected.length}
+        onClick={() => setOpen(o => !o)} />
+      {open && (
+        <FilterPopover triggerRef={triggerRef} popoverRef={popoverRef}>
+          <input className="pm-input" style={{ ...S.input, width:'100%' }}
+            placeholder={t('filterBar.searchAliases')} value={search}
+            onChange={e => setSearch(e.target.value)} autoFocus />
+          {q && !visible.length && <div style={S.emptyHint}>{t('filterBar.noMatches')}</div>}
+          {visible.map(a => (
+            <label key={a.capcode} style={S.checkRow}>
+              <input type="checkbox" checked={selected.includes(a.name)} onChange={() => toggle(a.name)}
+                style={{ accentColor: a.color || 'var(--accent-green)' }} />
+              <span style={{ color: a.color || 'var(--accent-green)', fontWeight:600 }}>{a.name}</span>
+            </label>
+          ))}
+        </FilterPopover>
+      )}
+    </div>
+  );
+}
+
+export default function FilterBar({ filters, onChange, groups=[], aliases=[], paused, onTogglePause, newCount,
   pageSize, onPageSize, pageOptions, page, totalPages, onPage, totalMessages }) {
   const { t } = useTranslation();
 
-  const hasText = filters.capcode || filters.keyword;
-  const hasAlias = filters.alias;
-  const hasGroup = filters.group;
+  const hasText  = filters.capcode || filters.keyword;
+  const hasAlias = filters.alias.length > 0;
+  const hasGroup = filters.group.length > 0;
 
   return (
     <div style={S.bar}>
@@ -56,23 +215,31 @@ export default function FilterBar({ filters, onChange, paused, onTogglePause, ne
         <input style={{ ...S.input, width:'140px', minWidth:'60px' }} placeholder={t('filterBar.keywordPlaceholder')}
           value={filters.keyword} onChange={e => onChange({ ...filters, keyword: e.target.value })} />
 
+        {/* Group/alias multi-select dropdowns — desktop only, no room for these on phone */}
+        <div className="pm-filter-desktop-only" style={{ display:'flex', gap:'0.4rem', flexShrink:0 }}>
+          <GroupFilterDropdown groups={groups} selected={filters.group}
+            onChange={ids => onChange({ ...filters, group: ids })} />
+          <AliasFilterDropdown aliases={aliases} selected={filters.alias}
+            onChange={ids => onChange({ ...filters, alias: ids })} />
+        </div>
+
         {(hasText || hasAlias || hasGroup) && (
-          <button onClick={() => onChange({ capcode:'', keyword:'', alias:'', group:'' })}
+          <button onClick={() => onChange({ capcode:'', keyword:'', alias:[], group:[] })}
             style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.15rem', flexShrink:0 }}
             title={t('filterBar.clearAll')}>
             <X size={13} />
           </button>
         )}
 
-        {/* Active alias/group badges */}
-        {hasAlias && (
-          <ActiveBadge label={t('filterBar.aliasBadge', { value: filters.alias })} color="var(--accent-green)"
-            onRemove={() => onChange({ ...filters, alias:'' })} />
-        )}
-        {hasGroup && (
-          <ActiveBadge label={t('filterBar.groupBadge', { value: filters.group })} color="var(--accent-purple)"
-            onRemove={() => onChange({ ...filters, group:'' })} />
-        )}
+        {/* Active alias/group badges — one per selected value */}
+        {filters.alias.map(v => (
+          <ActiveBadge key={`alias-${v}`} label={t('filterBar.aliasBadge', { value: v })} color="var(--accent-green)"
+            onRemove={() => onChange({ ...filters, alias: filters.alias.filter(x => x !== v) })} />
+        ))}
+        {filters.group.map(v => (
+          <ActiveBadge key={`group-${v}`} label={t('filterBar.groupBadge', { value: v })} color="var(--accent-purple)"
+            onRemove={() => onChange({ ...filters, group: filters.group.filter(x => x !== v) })} />
+        ))}
 
         <div style={{ flex:1, minWidth:0 }} />
 
@@ -115,6 +282,10 @@ export default function FilterBar({ filters, onChange, paused, onTogglePause, ne
           <ChevronRight size={13}/>
         </button>
       </div>
+
+      <style>{`
+        @media(max-width:600px){.pm-filter-desktop-only{display:none!important}}
+      `}</style>
     </div>
   );
 }
