@@ -204,7 +204,11 @@ export function useWebSocket(backendUrl) {
       if (currentWs === old) currentWs = null;
       wsRef.current = null;
     }
-    attemptsRef.current = 0;
+    // Treat this like any other reconnect, not a fresh mount — onopen's `attemptsRef.current
+    // > 0` check is what triggers the history catch-up fetch and the `ws_reconnected`
+    // broadcast that listeners (e.g. LiveChannels) rely on to resync. onopen zeroes it back
+    // out itself once that check has run.
+    attemptsRef.current = Math.max(attemptsRef.current, 1);
     connect();
   }, [connect]);
 

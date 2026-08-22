@@ -68,6 +68,7 @@ export default function LiveChannels() {
   const nextTimeRef  = useRef(0);
   const unsubRef     = useRef(null);
   const timeoutRef   = useRef(null);
+  const armWatchdogRef = useRef(null); // latest play() session's re-armable stall watchdog, or null while stopped
   const panelRef     = useRef(null);
   const autoGraceTimerRef = useRef(null); // pending "give up on this channel" timer while auto-listen is on
 
@@ -88,6 +89,20 @@ export default function LiveChannels() {
     // rather than us trying to guess what changed.
     return subscribeWsMessages(data => {
       if (data.type === 'voice_channels_changed' || data.type === 'ws_reconnected') refetch();
+    });
+  }, []);
+
+  // A reconnect means a brand-new server-side WS connection, which starts with no
+  // listeners of its own — the server's per-channel `listeners` Set from before the
+  // drop is gone, so audio silently stops flowing even though the UI still shows
+  // "playing" unless we re-subscribe. Also give the stall watchdog a fresh window
+  // instead of letting it fire on the reconnect's own round-trip time.
+  useEffect(() => {
+    if (isNative) return; // LiveAudioService owns its own socket/reconnect on native
+    return subscribeWsMessages(data => {
+      if (data.type !== 'ws_reconnected' || playingIdRef.current == null) return;
+      sendWsMessage({ type: 'listen_start', channelId: playingIdRef.current });
+      armWatchdogRef.current?.();
     });
   }, []);
 
@@ -270,6 +285,7 @@ export default function LiveChannels() {
     unsubRef.current?.();
     unsubRef.current = null;
     clearTimeout(timeoutRef.current);
+    armWatchdogRef.current = null;
     if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch (_) {} audioCtxRef.current = null; }
     clearMediaSession();
     setKeepAwake(false);
@@ -335,6 +351,7 @@ export default function LiveChannels() {
         setStatus('error');
       }, STALL_TIMEOUT_MS);
     };
+    armWatchdogRef.current = armWatchdog;
     armWatchdog();
 
     unsubRef.current = subscribeWsAudio((channelId, arrayBuffer) => {
