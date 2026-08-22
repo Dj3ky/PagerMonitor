@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { useAuth }      from './context/AuthContext.jsx';
 import { useSite }      from './context/SiteContext.jsx';
 import { useWebSocket, subscribeWsMessages } from './hooks/useWebSocket.js';
-import { fetchHistory, fetchSearch, fetchStatus, fetchRules, fetchGroups } from './utils/api.js';
+import { fetchHistory, fetchSearch, fetchStatus, fetchRules, fetchGroups, fetchAliases } from './utils/api.js';
 import LoginPage     from './components/LoginPage.jsx';
 import Header        from './components/Header.jsx';
 import BottomNav     from './components/BottomNav.jsx';
@@ -56,7 +56,7 @@ export default function App() {
 
   const { messages, wsStatus, sdrStatus, prependHistory, appendHistory, removeMessage } = useWebSocket(BACKEND_URL);
 
-  const [filters, setFilters]               = useState({ capcode:'', keyword:'', alias:'', group:'' });
+  const [filters, setFilters]               = useState({ capcode:'', keyword:'', alias:[], group:[] });
   const [searchResults, setSearchResults]   = useState(null);
   const [searching, setSearching]           = useState(false);
   const [searchQuery, setSearchQuery]       = useState('');
@@ -118,6 +118,7 @@ export default function App() {
   };
   const [highlightRules, setHighlightRules] = useState([]);
   const [groups, setGroups]                 = useState([]);
+  const [aliases, setAliases]               = useState([]);
   const [pageSize, setPageSize]             = useState(50);
   const [page, setPage]                     = useState(0);
 
@@ -147,6 +148,7 @@ export default function App() {
     }).catch(console.warn);
     fetchRules().then(r  => Array.isArray(r) ? setHighlightRules(r) : null).catch(console.warn);
     fetchGroups().then(r => Array.isArray(r) ? setGroups(r) : null).catch(console.warn);
+    fetchAliases().then(r => Array.isArray(r) ? setAliases(r) : null).catch(console.warn);
   }, [user]);
 
   // Pull-to-refresh (native only — see usePtrScroll) re-catches-up the feed the same way
@@ -231,7 +233,7 @@ export default function App() {
   // back to page 0 mid-search, making it near-impossible to browse filtered results
   // while the feed keeps receiving traffic.
   const newestId  = messages[0]?.id ?? 0;
-  const filtering = !!(filters.capcode || filters.keyword || filters.alias || filters.group);
+  const filtering = !!(filters.capcode || filters.keyword || filters.alias.length || filters.group.length);
   useEffect(() => {
     if (paused && messages.length > 0) setNewCount(n => n + 1);
     else if (!filtering) setPage(0);
@@ -319,8 +321,11 @@ export default function App() {
   const handleRowFilter = useCallback((type, value) => {
     setFilters(f => {
       if (type === 'capcode') return { ...f, capcode: f.capcode === value ? '' : value };
-      if (type === 'alias')   return { ...f, alias:   f.alias   === value ? '' : value };
-      if (type === 'group')   return { ...f, group:   f.group   === value ? '' : value };
+      // Clicking a badge is a "quick filter to just this one" — it replaces whatever
+      // multi-select the group/alias dropdown had, rather than adding to it, since the
+      // click affordance only ever singles one value out.
+      if (type === 'alias')   return { ...f, alias: (f.alias.length===1 && f.alias[0]===value) ? [] : [value] };
+      if (type === 'group')   return { ...f, group: (f.group.length===1 && f.group[0]===value) ? [] : [value] };
       return f;
     });
     setPage(0);
@@ -331,8 +336,8 @@ export default function App() {
     .map(m => resolvedLocations[m.id] ? { ...m, ...resolvedLocations[m.id] } : m)
     .filter(m => {
     if (filters.capcode && !m.capcode?.includes(filters.capcode)) return false;
-    if (filters.alias   && (m.alias_name || m.alias) !== filters.alias) return false;
-    if (filters.group   && (m.group_name || m.parent_group_name) !== filters.group) return false;
+    if (filters.alias.length && !filters.alias.includes(m.alias_name || m.alias)) return false;
+    if (filters.group.length && !filters.group.includes(m.group_name || m.parent_group_name)) return false;
     if (filters.keyword) {
       try { if (!new RegExp(filters.keyword, 'i').test(m.message || '')) return false; }
       catch { if (!(m.message || '').toLowerCase().includes(filters.keyword.toLowerCase())) return false; }
@@ -390,6 +395,8 @@ export default function App() {
       {view === 'feed' && (
         <FilterBar
           filters={filters}
+          groups={groups}
+          aliases={aliases}
           onChange={f => { setFilters(f); setPage(0); }}
           paused={paused}
           onTogglePause={() => { setPaused(p => !p); setNewCount(0); }}
