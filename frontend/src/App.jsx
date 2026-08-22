@@ -224,19 +224,16 @@ export default function App() {
     return () => { cancelled = true; };
   }, [latestSha, serverStatus?.gitHash, JSON.stringify((serverStatus?.sdrClients ?? []).map(c => c.gitHash))]);
 
-  // Jump to page 0 only when a genuinely new message arrives at the top (id changes).
-  // Using messages.length here would also fire when "load more" appends older
-  // history at the end, which changes length without a new message — that was
-  // resetting the user back to page 0 whenever they paged to the end and loaded more.
-  // Also skip the jump while a local filter is active (capcode/keyword/alias/group):
-  // otherwise every incoming message — matching the filter or not — yanked the user
-  // back to page 0 mid-search, making it near-impossible to browse filtered results
-  // while the feed keeps receiving traffic.
-  const newestId  = messages[0]?.id ?? 0;
-  const filtering = !!(filters.capcode || filters.keyword || filters.alias.length || filters.group.length);
+  // Bump the "new" badge when paused. We used to also force setPage(0) here on every
+  // genuinely-new top message (skipping only while filtering), to keep the feed pinned
+  // to the newest page. But live traffic arrives continuously, so a user who paged into
+  // older/loaded history (without a filter active) got yanked back to page 0 on literally
+  // the next incoming message — indistinguishable from data loss. Paging away from page 0
+  // is itself the signal the user is browsing, same as filtering already was; page 0 needs
+  // no reset since slicing from index 0 already surfaces new messages there automatically.
+  const newestId = messages[0]?.id ?? 0;
   useEffect(() => {
     if (paused && messages.length > 0) setNewCount(n => n + 1);
-    else if (!filtering) setPage(0);
   }, [newestId]);
 
   // Browser notifications — subscribe directly to raw WS events, not React state.
