@@ -302,6 +302,37 @@ function sendActivity(channelId, active) {
   try { audioWs.send(JSON.stringify({ type: 'activity', channelId: Number(channelId), active })); } catch (_) {}
 }
 
+// Recent audio kept per channel regardless of forwarding state (rtl_airband demodulates
+// continuously either way) — flushed as a burst the moment forwarding turns on, so a listener
+// who joins right as a transmission starts (the common auto-listen case) doesn't lose the
+// first word or two to the round-trip time of the server telling us to start forwarding.
+const PREROLL_MS = 500;
+const preRollBuffers = new Map(); // channelId -> [{ t, payload }]
+
+function recordPreRoll(channelId, payload) {
+  const id = Number(channelId);
+  let buf = preRollBuffers.get(id);
+  if (!buf) { buf = []; preRollBuffers.set(id, buf); }
+  const now = Date.now();
+  buf.push({ t: now, payload });
+  while (buf.length && now - buf[0].t > PREROLL_MS) buf.shift();
+}
+
+function flushPreRoll(channelId) {
+  const buf = preRollBuffers.get(Number(channelId));
+  if (!buf || buf.length === 0 || !audioWs || audioWs.readyState !== WebSocket.OPEN) return;
+  // recordPreRoll only trims on a new push — a channel that's gone quiet stops getting
+  // trimmed at all, so re-check staleness here too rather than trusting whatever's still
+  // sitting in the array from whenever it was last fed.
+  const cutoff = Date.now() - PREROLL_MS;
+  const header = Buffer.alloc(4);
+  header.writeUInt32LE(Number(channelId), 0);
+  for (const { t, payload } of buf) {
+    if (t < cutoff) continue;
+    try { audioWs.send(Buffer.concat([header, payload])); } catch (_) {}
+  }
+}
+
 function reportChannelActivity(channelId, isLoud) {
   const id = Number(channelId);
   if (isLoud) {
@@ -333,7 +364,7 @@ function connectAudioWs() {
     if (isBinary) return; // server never sends us audio, only control messages
     let msg;
     try { msg = JSON.parse(data); } catch (_) { return; }
-    if (msg.type === 'start') voiceChannelForwarding.set(Number(msg.channelId), true);
+    if (msg.type === 'start') { flushPreRoll(msg.channelId); voiceChannelForwarding.set(Number(msg.channelId), true); }
     else if (msg.type === 'stop') voiceChannelForwarding.set(Number(msg.channelId), false);
   });
   ws.on('close', () => {
@@ -479,6 +510,7 @@ function spawnAudioSource(cfg, label) {
       const vSocket = dgram.createSocket('udp4');
       vSocket.on('message', msg => {
         reportChannelActivity(c.id, computeRms(msg) > ACTIVITY_RMS_THRESHOLD);
+        recordPreRoll(c.id, msg);
         if (!voiceChannelForwarding.get(Number(c.id))) return;
         if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
         const header = Buffer.alloc(4);

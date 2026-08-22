@@ -94,15 +94,20 @@ export default function App() {
   const [newCount, setNewCount]             = useState(0);
   const [loadingMore, setLoadingMore]       = useState(false);
   const [noMoreMessages, setNoMoreMessages] = useState(false);
+  // The server's real scan position (not the id of the oldest *displayed* message — under
+  // an active feed filter those can diverge a lot, since a matching message's id can sit
+  // far above the raw range the server actually had to scan through to find it). Load More
+  // must resume from this, or it re-scans a range already proven empty instead of advancing.
+  const [historyCursor, setHistoryCursor]   = useState(null);
 
   const handleLoadMore = async () => {
-    const oldest = messages[messages.length - 1];
-    if (!oldest?.id || loadingMore) return;
+    if (loadingMore || noMoreMessages) return;
     setLoadingMore(true);
     try {
-      const older = await fetchHistory(200, oldest.id);
-      if (!older?.length) { setNoMoreMessages(true); }
-      else { appendHistory(older); if (older.length < 200) setNoMoreMessages(true); }
+      const { messages: older, hasMore, nextBefore } = await fetchHistory(200, historyCursor);
+      if (older?.length) appendHistory(older);
+      setHistoryCursor(nextBefore);
+      setNoMoreMessages(!hasMore);
     } catch (e) { console.warn('Load more failed:', e); }
     finally { setLoadingMore(false); }
   };
@@ -130,15 +135,24 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
-    fetchHistory(200).then(prependHistory).catch(console.warn);
+    fetchHistory(200).then(r => {
+      prependHistory(r.messages);
+      setHistoryCursor(r.nextBefore);
+      setNoMoreMessages(!r.hasMore);
+    }).catch(console.warn);
     fetchRules().then(r  => Array.isArray(r) ? setHighlightRules(r) : null).catch(console.warn);
     fetchGroups().then(r => Array.isArray(r) ? setGroups(r) : null).catch(console.warn);
   }, [user]);
 
   // Pull-to-refresh (native only — see usePtrScroll) re-catches-up the feed the same way
-  // a WS reconnect does, without needing to actually drop the socket.
+  // a WS reconnect does, without needing to actually drop the socket. Also resets the
+  // load-more cursor to match, since it's re-anchoring the feed to the newest messages.
   const refreshFeed = useCallback(() => (
-    fetchHistory(200).then(prependHistory).catch(console.warn)
+    fetchHistory(200).then(r => {
+      prependHistory(r.messages);
+      setHistoryCursor(r.nextBefore);
+      setNoMoreMessages(!r.hasMore);
+    }).catch(console.warn)
   ), [prependHistory]);
 
   useEffect(() => {
@@ -207,10 +221,15 @@ export default function App() {
   // Using messages.length here would also fire when "load more" appends older
   // history at the end, which changes length without a new message — that was
   // resetting the user back to page 0 whenever they paged to the end and loaded more.
-  const newestId = messages[0]?.id ?? 0;
+  // Also skip the jump while a local filter is active (capcode/keyword/alias/group):
+  // otherwise every incoming message — matching the filter or not — yanked the user
+  // back to page 0 mid-search, making it near-impossible to browse filtered results
+  // while the feed keeps receiving traffic.
+  const newestId  = messages[0]?.id ?? 0;
+  const filtering = !!(filters.capcode || filters.keyword || filters.alias || filters.group);
   useEffect(() => {
     if (paused && messages.length > 0) setNewCount(n => n + 1);
-    else setPage(0);
+    else if (!filtering) setPage(0);
   }, [newestId]);
 
   // Browser notifications — subscribe directly to raw WS events, not React state.
