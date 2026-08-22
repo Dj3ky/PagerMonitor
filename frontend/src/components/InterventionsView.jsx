@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Search, X, Loader, Flame, Car, Wrench, Waves, Skull, Biohazard, MapPin, Filter, History, BarChart2, Ungroup, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, X, Loader, Flame, Car, Wrench, Waves, Skull, Biohazard, MapPin, Filter, History, BarChart2, Ungroup, ChevronLeft, ChevronRight, Map as MapIcon } from 'lucide-react';
 import { getJson, BASEMAPS, useBasemap, BasemapSwitcher, LastUpdated } from './weatherMapShared.jsx';
 
 // Slovenia's national public-safety intervention feed (fires, traffic accidents,
@@ -12,6 +12,21 @@ const LIVE_WINDOW_HOURS = 48; // "Live" = last N hours, not just "most recent N 
                                 // Applies uniformly to confirmed and unconfirmed events alike.
 const BASEMAP_STORAGE_KEY = 'pm_interventions_basemap';
 const CLUSTER_STORAGE_KEY = 'pm_interventions_clustered';
+const REGIJE_STORAGE_KEY  = 'pm_interventions_regije';
+
+// Gasilska regija (fire-brigade region) outlines — see backend/data/gasilske_regije.geojson
+// and the fetchObcineBoundaries/dissolveGasilskeRegije scripts that build it. Fixed order
+// so each region gets a stable hue rather than one that shifts if the GeoJSON is rebuilt
+// with features in a different order.
+const REGIJA_ORDER = [
+  'Bela krajina', 'Celjska', 'Dolenjska', 'Gorenjska', 'Koroška', 'Ljubljana I',
+  'Ljubljana II', 'Ljubljana III', 'Mariborska', 'Notranjska', 'Obalno-kraška',
+  'Podravska', 'Pomurska', 'Posavska', 'Saša', 'Severno-primorska', 'Zasavska',
+];
+function regijaColor(regija) {
+  const i = REGIJA_ORDER.indexOf(regija);
+  return `hsl(${i >= 0 ? (i * 360 / REGIJA_ORDER.length) : 0}, 65%, 55%)`;
+}
 const LIVE_MAX_ROWS = 400; // backend's hard cap (see query() in interventions.js) — comfortably
                              // above normal volume across the 48h LIVE_WINDOW_HOURS, even on a
                              // busy storm stretch.
@@ -162,8 +177,10 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
   const activeLayerRef = useRef(null); // whichever layer (cluster group or plain map) markers currently live on
   const tileLayerRef = useRef(null);
   const obsegLayerRef = useRef(null); // L.layerGroup for the "Večji obseg" municipality overlay
+  const regijeLayerRef = useRef(null); // L.geoJSON for gasilska regija outlines — fetched lazily, kept once loaded
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
   const [clustered, setClustered] = useState(() => localStorage.getItem(CLUSTER_STORAGE_KEY) !== '0');
+  const [showRegije, setShowRegije] = useState(() => localStorage.getItem(REGIJE_STORAGE_KEY) === '1');
   const [obsegAreas, setObsegAreas] = useState([]);
 
   useEffect(() => {
@@ -188,7 +205,7 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     // map/cluster group they belonged to gets destroyed means the next markers-effect
     // run tries to removeLayer() them from a *new* cluster group that never had them,
     // which throws inside Leaflet.markercluster's internal bookkeeping.
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; obsegLayerRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; obsegLayerRef.current = null; regijeLayerRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -279,6 +296,36 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     });
   }, [obsegAreas]);
 
+  // Gasilska regija outlines — fetched once on first toggle-on (the GeoJSON is a
+  // few MB, not worth downloading for everyone who never opens this layer) and
+  // kept in regijeLayerRef afterwards so re-toggling just adds/removes it.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+    localStorage.setItem(REGIJE_STORAGE_KEY, showRegije ? '1' : '0');
+
+    if (!showRegije) {
+      if (regijeLayerRef.current && map.hasLayer(regijeLayerRef.current)) map.removeLayer(regijeLayerRef.current);
+      return;
+    }
+    if (regijeLayerRef.current) { regijeLayerRef.current.addTo(map); return; }
+
+    let cancelled = false;
+    getJson('/api/interventions/gasilske-regije').then(geojson => {
+      if (cancelled || !mapRef.current) return;
+      const layer = window.L.geoJSON(geojson, {
+        style: f => {
+          const c = regijaColor(f.properties.regija);
+          return { color: c, weight: 2, fillColor: c, fillOpacity: 0.1 };
+        },
+      });
+      layer.eachLayer(l => l.bindTooltip(l.feature.properties.regija, { sticky: true }));
+      regijeLayerRef.current = layer;
+      layer.addTo(mapRef.current);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [showRegije]);
+
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       <LastUpdated updatedAt={updatedAt} />
@@ -292,6 +339,16 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
           color: clustered ? 'var(--accent-green)' : 'var(--text-2)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
         }}>
         <Ungroup size={12} /> Združevanje
+      </button>
+      <button onClick={() => setShowRegije(v => !v)} title={showRegije ? 'Skrij gasilske regije' : 'Prikaži gasilske regije'}
+        style={{
+          position: 'absolute', top: '4.6rem', right: '0.5rem', zIndex: 1000,
+          display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.5rem', borderRadius: '0.5rem',
+          fontSize: '0.68rem', fontWeight: 500, cursor: 'pointer', background: 'var(--bg-1)',
+          border: showRegije ? '1px solid var(--accent-green)' : '1px solid var(--border)',
+          color: showRegije ? 'var(--accent-green)' : 'var(--text-2)', boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
+        }}>
+        <MapIcon size={12} /> Regije
       </button>
       <Legend />
       <div ref={divRef} style={{ height: '100%' }} />

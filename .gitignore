@@ -12,6 +12,7 @@ frontend/public/badge-96.png
 # Database and runtime data (exclude user data, but keep committed resources)
 backend/data/*
 !backend/data/si_streets.json
+!backend/data/gasilska_regija.json
 
 # Environment files (contain secrets — never commit these)
 backend/.env
@@ -42,6 +43,7 @@ frontend/android/app/google-services.json
 frontend/dist
 backend/data/*
 !backend/data/si_streets.json
+!backend/data/gasilska_regija.json
 
 # Backups
 *.pmbackup
