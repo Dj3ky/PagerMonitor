@@ -678,43 +678,67 @@ function getHistory(orgId, limit = 200) {
 }
 
 // `before` pages back through older matches (same cursor convention as getHistory).
-// Fetches one extra row past `limit` to detect whether more matches exist beyond this
-// page, without a second COUNT(*) query — that extra row is dropped before returning.
-function searchMessages(orgId, query, limit = 100, before = null) {
+// `filterFn`, if given, is applied to each row post-query (used by /api/search to apply
+// the org's feed filter, same as /api/history already does) — since filterFn is applied
+// after the FTS query, a single raw batch can come back mostly (or entirely) filtered out
+// under an aggressive filter, well short of `limit`. So this loops, advancing the cursor
+// past each raw batch, until either `limit` filtered rows are collected or the table is
+// genuinely exhausted. MAX_SCAN bounds the worst case so this can't turn into an unbounded
+// scan on one request — if hit before the match set is exhausted, hasMore still comes back
+// true so the client can call again with the advanced cursor.
+function searchMessages(orgId, query, limit = 100, before = null, filterFn = null) {
   const safe  = query.replace(/['"*]/g, '').trim();
   const terms = safe.split(/\s+/).filter(Boolean);
   const ftsQuery = terms.map(t => `${t}*`).join(' ');
   const db = getDb();
-  const rows = before
-    ? db.prepare(`
-        SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
-               c.display_name as client_name, c.color as client_color,
-               (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
-        FROM messages_fts f
-        JOIN messages m ON m.id = f.rowid
-        ${ALIAS_GROUP_JOIN_SQL}
-        LEFT JOIN sdr_clients c ON c.id = m.client_id
-        WHERE messages_fts MATCH ? AND m.id < ?
-        ORDER BY m.id DESC LIMIT ?
-      `).all(orgId, orgId, orgId, ftsQuery, before, limit + 1)
-    : db.prepare(`
-        SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
-               c.display_name as client_name, c.color as client_color,
-               (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
-        FROM messages_fts f
-        JOIN messages m ON m.id = f.rowid
-        ${ALIAS_GROUP_JOIN_SQL}
-        LEFT JOIN sdr_clients c ON c.id = m.client_id
-        WHERE messages_fts MATCH ?
-        ORDER BY m.id DESC LIMIT ?
-      `).all(orgId, orgId, orgId, ftsQuery, limit + 1);
+  const MAX_SCAN = 5000;
+  let cursor = before;
+  let collected = [];
+  let scanned = 0;
+  let exhausted = false;
 
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
+  while (collected.length < limit && scanned < MAX_SCAN) {
+    const batchSize = Math.min(limit * 2, MAX_SCAN - scanned);
+    const rows = cursor
+      ? db.prepare(`
+          SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
+                 c.display_name as client_name, c.color as client_color,
+                 (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
+          FROM messages_fts f
+          JOIN messages m ON m.id = f.rowid
+          ${ALIAS_GROUP_JOIN_SQL}
+          LEFT JOIN sdr_clients c ON c.id = m.client_id
+          WHERE messages_fts MATCH ? AND m.id < ?
+          ORDER BY m.id DESC LIMIT ?
+        `).all(orgId, orgId, orgId, ftsQuery, cursor, batchSize)
+      : db.prepare(`
+          SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
+                 c.display_name as client_name, c.color as client_color,
+                 (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
+          FROM messages_fts f
+          JOIN messages m ON m.id = f.rowid
+          ${ALIAS_GROUP_JOIN_SQL}
+          LEFT JOIN sdr_clients c ON c.id = m.client_id
+          WHERE messages_fts MATCH ?
+          ORDER BY m.id DESC LIMIT ?
+        `).all(orgId, orgId, orgId, ftsQuery, batchSize);
+
+    scanned += rows.length;
+    if (!rows.length) { exhausted = true; break; } // reached the real beginning of the match set
+
+    cursor = rows[rows.length - 1].id;
+    const enriched = enrichSourceLabels(rows);
+    collected = collected.concat(filterFn ? enriched.filter(filterFn) : enriched);
+
+    if (rows.length < batchSize) { exhausted = true; break; } // that batch itself reached the end
+  }
+
+  const willTruncate = collected.length > limit;
+  const nextBefore = willTruncate ? collected[limit - 1].id : cursor;
   return {
-    results:    enrichSourceLabels(page),
-    hasMore,
-    nextBefore: page.length ? page[page.length - 1].id : null,
+    results:    collected.slice(0, limit),
+    hasMore:    willTruncate || !exhausted,
+    nextBefore,
   };
 }
 

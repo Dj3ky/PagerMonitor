@@ -94,7 +94,11 @@ router.get('/search', requireAuth, (req, res) => {
   if (!q) return res.status(400).json({ error: 'q required' });
   const limit  = Math.min(parseInt(req.query.limit||'100',10), 500);
   const before = parseInt(req.query.before||'0',10) || null; // load matches older than this id
-  try { res.json(searchMessages(req.session.orgId, q, limit, before)); }
+  const orgId  = req.session.orgId;
+  try {
+    const filter = getFeedFilter(orgId);
+    res.json(searchMessages(orgId, q, limit, before, r => passesFeedFilterWithConfig(r, filter)));
+  }
   catch (e) { res.status(500).json({ error: 'Search failed' }); }
 });
 
