@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { User, Save, X, Bell, Lock, Mail, Smartphone, Send, Tag, Siren, ShieldCheck, ShieldAlert, ChevronRight, ChevronDown, Languages } from 'lucide-react';
+import { User, Save, X, Bell, Lock, Mail, Smartphone, Laptop, Send, Trash2, Tag, Siren, ShieldCheck, ShieldAlert, ChevronRight, ChevronDown, Languages } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -181,7 +181,7 @@ export default function UserProfile({ onClose }) {
   const [emailMsg, setEmailMsg]   = useState(null);
   const [pwMsg, setPwMsg]         = useState(null);
   const [prefMsg, setPrefMsg]     = useState(null);
-  const [pushCount, setPushCount] = useState(null);   // number of subscribed devices
+  const [devices, setDevices]     = useState(null);   // subscribed devices (web push + native FCM), null = still loading
   const [testMsg, setTestMsg]     = useState(null);   // test push result
   const [testing, setTesting]     = useState(false);
   const [dndGranted, setDndGranted] = useState(null); // null = unknown/not native yet
@@ -198,7 +198,7 @@ export default function UserProfile({ onClose }) {
     api('GET', '/auth/me/notif-prefs').then(setPrefs).catch(() => {});
     api('GET', '/admin/groups').then(d => setGroups(Array.isArray(d) ? d : [])).catch(() => {});
     api('GET', '/admin/aliases').then(d => setAliases(Array.isArray(d) ? d : [])).catch(() => {});
-    api('GET', '/api/push/subscriptions/count').then(d => setPushCount(d.count ?? null)).catch(() => {});
+    api('GET', '/api/push/devices').then(d => setDevices(Array.isArray(d.devices) ? d.devices : [])).catch(() => {});
   }, []);
 
   // Granting DND access happens in a system settings screen outside the app, so re-check
@@ -258,13 +258,14 @@ export default function UserProfile({ onClose }) {
     setPrefs(p => ({ ...p, [field]: arr }));
   };
 
+  const refreshDevices = () => api('GET', '/api/push/devices').then(d => setDevices(Array.isArray(d.devices) ? d.devices : [])).catch(() => {});
+
   const sendTestPush = async () => {
     setTesting(true);
     try {
       const r = await api('POST', '/api/push/test');
       if (r.ok) {
-        // Refresh subscription count (stale endpoints get pruned during the test send)
-        api('GET', '/api/push/subscriptions/count').then(d => setPushCount(d.count ?? null)).catch(() => {});
+        refreshDevices(); // stale endpoints get pruned during the test send
         if (r.sent === 0) flashTest('err', t('userProfile.noActiveSubscriptions'));
         else flashTest('ok', t('userProfile.testSentToDevices', { count: r.sent }));
       } else {
@@ -272,6 +273,14 @@ export default function UserProfile({ onClose }) {
       }
     } catch (e) { flashTest('err', e.message); }
     finally { setTesting(false); }
+  };
+
+  const revokeDevice = async (device) => {
+    if (!confirm(t('userProfile.revokeDeviceConfirm', { label: device.label || t('userProfile.unknownDevice') }))) return;
+    try {
+      await api('DELETE', `/api/push/devices/${device.type}/${device.id}`);
+      setDevices(list => (list || []).filter(d => !(d.type === device.type && d.id === device.id)));
+    } catch (e) { flashTest('err', e.message); }
   };
 
   return (
@@ -413,16 +422,16 @@ export default function UserProfile({ onClose }) {
             </p>
 
             {/* Device subscription status + test button */}
-            <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.75rem',
+            <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom: devices?.length ? '0.35rem' : '0.75rem',
               padding:'0.4rem 0.6rem', borderRadius:'0.4rem', background:'var(--bg-0)',
               border:'1px solid var(--border)', flexWrap:'wrap' }}>
-              <Smartphone size={12} style={{ color: pushCount > 0 ? 'var(--accent-green)' : 'var(--text-3)' }} />
+              <Smartphone size={12} style={{ color: devices?.length > 0 ? 'var(--accent-green)' : 'var(--text-3)' }} />
               <span style={{ fontSize:'0.75rem', color:'var(--text-2)', flex:1 }}>
-                {pushCount === null ? t('userProfile.checking')
-                  : pushCount === 0 ? t('userProfile.noDevicesSubscribed')
-                  : t('userProfile.devicesSubscribed', { count: pushCount })}
+                {devices === null ? t('userProfile.checking')
+                  : devices.length === 0 ? t('userProfile.noDevicesSubscribed')
+                  : t('userProfile.devicesSubscribed', { count: devices.length })}
               </span>
-              {pushCount > 0 && (
+              {devices?.length > 0 && (
                 <button className="pm-btn" onClick={sendTestPush} disabled={testing}
                   title={t('userProfile.sendTestPushTitle')}
                   style={{ fontSize:'0.72rem', padding:'0.15rem 0.45rem' }}>
@@ -430,6 +439,27 @@ export default function UserProfile({ onClose }) {
                 </button>
               )}
             </div>
+
+            {/* Per-device list — lets a user spot/remove a stale or lost device without
+                needing to be on it (e.g. an old phone still holding a push subscription). */}
+            {devices?.length > 0 && (
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem', marginBottom:'0.75rem' }}>
+                {devices.map(d => (
+                  <div key={`${d.type}-${d.id}`} style={{ display:'flex', alignItems:'center', gap:'0.5rem',
+                    padding:'0.3rem 0.6rem', borderRadius:'0.4rem', background:'var(--bg-0)', fontSize:'0.72rem' }}>
+                    {d.type === 'android'
+                      ? <Smartphone size={12} style={{ color:'var(--text-3)', flexShrink:0 }} />
+                      : <Laptop size={12} style={{ color:'var(--text-3)', flexShrink:0 }} />}
+                    <span style={{ color:'var(--text-2)', flex:1 }}>{d.label || t('userProfile.unknownDevice')}</span>
+                    <span style={{ color:'var(--text-3)' }}>{new Date(d.created_at).toLocaleDateString()}</span>
+                    <button onClick={() => revokeDevice(d)} title={t('userProfile.revokeDevice')}
+                      style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.1rem', display:'flex' }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {testMsg && <Flash msg={testMsg} />}
 
             <label style={{ display:'flex', alignItems:'center', gap:'0.5rem',

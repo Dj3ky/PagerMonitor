@@ -18,8 +18,8 @@ const ICAO24_RE = /^[0-9a-f]{6}$/;
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
-const { getPublicKey, saveSubscription, removeSubscription } = require('../services/webpush');
-const { saveToken: saveFcmToken, removeToken: removeFcmToken, sendTest: sendFcmTest } = require('../services/fcmPush');
+const { getPublicKey, saveSubscription, removeSubscription, listSubscriptions, removeSubscriptionById } = require('../services/webpush');
+const { saveToken: saveFcmToken, removeToken: removeFcmToken, listTokens: listFcmTokens, removeTokenById: removeFcmTokenById, sendTest: sendFcmTest } = require('../services/fcmPush');
 const { getFeedFilter, passesFeedFilter, passesFeedFilterWithConfig, getDongleConfigs } = require('../services/config');
 const { getAllClientConfigs } = require('../services/clientTracker');
 
@@ -383,6 +383,29 @@ router.get('/archive/export', requireAuth, (req, res) => {
 
 // ── Web Push ──────────────────────────────────────────────────────────────────
 
+// Best-effort "Chrome on Windows" / "Safari on iPhone" style label from the User-Agent
+// header, purely for the device list in the profile panel — never used for anything
+// that affects delivery, so a wrong/unmatched guess is harmless (falls back to "Browser").
+function labelFromUserAgent(ua) {
+  if (!ua) return 'Browser';
+  const os = /Windows/.test(ua) ? 'Windows'
+    : /iPhone/.test(ua) ? 'iPhone'
+    : /iPad/.test(ua) ? 'iPad'
+    : /Android/.test(ua) ? 'Android'
+    : /Mac OS X/.test(ua) ? 'Mac'
+    : /Linux/.test(ua) ? 'Linux'
+    : null;
+  const browser = /Edg\//.test(ua) ? 'Edge'
+    : /OPR\//.test(ua) ? 'Opera'
+    : /Firefox\//.test(ua) ? 'Firefox'
+    : /CriOS\//.test(ua) ? 'Chrome'
+    : /Chrome\//.test(ua) ? 'Chrome'
+    : /Safari\//.test(ua) ? 'Safari'
+    : null;
+  if (browser && os) return `${browser} on ${os}`;
+  return browser || os || 'Browser';
+}
+
 router.get('/push/vapid-public-key', (_req, res) => {
   const key = getPublicKey();
   if (!key) return res.status(503).json({ error: 'Push notifications not available' });
@@ -394,7 +417,7 @@ router.post('/push/subscribe', requireAuth, (req, res) => {
     const { endpoint, keys } = req.body;
     if (!endpoint || !keys?.p256dh || !keys?.auth)
       return res.status(400).json({ error: 'Invalid subscription' });
-    saveSubscription(req.session.userId, { endpoint, keys });
+    saveSubscription(req.session.userId, { endpoint, keys }, labelFromUserAgent(req.headers['user-agent']));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -414,7 +437,7 @@ router.post('/push/fcm-subscribe', requireAuth, (req, res) => {
   try {
     const { token } = req.body;
     if (!token) return res.status(400).json({ error: 'token required' });
-    saveFcmToken(req.session.userId, token);
+    saveFcmToken(req.session.userId, token, 'Android app');
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -428,14 +451,27 @@ router.delete('/push/fcm-subscribe', requireAuth, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Count of push subscriptions for the current user (so the UI can show "2 devices subscribed")
-router.get('/push/subscriptions/count', requireAuth, (req, res) => {
+// Combined "your devices" list for the profile panel — web push + native FCM together,
+// each tagged with its type so the UI can show a platform icon and revoke the right one.
+router.get('/push/devices', requireAuth, (req, res) => {
   try {
-    const { getDb } = require('../services/database');
-    const row = getDb()
-      .prepare('SELECT COUNT(*) as count FROM push_subscriptions WHERE user_id = ?')
-      .get(req.session.userId);
-    res.json({ count: row?.count ?? 0 });
+    const web = listSubscriptions(req.session.userId).map(d => ({ ...d, type: 'web' }));
+    const android = listFcmTokens(req.session.userId).map(d => ({ ...d, type: 'android' }));
+    const devices = [...web, ...android].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    res.json({ devices });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Revoke one specific device (as opposed to DELETE /push/subscribe and /push/fcm-subscribe
+// above, which only let the calling device unsubscribe itself) — lets a user clear out a
+// stale/lost device from the list without needing to be on it.
+router.delete('/push/devices/:type/:id', requireAuth, (req, res) => {
+  try {
+    const { type, id } = req.params;
+    if (type === 'web') removeSubscriptionById(req.session.userId, id);
+    else if (type === 'android') removeFcmTokenById(req.session.userId, id);
+    else return res.status(400).json({ error: 'Invalid device type' });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

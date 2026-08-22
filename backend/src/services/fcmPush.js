@@ -32,16 +32,28 @@ function initFcm() {
   }
 }
 
-function saveToken(userId, token) {
+function saveToken(userId, token, label) {
   getDb().prepare(`
-    INSERT INTO fcm_tokens (user_id, token)
-    VALUES (?, ?)
-    ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id
-  `).run(userId, token);
+    INSERT INTO fcm_tokens (user_id, token, label)
+    VALUES (?, ?, ?)
+    ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id, label = excluded.label
+  `).run(userId, token, label || null);
 }
 
 function removeToken(token) {
   getDb().prepare('DELETE FROM fcm_tokens WHERE token = ?').run(token);
+}
+
+// Listed alongside web push subscriptions (see webpush.js's listSubscriptions) as one
+// combined "your devices" view in the profile panel.
+function listTokens(userId) {
+  return getDb().prepare('SELECT id, label, created_at FROM fcm_tokens WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+}
+
+// Scoped to userId so a user can only revoke their own device, even though the id alone
+// (an autoincrement PK) doesn't imply ownership.
+function removeTokenById(userId, id) {
+  getDb().prepare('DELETE FROM fcm_tokens WHERE id = ? AND user_id = ?').run(id, userId);
 }
 
 // Called once per org per ingested message (see services/fanout.js) — mirrors sendPushPerUser.
@@ -131,4 +143,4 @@ async function _send(token, { title, body, tag, data, channelId = 'pm_messages' 
   }
 }
 
-module.exports = { initFcm, saveToken, removeToken, sendFcmPerUser, sendAlertPerUser, sendTest };
+module.exports = { initFcm, saveToken, removeToken, listTokens, removeTokenById, sendFcmPerUser, sendAlertPerUser, sendTest };

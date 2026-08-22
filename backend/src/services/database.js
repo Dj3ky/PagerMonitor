@@ -561,6 +561,10 @@ function _migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
   `);
+  const pushSubColumns = db.prepare("PRAGMA table_info(push_subscriptions)").all().map(c => c.name);
+  if (!pushSubColumns.includes('label')) {
+    db.exec('ALTER TABLE push_subscriptions ADD COLUMN label TEXT');
+  }
 
   // FCM tokens (native Android app background notifications — see services/fcmPush.js.
   // Separate from push_subscriptions because FCM tokens have no p256dh/auth keypair;
@@ -574,6 +578,10 @@ function _migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_fcm_user ON fcm_tokens(user_id);
   `);
+  const fcmTokenColumns = db.prepare("PRAGMA table_info(fcm_tokens)").all().map(c => c.name);
+  if (!fcmTokenColumns.includes('label')) {
+    db.exec('ALTER TABLE fcm_tokens ADD COLUMN label TEXT');
+  }
 
   // Strip leading zeros from numeric alias capcodes so they match decoder output.
   // POCSAG addresses are never zero-padded; FLEX capcodes can be, but are normalized

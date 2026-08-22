@@ -33,17 +33,29 @@ function getPublicKey() {
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────
 
-function saveSubscription(userId, sub) {
+function saveSubscription(userId, sub, label) {
   const { endpoint, keys: { p256dh, auth } } = sub;
   getDb().prepare(`
-    INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth
-  `).run(userId, endpoint, p256dh, auth);
+    INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, label)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth, label=excluded.label
+  `).run(userId, endpoint, p256dh, auth, label || null);
 }
 
 function removeSubscription(endpoint) {
   getDb().prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
+}
+
+// Listed alongside FCM tokens (see fcmPush.js's listTokens) as one combined "your
+// devices" view in the profile panel.
+function listSubscriptions(userId) {
+  return getDb().prepare('SELECT id, label, created_at FROM push_subscriptions WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+}
+
+// Scoped to userId so a user can only revoke their own device, even though the id alone
+// (an autoincrement PK) doesn't imply ownership.
+function removeSubscriptionById(userId, id) {
+  getDb().prepare('DELETE FROM push_subscriptions WHERE id = ? AND user_id = ?').run(id, userId);
 }
 
 // ── Send ──────────────────────────────────────────────────────────────────────
@@ -119,4 +131,4 @@ async function _send(sub, payload) {
   }
 }
 
-module.exports = { initWebPush, getPublicKey, saveSubscription, removeSubscription, sendPushPerUser, _matchesPushPrefs, _matchesAlertPrefs };
+module.exports = { initWebPush, getPublicKey, saveSubscription, removeSubscription, listSubscriptions, removeSubscriptionById, sendPushPerUser, _matchesPushPrefs, _matchesAlertPrefs };
