@@ -2,15 +2,20 @@ import { useState, useEffect } from 'react';
 import { Copy, Save } from 'lucide-react';
 import { adminFetchDedup, adminSaveDedup } from '../../utils/api.js';
 
-const DEFAULTS = { enabled: true, windowSeconds: 30 };
+const DEFAULTS = { enabled: true, windowSeconds: 30, exceptCapcodes: [] };
 
 function sanitise(raw) {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
+  if (!raw || typeof raw !== 'object') return { ...DEFAULTS, exceptCapcodes: [] };
   return {
-    enabled:       typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULTS.enabled,
-    windowSeconds: typeof raw.windowSeconds === 'number' && raw.windowSeconds > 0
-                     ? raw.windowSeconds : DEFAULTS.windowSeconds,
+    enabled:        typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULTS.enabled,
+    windowSeconds:  typeof raw.windowSeconds === 'number' && raw.windowSeconds > 0
+                      ? raw.windowSeconds : DEFAULTS.windowSeconds,
+    exceptCapcodes: Array.isArray(raw.exceptCapcodes) ? raw.exceptCapcodes.map(String) : [],
   };
+}
+
+function setListField(value) {
+  return value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
 }
 
 export default function DedupConfig() {
@@ -78,6 +83,20 @@ export default function DedupConfig() {
             </div>
           </div>
         )}
+
+        <div style={{ marginBottom: '1rem' }}>
+          <label className="pm-label">Exceptions — capcodes never deduplicated (one per line or comma-separated)</label>
+          <textarea className="pm-input" rows={5}
+            value={cfg.exceptCapcodes.join('\n')}
+            onChange={e => setCfg(c => ({ ...sanitise(c), exceptCapcodes: setListField(e.target.value) }))}
+            placeholder={'1234567\n2345678\n3456789'}
+            style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.8rem' }} />
+          <div style={{ fontSize: '0.73rem', color: 'var(--text-3)', marginTop: '0.4rem' }}>
+            {cfg.exceptCapcodes.length > 0
+              ? `${cfg.exceptCapcodes.length} capcode(s) are always shown — every message from them bypasses deduplication.`
+              : 'No exceptions — all capcodes are subject to deduplication.'}
+          </div>
+        </div>
 
         {msg && (
           <div style={{
