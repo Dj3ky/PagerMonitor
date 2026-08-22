@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { useAuth }      from './context/AuthContext.jsx';
 import { useSite }      from './context/SiteContext.jsx';
 import { useWebSocket, subscribeWsMessages } from './hooks/useWebSocket.js';
-import { fetchHistory, fetchSearch, fetchStatus, fetchRules, fetchGroups, fetchAliases } from './utils/api.js';
+import { fetchHistory, fetchSearch, fetchStatus, fetchRules, fetchGroups, fetchAliases, fetchSources } from './utils/api.js';
 import LoginPage     from './components/LoginPage.jsx';
 import Header        from './components/Header.jsx';
 import BottomNav     from './components/BottomNav.jsx';
@@ -56,7 +56,7 @@ export default function App() {
 
   const { messages, wsStatus, sdrStatus, prependHistory, appendHistory, removeMessage } = useWebSocket(BACKEND_URL);
 
-  const [filters, setFilters]               = useState({ capcode:'', keyword:'', alias:[], group:[] });
+  const [filters, setFilters]               = useState({ capcode:'', keyword:'', alias:[], group:[], source:[] });
   const [searchResults, setSearchResults]   = useState(null);
   const [searching, setSearching]           = useState(false);
   const [searchQuery, setSearchQuery]       = useState('');
@@ -119,6 +119,7 @@ export default function App() {
   const [highlightRules, setHighlightRules] = useState([]);
   const [groups, setGroups]                 = useState([]);
   const [aliases, setAliases]               = useState([]);
+  const [sources, setSources]               = useState([]);
   const [pageSize, setPageSize]             = useState(50);
   const [page, setPage]                     = useState(0);
 
@@ -149,6 +150,7 @@ export default function App() {
     fetchRules().then(r  => Array.isArray(r) ? setHighlightRules(r) : null).catch(console.warn);
     fetchGroups().then(r => Array.isArray(r) ? setGroups(r) : null).catch(console.warn);
     fetchAliases().then(r => Array.isArray(r) ? setAliases(r) : null).catch(console.warn);
+    fetchSources().then(r => Array.isArray(r) ? setSources(r) : null).catch(console.warn);
   }, [user]);
 
   // Pull-to-refresh (native only — see usePtrScroll) re-catches-up the feed the same way
@@ -335,6 +337,7 @@ export default function App() {
     if (filters.capcode && !m.capcode?.includes(filters.capcode)) return false;
     if (filters.alias.length && !filters.alias.includes(m.alias_name || m.alias)) return false;
     if (filters.group.length && !filters.group.includes(m.group_name || m.parent_group_name)) return false;
+    if (filters.source.length && !filters.source.includes(m.client_id)) return false;
     if (filters.keyword) {
       try { if (!new RegExp(filters.keyword, 'i').test(m.message || '')) return false; }
       catch { if (!(m.message || '').toLowerCase().includes(filters.keyword.toLowerCase())) return false; }
@@ -394,6 +397,7 @@ export default function App() {
           filters={filters}
           groups={groups}
           aliases={aliases}
+          sources={sources}
           onChange={f => { setFilters(f); setPage(0); }}
           paused={paused}
           onTogglePause={() => { setPaused(p => !p); setNewCount(0); }}
