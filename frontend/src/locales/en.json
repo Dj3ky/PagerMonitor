@@ -127,6 +127,7 @@
     "aliasGroup": "Alias / Group",
     "message": "Message",
     "waiting": "Waiting for transmissions…",
+    "noMatchesLoaded": "No matches in the loaded messages — older ones may still match.",
     "loading": "Loading…",
     "loadMore": "Load more  ({{loaded}} of {{total}} loaded)"
   },

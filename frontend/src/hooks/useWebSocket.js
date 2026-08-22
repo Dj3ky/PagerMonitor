@@ -70,7 +70,7 @@ export function useWebSocket(backendUrl) {
           headers: tok ? { Authorization: `Bearer ${tok}` } : {},
         })
           .then(r => r.json())
-          .then(rows => {
+          .then(({ messages: rows }) => {
             if (Array.isArray(rows)) {
               setMessages(prev => {
                 const ids  = new Set(prev.map(m => m.id));

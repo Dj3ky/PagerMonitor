@@ -134,12 +134,36 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
 
   useEffect(() => () => clearTimeout(markSeenTimer.current), []);
 
+  // `messages` here is already run through the caller's local capcode/keyword/alias/group
+  // filter — it can be empty either because nothing has loaded yet at all (totalLoaded===0)
+  // or because everything currently loaded was filtered out (totalLoaded>0). Only the first
+  // case means there's truly nothing to show; the second means older, unloaded messages
+  // might still match, so Load More must stay reachable here too — not just below the list,
+  // which this early return would otherwise skip entirely.
+  const showLoadMore = onLoadMore && !noMoreMessages && totalLoaded < totalInDb;
+  const loadMoreButton = showLoadMore && (
+    <div style={{ padding:'0.75rem', textAlign:'center', flexShrink:0 }}>
+      <button onClick={onLoadMore} disabled={loadingMore}
+        style={{ padding:'0.4rem 1.25rem', borderRadius:'0.5rem', cursor: loadingMore ? 'wait' : 'pointer',
+          fontSize:'0.8rem', fontFamily:'monospace', fontWeight:600,
+          background:'color-mix(in srgb,var(--accent-green) 10%,transparent)',
+          border:'1px solid color-mix(in srgb,var(--accent-green) 25%,transparent)',
+          color: loadingMore ? 'var(--text-3)' : 'var(--accent-green)',
+          transition:'all 0.15s' }}>
+        {loadingMore ? t('messageFeed.loading') : t('messageFeed.loadMore', { loaded: totalLoaded, total: totalInDb })}
+      </button>
+    </div>
+  );
+
   if (messages.length === 0) {
     return (
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center',
         justifyContent:'center', height:'100%', color:'var(--text-3)', gap:'0.5rem' }}>
         <div style={{ fontSize:'3rem', opacity:0.2 }}>📟</div>
-        <p style={{ fontFamily:'monospace', fontSize:'0.85rem', margin:0 }}>{t('messageFeed.waiting')}</p>
+        <p style={{ fontFamily:'monospace', fontSize:'0.85rem', margin:0 }}>
+          {totalLoaded > 0 ? t('messageFeed.noMatchesLoaded') : t('messageFeed.waiting')}
+        </p>
+        {loadMoreButton}
       </div>
     );
   }
@@ -177,19 +201,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
       })}
 
       {/* Load more — only shown on last page when there are more messages in DB */}
-      {onLoadMore && !noMoreMessages && totalLoaded < totalInDb && (
-        <div style={{ padding:'0.75rem', textAlign:'center', flexShrink:0 }}>
-          <button onClick={onLoadMore} disabled={loadingMore}
-            style={{ padding:'0.4rem 1.25rem', borderRadius:'0.5rem', cursor: loadingMore ? 'wait' : 'pointer',
-              fontSize:'0.8rem', fontFamily:'monospace', fontWeight:600,
-              background:'color-mix(in srgb,var(--accent-green) 10%,transparent)',
-              border:'1px solid color-mix(in srgb,var(--accent-green) 25%,transparent)',
-              color: loadingMore ? 'var(--text-3)' : 'var(--accent-green)',
-              transition:'all 0.15s' }}>
-            {loadingMore ? t('messageFeed.loading') : t('messageFeed.loadMore', { loaded: totalLoaded, total: totalInDb })}
-          </button>
-        </div>
-      )}
+      {loadMoreButton}
 
       <style>{`
         @media(max-width:600px){.feed-header{display:none!important}}
