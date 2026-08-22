@@ -39,7 +39,10 @@ if (!BBOXES[CC]) { console.error(`Unknown country code: ${CC}. Add a bbox to BBO
 const BBOX = BBOXES[CC];
 const OUT  = path.join(__dirname, `../data/${CC}_streets.json`);
 
-const QUERY = `[out:json][timeout:120][bbox:${BBOX}];
+// maxsize raises Overpass's default 512 MiB query memory cap — large countries
+// (FR, DE, US...) have millions of named highway ways and blow past the default,
+// which makes Overpass abort with HTTP 200 + no `elements` (just a `remark`).
+const QUERY = `[out:json][timeout:120][maxsize:2147483648][bbox:${BBOX}];
 way["highway"]["name"];
 out tags;`;
 
@@ -102,6 +105,7 @@ async function main() {
   }
 
   if (!json?.elements?.length) {
+    if (json?.remark) console.error(`\nOverpass error: ${json.remark}`);
     console.error('\nAll endpoints failed or returned no data.');
     process.exit(1);
   }
