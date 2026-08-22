@@ -62,6 +62,11 @@ export default function App() {
   const [searchQuery, setSearchQuery]       = useState('');
   const [searchHasMore, setSearchHasMore]   = useState(false);
   const [searchCursor, setSearchCursor]     = useState(null);
+  // Bumped on every new search / clear so an in-flight request (a fresh search, or a
+  // "load more" for a since-superseded query) can tell it's stale once it resolves and
+  // discard itself instead of corrupting the current results with a mismatched query's
+  // response — see handleSearch/handleSearchLoadMore.
+  const searchRequestId = useRef(0);
   const [loadingMoreSearch, setLoadingMoreSearch] = useState(false);
   const [serverStatus, setServerStatus]     = useState(null);
   const [pollSdrStatus, setPollSdrStatus]   = useState(null);
@@ -242,6 +247,7 @@ export default function App() {
 
   const handleSearch = useCallback(async q => {
     if (!q.trim()) {
+      searchRequestId.current++; // invalidate any in-flight search/load-more for the old query
       setSearchResults(null);
       setSearchQuery('');
       setSearchHasMore(false);
@@ -254,32 +260,38 @@ export default function App() {
       });
       return;
     }
+    const requestId = ++searchRequestId.current;
     setSearching(true);
     setSearchQuery(q);
     try {
       const r = await fetchSearch(q);
+      if (searchRequestId.current !== requestId) return; // superseded by a newer search/clear
       setSearchResults(r.results);
       setSearchHasMore(r.hasMore);
       setSearchCursor(r.nextBefore);
       handleSetView('search');
     }
     catch (e) { console.warn(e); }
-    finally { setSearching(false); }
+    finally { if (searchRequestId.current === requestId) setSearching(false); }
   }, []);
 
   // Load the next page of DB search results (same cursor the results ended on) and
   // append — mirrors handleLoadMore for the live feed, but against /api/search instead
-  // of /api/history.
+  // of /api/history. Guarded the same way as handleSearch: if a new search (or a clear)
+  // starts while this is in flight, its response is discarded instead of being appended
+  // onto whatever query is now active.
   const handleSearchLoadMore = useCallback(async () => {
     if (loadingMoreSearch || !searchHasMore || !searchQuery) return;
+    const requestId = searchRequestId.current;
     setLoadingMoreSearch(true);
     try {
       const r = await fetchSearch(searchQuery, 100, searchCursor);
+      if (searchRequestId.current !== requestId) return; // superseded by a newer search/clear
       setSearchResults(prev => [...(prev || []), ...r.results]);
       setSearchHasMore(r.hasMore);
       setSearchCursor(r.nextBefore);
     } catch (e) { console.warn('Search load more failed:', e); }
-    finally { setLoadingMoreSearch(false); }
+    finally { if (searchRequestId.current === requestId) setLoadingMoreSearch(false); }
   }, [searchQuery, searchCursor, searchHasMore, loadingMoreSearch]);
 
   // Click-to-filter from message rows
@@ -424,6 +436,7 @@ export default function App() {
               onDelete={id => setSearchResults(r => r?.filter(m => m.id !== id))}
               onLoadMore={handleSearchLoadMore} hasMore={searchHasMore} loadingMore={loadingMoreSearch}
               onClear={() => {
+                searchRequestId.current++; // invalidate any in-flight search/load-more
                 setSearchResults(null); setSearchQuery(''); setSearchHasMore(false); setSearchCursor(null);
                 handleSetView('feed');
               }} />
