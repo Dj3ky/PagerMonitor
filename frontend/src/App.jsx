@@ -217,10 +217,15 @@ export default function App() {
   // Using messages.length here would also fire when "load more" appends older
   // history at the end, which changes length without a new message — that was
   // resetting the user back to page 0 whenever they paged to the end and loaded more.
-  const newestId = messages[0]?.id ?? 0;
+  // Also skip the jump while a local filter is active (capcode/keyword/alias/group):
+  // otherwise every incoming message — matching the filter or not — yanked the user
+  // back to page 0 mid-search, making it near-impossible to browse filtered results
+  // while the feed keeps receiving traffic.
+  const newestId  = messages[0]?.id ?? 0;
+  const filtering = !!(filters.capcode || filters.keyword || filters.alias || filters.group);
   useEffect(() => {
     if (paused && messages.length > 0) setNewCount(n => n + 1);
-    else setPage(0);
+    else if (!filtering) setPage(0);
   }, [newestId]);
 
   // Browser notifications — subscribe directly to raw WS events, not React state.
