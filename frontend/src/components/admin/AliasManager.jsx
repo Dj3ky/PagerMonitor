@@ -64,7 +64,7 @@ function Flash({ msg }) {
   );
 }
 
-export default function AliasManager() {
+export default function AliasManager({ prefillCapcode, onPrefillHandled }) {
   const { user } = useAuth();
   const isPlatformAdmin = !!user?.isPlatformAdmin;
   const { data: aliasesRaw, loading, reload } = useAdminFetch(adminFetchAliases, []);
@@ -104,6 +104,13 @@ export default function AliasManager() {
       .then(d => setAliasColorFromGroup(!!d?.alias_color_from_group))
       .catch(() => {});
   };
+
+  useEffect(() => {
+    if (!prefillCapcode) return;
+    setForm({ ...EMPTY, capcode: prefillCapcode });
+    setEditing(null); setOverriding(false);
+    onPrefillHandled?.();
+  }, [prefillCapcode]);
 
   useEffect(() => {
     const onPrefsUpdate = (e) => {

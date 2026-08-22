@@ -76,6 +76,8 @@ export default function App() {
   // Requested admin tab — set by the status-bar update link so AdminPanel can
   // switch tabs even when it is already mounted (view already === 'admin').
   const [requestedAdminTab, setRequestedAdminTab] = useState(null);
+  // Capcode pushed in from the feed's "Add Alias" button so AliasManager can pre-fill its form.
+  const [requestedAliasCapcode, setRequestedAliasCapcode] = useState(null);
 
   const handleSetView = (v) => {
     sessionStorage.setItem('pm_view', v);
@@ -409,7 +411,8 @@ export default function App() {
               totalLoaded={messages.length}
               onDelete={removeMessage}
               wsStatus={wsStatus}
-              onRefresh={refreshFeed} />
+              onRefresh={refreshFeed}
+              onAddAlias={(capcode) => { handleSetView('admin'); setRequestedAdminTab('aliases'); setRequestedAliasCapcode(capcode); }} />
           </div>
           {/* MapView always mounted so geocoding/state persists across tab switches */}
           <div style={{ position:'absolute', inset:0, display: view === 'map' ? 'block' : 'none' }}>
@@ -466,6 +469,8 @@ export default function App() {
                 onRulesChange={setHighlightRules} onGroupsChange={setGroups}
                 requestedTab={requestedAdminTab}
                 onTabHandled={() => setRequestedAdminTab(null)}
+                prefillAliasCapcode={requestedAliasCapcode}
+                onAliasPrefillHandled={() => setRequestedAliasCapcode(null)}
                 onResetMap={handleResetMap} />
             </Suspense>
           )}

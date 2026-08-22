@@ -115,6 +115,8 @@
     "regeocodeTitle": "Ponovno zaženi geokodiranje za to sporočilo",
     "geocoding": "Geokodiranje…",
     "regeocode": "Ponovno geokodiraj",
+    "addAliasTitle": "Dodaj vzdevek za to kapkodo",
+    "addAlias": "Dodaj vzdevek",
     "confirmDelete": "Trajno izbriši to sporočilo?",
     "deleteMessage": "Izbriši sporočilo",
     "deleting": "Brisanje…",

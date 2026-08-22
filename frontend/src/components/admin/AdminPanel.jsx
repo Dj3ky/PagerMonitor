@@ -95,7 +95,7 @@ const TABS = [
   { id:'organizations', label:'Organizations', icon:<Server size={14}/>,   platformOnly: true },
 ];
 
-function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChange, onResetMap }) {
+function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChange, onResetMap, prefillAliasCapcode, onAliasPrefillHandled }) {
   switch (tab) {
     case 'sdr':         return <SdrControl sdrStatus={sdrStatus} />;
     case 'system':      return <SystemStats serverStatus={serverStatus} />;
@@ -115,7 +115,8 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
     case 'email':       return <EmailConfig />;
     case 'usernotif':   return <UserNotifPrefs />;
     case 'groups':      return <GroupManager onGroupsChange={onGroupsChange} />;
-    case 'aliases':     return <AliasManager onGroupsChange={onGroupsChange} />;
+    case 'aliases':     return <AliasManager onGroupsChange={onGroupsChange}
+                           prefillCapcode={prefillAliasCapcode} onPrefillHandled={onAliasPrefillHandled} />;
     case 'highlights':  return <HighlightRules onRulesChange={onRulesChange} />;
     case 'dedup':       return <DedupConfig />;
     case 'site':        return <SiteSettings onResetMap={onResetMap} />;
@@ -136,7 +137,7 @@ function TabContent({ tab, sdrStatus, serverStatus, onRulesChange, onGroupsChang
   }
 }
 
-export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onGroupsChange, requestedTab, onTabHandled, onResetMap }) {
+export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onGroupsChange, requestedTab, onTabHandled, onResetMap, prefillAliasCapcode, onAliasPrefillHandled }) {
   const { user } = useAuth();
   const site = useSite();
   const sdrDisabled = serverStatus?.sdrDisabled === true;
@@ -318,7 +319,8 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
             <ErrorBoundary key={tab} name={currentTab.label}>
               <TabContent tab={currentTab.id} sdrStatus={sdrStatus} serverStatus={serverStatus}
                 onRulesChange={onRulesChange} onGroupsChange={onGroupsChange}
-                onResetMap={onResetMap} />
+                onResetMap={onResetMap}
+                prefillAliasCapcode={prefillAliasCapcode} onAliasPrefillHandled={onAliasPrefillHandled} />
             </ErrorBoundary>
 
             {/* Version footer */}
