@@ -1,7 +1,6 @@
 const express      = require('express');
 const router       = express.Router();
 const os           = require('os');
-const fs           = require('fs');
 const path         = require('path');
 const { execSync } = require('child_process');
 
@@ -619,16 +618,12 @@ router.get('/interventions/vecji-obseg/history', requireAuth, requireEnabled('en
 });
 
 // Gasilska regija (fire-brigade region) outlines — static, built offline by
-// backend/scripts/{fetchObcineBoundaries,dissolveGasilskeRegije}.js. Read once
-// and cached in memory; it only changes when someone re-runs those scripts.
-let gasilskeRegijeCache = null;
+// backend/scripts/{fetchObcineBoundaries,dissolveGasilskeRegije}.js (see admin.js's
+// /admin/geo-data/fetch, which runs them for a fresh install same as fetchPlaces.js).
+const gasilskeRegije = require('../utils/gasilskeRegijeCache');
 router.get('/interventions/gasilske-regije', requireAuth, requireEnabled('enableInterventions'), (_req, res) => {
-  try {
-    if (!gasilskeRegijeCache) {
-      gasilskeRegijeCache = fs.readFileSync(path.join(__dirname, '../../data/gasilske_regije.geojson'), 'utf8');
-    }
-    res.type('application/json').send(gasilskeRegijeCache);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  try { res.type('application/json').send(gasilskeRegije.get()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 module.exports = router;

@@ -7,8 +7,10 @@
  * "regija" property (set by fetchObcineBoundaries.js from gasilska_regija.json).
  *
  * Uses @turf/turf's dissolve(), which merges adjacent Polygon features sharing
- * the same property value — a one-time offline step, not needed at request
- * time, so it's a devDependency rather than a runtime one.
+ * the same property value. A regular dependency (not devDependency) because the
+ * admin "Update geo data" button (see routes/admin.js) spawns this script live
+ * against whatever's already installed in production — it needs to actually be
+ * there, not just at a separate build step.
  *
  * Output: backend/data/gasilske_regije.geojson — FeatureCollection, one
  * Polygon/MultiPolygon per region, properties: { regija }.

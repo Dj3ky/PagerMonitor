@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
+    "@turf/turf": "^7.4.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^9.4.3",
     "cors": "^2.8.5",
@@ -28,8 +29,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "devDependencies": {
-    "@turf/turf": "^7.4.0"
   }
 }

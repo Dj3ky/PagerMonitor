@@ -598,9 +598,18 @@ router.get('/geo-data/fetch', platformOnly, (req, res) => {
         require('../utils/placeIndex').invalidate(cc);
         require('../utils/aliasPlace').invalidate();
       } catch (_) {}
-      send({ type: 'done' });
-      clearInterval(hb);
-      res.end();
+
+      const finish = () => { send({ type: 'done' }); clearInterval(hb); res.end(); };
+
+      // Gasilska regija (fire-brigade region) boundaries — Slovenia-only (GURS has
+      // no equivalent for other countries), so only run this pair for cc=si.
+      if (cc !== 'si') return finish();
+      runScript('fetchObcineBoundaries.js', () => {
+        runScript('dissolveGasilskeRegije.js', () => {
+          try { require('../utils/gasilskeRegijeCache').invalidate(); } catch (_) {}
+          finish();
+        });
+      });
     });
   });
 
