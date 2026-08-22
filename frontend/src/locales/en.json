@@ -123,6 +123,8 @@
     "regeocode": "Re-geocode",
     "addAliasTitle": "Add an alias for this capcode",
     "addAlias": "Add Alias",
+    "editAliasTitle": "Edit the alias for this capcode",
+    "editAlias": "Edit Alias",
     "confirmDelete": "Delete this message permanently?",
     "deleteMessage": "Delete message",
     "deleting": "Deleting…",

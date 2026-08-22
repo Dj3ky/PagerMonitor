@@ -329,7 +329,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
                   {msg.capcode && (
                     <button
                       onClick={() => onAddAlias?.(msg.capcode)}
-                      title={t('messageRow.addAliasTitle')}
+                      title={t(alias ? 'messageRow.editAliasTitle' : 'messageRow.addAliasTitle')}
                       style={{ display:'flex', alignItems:'center', gap:'0.3rem',
                         fontSize:'0.7rem', fontFamily:'monospace', fontWeight:600,
                         padding:'0.25rem 0.6rem', borderRadius:'0.35rem', cursor:'pointer',
@@ -338,7 +338,7 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
                         color:'var(--accent-amber,#f59e0b)', transition:'background 0.1s' }}
                       onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber,#f59e0b) 20%,transparent)'}
                       onMouseLeave={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber,#f59e0b) 10%,transparent)'}>
-                      <Tag size={11}/>{t('messageRow.addAlias')}
+                      <Tag size={11}/>{t(alias ? 'messageRow.editAlias' : 'messageRow.addAlias')}
                     </button>
                   )}
                   <button
