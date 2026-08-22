@@ -64,7 +64,7 @@ function Flash({ msg }) {
   );
 }
 
-export default function AliasManager() {
+export default function AliasManager({ prefillCapcode, onPrefillHandled }) {
   const { user } = useAuth();
   const isPlatformAdmin = !!user?.isPlatformAdmin;
   const { data: aliasesRaw, loading, reload } = useAdminFetch(adminFetchAliases, []);
@@ -156,6 +156,18 @@ export default function AliasManager() {
     setOverriding(isGlobalRow && !isPlatformAdmin);
   };
   const cancelEdit = () => { setForm({ ...EMPTY }); setEditing(null); setOverriding(false); };
+
+  // Prefill from the feed's "Add Alias" button. Waits for the aliases list to finish its
+  // own fetch (`loading`) before consuming prefillCapcode — on a fresh navigation into this
+  // tab that fetch is still in flight, and checking `aliases` before it resolves would always
+  // read as "no existing alias" and blank-prefill even for a capcode that already has one.
+  useEffect(() => {
+    if (!prefillCapcode || loading) return;
+    const existing = aliases.find(a => a.capcode === prefillCapcode);
+    if (existing) startEdit(existing);
+    else { setForm({ ...EMPTY, capcode: prefillCapcode }); setEditing(null); setOverriding(false); }
+    onPrefillHandled?.();
+  }, [prefillCapcode, loading]);
 
   const handleDelete = async (capcode, isGlobal = false) => {
     if (!confirm(`Delete ${isGlobal ? 'GLOBAL ' : ''}alias for ${capcode}${isGlobal ? '? This affects every organization on this instance.' : '?'}`)) return;

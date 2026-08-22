@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { StickyNote, ChevronDown, ChevronRight, MapPin, Trash2, RefreshCw } from 'lucide-react';
+import { StickyNote, ChevronDown, ChevronRight, MapPin, Trash2, RefreshCw, Tag } from 'lucide-react';
 import MessageNotes from './MessageNotes.jsx';
 import { useSite } from '../context/SiteContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -58,7 +58,7 @@ function Badge({ label, color, title, onClick }) {
   );
 }
 
-export default function MessageRow({ msg, index=0, isNew, highlightRules=[], groups=[], onFilter, onMapClick, onDelete }) {
+export default function MessageRow({ msg, index=0, isNew, highlightRules=[], groups=[], onFilter, onMapClick, onDelete, onAddAlias }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -326,6 +326,21 @@ export default function MessageRow({ msg, index=0, isNew, highlightRules=[], gro
               <div style={{ marginTop:'0.6rem', display:'flex', flexDirection:'column', gap:'0.35rem', alignItems:'flex-end' }}
                 onClick={e => e.stopPropagation()}>
                 <div style={{ display:'flex', gap:'0.4rem' }}>
+                  {msg.capcode && (
+                    <button
+                      onClick={() => onAddAlias?.(msg.capcode)}
+                      title={t(alias ? 'messageRow.editAliasTitle' : 'messageRow.addAliasTitle')}
+                      style={{ display:'flex', alignItems:'center', gap:'0.3rem',
+                        fontSize:'0.7rem', fontFamily:'monospace', fontWeight:600,
+                        padding:'0.25rem 0.6rem', borderRadius:'0.35rem', cursor:'pointer',
+                        background:'color-mix(in srgb,var(--accent-amber,#f59e0b) 10%,transparent)',
+                        border:'1px solid color-mix(in srgb,var(--accent-amber,#f59e0b) 30%,transparent)',
+                        color:'var(--accent-amber,#f59e0b)', transition:'background 0.1s' }}
+                      onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber,#f59e0b) 20%,transparent)'}
+                      onMouseLeave={e => e.currentTarget.style.background='color-mix(in srgb,var(--accent-amber,#f59e0b) 10%,transparent)'}>
+                      <Tag size={11}/>{t(alias ? 'messageRow.editAlias' : 'messageRow.addAlias')}
+                    </button>
+                  )}
                   <button
                     disabled={reGeocoding}
                     onClick={async () => {

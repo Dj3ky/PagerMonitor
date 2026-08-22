@@ -33,7 +33,7 @@ function FeedHeader() {
   );
 }
 
-export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete, wsStatus, onRefresh }) {
+export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete, wsStatus, onRefresh, onAddAlias }) {
   const { t } = useTranslation();
   // settingsLoaded is true once the /api/site-settings fetch has resolved (success or fail).
   // We must NOT start the badge timer until then — otherwise a slow mobile network causes
@@ -196,7 +196,8 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
             groups={groups}
             onFilter={onFilter}
             onMapClick={onMapClick}
-            onDelete={onDelete} />
+            onDelete={onDelete}
+            onAddAlias={onAddAlias} />
         );
       })}
 
