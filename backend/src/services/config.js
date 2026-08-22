@@ -210,7 +210,16 @@ function saveFeedFilter(orgId, cfg) {
 // this depends on).
 function passesFeedFilter(msg, orgId) {
   try {
-    const filter = getFeedFilter(orgId);
+    return passesFeedFilterWithConfig(msg, getFeedFilter(orgId));
+  } catch (e) { logger.warn(`Feed filter failed, showing message (org ${orgId}): ${e.message}`); return true; }
+}
+
+// Same check as passesFeedFilter, but takes an already-loaded filter config instead of
+// fetching it from settings — for callers evaluating many messages against the same org's
+// filter in one pass (e.g. /api/history's pagination loop), so the filter isn't re-read
+// from the DB on every single row.
+function passesFeedFilterWithConfig(msg, filter) {
+  try {
     if (!filter) return true;
 
     // Decoders don't agree on zero-padding capcodes — filter.capcodes is normalized on
@@ -265,7 +274,7 @@ function passesFeedFilter(msg, orgId) {
     }
 
     return true;
-  } catch (e) { logger.warn(`Feed filter failed, showing message (org ${orgId}): ${e.message}`); return true; }
+  } catch (e) { logger.warn(`Feed filter failed, showing message: ${e.message}`); return true; }
 }
 
 // ── Message normalizations ────────────────────────────────────────────────────
@@ -289,6 +298,6 @@ module.exports = {
   getNotifConfig, saveNotifConfig,
   getNotifFilter, saveNotifFilter,
   getDedupConfig, saveDedupConfig,
-  getFeedFilter, saveFeedFilter, passesFeedFilter,
+  getFeedFilter, saveFeedFilter, passesFeedFilter, passesFeedFilterWithConfig,
   getMessageNormalizations, saveMessageNormalizations,
 };

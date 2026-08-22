@@ -127,6 +127,7 @@
     "aliasGroup": "Enota / Zveza",
     "message": "Sporočilo",
     "waiting": "Čakanje na oddajanje…",
+    "noMatchesLoaded": "Med naloženimi sporočili ni zadetkov — starejša sporočila lahko še vedno ustrezajo.",
     "loading": "Nalaganje…",
     "loadMore": "Naloži več  ({{loaded}} od {{total}} naloženih)"
   },

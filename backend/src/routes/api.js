@@ -20,39 +20,72 @@ const { getClientCount } = require('../services/websocket');
 const { requireAuth, requireEditor } = require('../services/auth');
 const { getPublicKey, saveSubscription, removeSubscription, listSubscriptions, removeSubscriptionById } = require('../services/webpush');
 const { saveToken: saveFcmToken, removeToken: removeFcmToken, listTokens: listFcmTokens, removeTokenById: removeFcmTokenById, sendTest: sendFcmTest } = require('../services/fcmPush');
-const { getFeedFilter, passesFeedFilter, getDongleConfigs } = require('../services/config');
+const { getFeedFilter, passesFeedFilter, passesFeedFilterWithConfig, getDongleConfigs } = require('../services/config');
 const { getAllClientConfigs } = require('../services/clientTracker');
 
 router.get('/history', requireAuth, (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit || '200', 10), 1000);
-  const before = parseInt(req.query.before || '0', 10); // load messages older than this id
   const orgId  = req.session.orgId;
+  // Filtering happens in JS (passesFeedFilterWithConfig, below) after the SQL LIMIT, so a
+  // single fixed-size raw batch can come back mostly (or entirely) filtered out under an
+  // aggressive feed filter, well short of `limit` — even though plenty more unfiltered
+  // history exists further back. Loop, advancing the cursor past each raw batch, until
+  // either `limit` filtered rows are collected or the table is genuinely exhausted.
+  // MAX_SCAN bounds the worst case (a filter that matches almost nothing) so this can't
+  // turn into an unbounded scan on one request — if that cap is hit before the table is
+  // actually exhausted, `hasMore` still comes back true so the client can call again with
+  // the advanced cursor instead of wrongly concluding history has ended.
+  const MAX_SCAN = 5000;
+  let cursor = parseInt(req.query.before || '0', 10) || null; // null = start from newest
   try {
-    const db   = require('../services/database').getDb();
-    // Fetch a larger batch then filter so we return close to `limit` rows even with aggressive filters.
-    // Max over-fetch is capped at 2× limit to avoid scanning the whole table on empty filters.
-    const fetchLimit = limit * 2;
-    const rows = before > 0
-      ? db.prepare(`
-          SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
-                 c.display_name as client_name, c.color as client_color,
-                 (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
-          FROM messages m
-          ${ALIAS_GROUP_JOIN_SQL}
-          LEFT JOIN sdr_clients c ON c.id = m.client_id
-          WHERE m.id < ?
-          ORDER BY m.id DESC LIMIT ?
-        `).all(orgId, orgId, orgId, before, fetchLimit)
-      : db.prepare(`
-          SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
-                 c.display_name as client_name, c.color as client_color,
-                 (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
-          FROM messages m
-          ${ALIAS_GROUP_JOIN_SQL}
-          LEFT JOIN sdr_clients c ON c.id = m.client_id
-          ORDER BY m.id DESC LIMIT ?
-        `).all(orgId, orgId, orgId, fetchLimit);
-    res.json(enrichSourceLabels(rows).filter(r => passesFeedFilter(r, orgId)).slice(0, limit));
+    const db     = require('../services/database').getDb();
+    const filter = getFeedFilter(orgId); // loaded once — not re-read from settings per row
+    let collected = [];
+    let scanned    = 0;
+    let exhausted  = false; // true once a batch proves there's nothing left past the cursor
+    while (collected.length < limit && scanned < MAX_SCAN) {
+      const batchSize = Math.min(limit * 2, MAX_SCAN - scanned);
+      const rows = cursor
+        ? db.prepare(`
+            SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
+                   c.display_name as client_name, c.color as client_color,
+                   (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
+            FROM messages m
+            ${ALIAS_GROUP_JOIN_SQL}
+            LEFT JOIN sdr_clients c ON c.id = m.client_id
+            WHERE m.id < ?
+            ORDER BY m.id DESC LIMIT ?
+          `).all(orgId, orgId, orgId, cursor, batchSize)
+        : db.prepare(`
+            SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
+                   c.display_name as client_name, c.color as client_color,
+                   (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
+            FROM messages m
+            ${ALIAS_GROUP_JOIN_SQL}
+            LEFT JOIN sdr_clients c ON c.id = m.client_id
+            ORDER BY m.id DESC LIMIT ?
+          `).all(orgId, orgId, orgId, batchSize);
+
+      scanned += rows.length;
+      if (!rows.length) { exhausted = true; break; } // reached the real beginning of the table
+
+      cursor = rows[rows.length - 1].id;
+      collected = collected.concat(enrichSourceLabels(rows).filter(r => passesFeedFilterWithConfig(r, filter)));
+
+      if (rows.length < batchSize) { exhausted = true; break; } // that batch itself reached the end of the table
+    }
+    // A single raw batch can yield more filter-matching rows than `limit` (the loop only
+    // checks collected.length *between* batches, so one batch can overshoot it). Those
+    // extra matches are real and already found — cutting the response to `limit` via slice
+    // must NOT also advance the cursor past them, or they're skipped forever: the next call
+    // would resume from `cursor` (the raw scan position, past those rows) instead of from
+    // just after the last row actually delivered. So: if this page is truncating held-back
+    // matches, resume from the last *delivered* row's id; only once everything found is
+    // being delivered in full is it safe to jump the cursor ahead to the real scan position
+    // (needed to make progress through long non-matching stretches — see MAX_SCAN above).
+    const willTruncate = collected.length > limit;
+    const nextBefore    = willTruncate ? collected[limit - 1].id : cursor;
+    res.json({ messages: collected.slice(0, limit), hasMore: willTruncate || !exhausted, nextBefore });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
