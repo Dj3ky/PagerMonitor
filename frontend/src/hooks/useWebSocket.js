@@ -192,10 +192,31 @@ export function useWebSocket(backendUrl) {
     ws.onerror = () => { setWsStatus('error'); ws.close(); };
   }, [wsUrl, backendUrl]);
 
+  // Login/logout can leave a stale socket sitting in a backoff wait (connected with no
+  // token, or authenticated under an identity that just logged out) — reconnect right
+  // away instead of waiting for whatever retry delay that earlier attempt landed on.
+  const forceReconnect = useCallback(() => {
+    clearTimeout(timerRef.current);
+    const old = wsRef.current;
+    if (old) {
+      old.onopen = null; old.onmessage = null; old.onclose = null; old.onerror = null;
+      if (old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING) old.close();
+      if (currentWs === old) currentWs = null;
+      wsRef.current = null;
+    }
+    attemptsRef.current = 0;
+    connect();
+  }, [connect]);
+
   useEffect(() => {
     connect();
     return () => { clearTimeout(timerRef.current); wsRef.current?.close(); };
   }, [connect]);
+
+  useEffect(() => {
+    window.addEventListener('pm_token_changed', forceReconnect);
+    return () => window.removeEventListener('pm_token_changed', forceReconnect);
+  }, [forceReconnect]);
 
   const prependHistory = useCallback((history) => {
     setMessages(prev => {

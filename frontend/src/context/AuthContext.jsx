@@ -62,6 +62,10 @@ export function AuthProvider({ children }) {
     setUser({ username: d.username, role: d.role, orgId: d.orgId, orgName: d.orgName, isPlatformAdmin: !!d.isPlatformAdmin, uiLanguage: d.uiLanguage || null });
     setNeedsSetup(false);
     setIsPublic(false);
+    // The WS hook may already be sitting in a backoff wait from an earlier,
+    // unauthenticated connect attempt — nudge it to retry now instead of on
+    // whatever schedule that attempt left it on.
+    window.dispatchEvent(new Event('pm_token_changed'));
   }, []);
 
   const logout = useCallback(async () => {
@@ -70,6 +74,7 @@ export function AuthProvider({ children }) {
     } catch (_) {}
     localStorage.removeItem('pm_token');
     setToken(null);
+    window.dispatchEvent(new Event('pm_token_changed'));
 
     // If public mode is on, become guest again instead of showing login
     try {
