@@ -84,7 +84,8 @@
     "resultCount_other": "{{count}} rezultatov",
     "searchResults": "Rezultati iskanja",
     "backToFeed": "Nazaj na sporočila",
-    "noResults": "Ni rezultatov"
+    "noResults": "Ni rezultatov",
+    "loadMore": "Naloži več rezultatov"
   },
   "messageRow": {
     "messageSource": "Vir sporočila",

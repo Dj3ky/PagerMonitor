@@ -59,6 +59,10 @@ export default function App() {
   const [filters, setFilters]               = useState({ capcode:'', keyword:'', alias:'', group:'' });
   const [searchResults, setSearchResults]   = useState(null);
   const [searching, setSearching]           = useState(false);
+  const [searchQuery, setSearchQuery]       = useState('');
+  const [searchHasMore, setSearchHasMore]   = useState(false);
+  const [searchCursor, setSearchCursor]     = useState(null);
+  const [loadingMoreSearch, setLoadingMoreSearch] = useState(false);
   const [serverStatus, setServerStatus]     = useState(null);
   const [pollSdrStatus, setPollSdrStatus]   = useState(null);
   const [latestSha, setLatestSha]           = useState(null);
@@ -239,6 +243,9 @@ export default function App() {
   const handleSearch = useCallback(async q => {
     if (!q.trim()) {
       setSearchResults(null);
+      setSearchQuery('');
+      setSearchHasMore(false);
+      setSearchCursor(null);
       // Only return to feed when leaving search — don't override admin/map/archive on initial mount
       setView(prev => {
         const next = prev === 'search' ? 'feed' : prev;
@@ -248,10 +255,32 @@ export default function App() {
       return;
     }
     setSearching(true);
-    try { const r = await fetchSearch(q); setSearchResults(r); handleSetView('search'); }
+    setSearchQuery(q);
+    try {
+      const r = await fetchSearch(q);
+      setSearchResults(r.results);
+      setSearchHasMore(r.hasMore);
+      setSearchCursor(r.nextBefore);
+      handleSetView('search');
+    }
     catch (e) { console.warn(e); }
     finally { setSearching(false); }
   }, []);
+
+  // Load the next page of DB search results (same cursor the results ended on) and
+  // append — mirrors handleLoadMore for the live feed, but against /api/search instead
+  // of /api/history.
+  const handleSearchLoadMore = useCallback(async () => {
+    if (loadingMoreSearch || !searchHasMore || !searchQuery) return;
+    setLoadingMoreSearch(true);
+    try {
+      const r = await fetchSearch(searchQuery, 100, searchCursor);
+      setSearchResults(prev => [...(prev || []), ...r.results]);
+      setSearchHasMore(r.hasMore);
+      setSearchCursor(r.nextBefore);
+    } catch (e) { console.warn('Search load more failed:', e); }
+    finally { setLoadingMoreSearch(false); }
+  }, [searchQuery, searchCursor, searchHasMore, loadingMoreSearch]);
 
   // Click-to-filter from message rows
   const handleRowFilter = useCallback((type, value) => {
@@ -393,7 +422,11 @@ export default function App() {
               highlightRules={highlightRules} groups={groups}
               onFilter={handleRowFilter} onMapClick={handleMapClick}
               onDelete={id => setSearchResults(r => r?.filter(m => m.id !== id))}
-              onClear={() => { setSearchResults(null); handleSetView('feed'); }} />
+              onLoadMore={handleSearchLoadMore} hasMore={searchHasMore} loadingMore={loadingMoreSearch}
+              onClear={() => {
+                setSearchResults(null); setSearchQuery(''); setSearchHasMore(false); setSearchCursor(null);
+                handleSetView('feed');
+              }} />
           </div>
           {view === 'admin' && (
             <Suspense fallback={null}>

@@ -677,22 +677,45 @@ function getHistory(orgId, limit = 200) {
   return enrichSourceLabels(rows);
 }
 
-function searchMessages(orgId, query, limit = 100) {
+// `before` pages back through older matches (same cursor convention as getHistory).
+// Fetches one extra row past `limit` to detect whether more matches exist beyond this
+// page, without a second COUNT(*) query — that extra row is dropped before returning.
+function searchMessages(orgId, query, limit = 100, before = null) {
   const safe  = query.replace(/['"*]/g, '').trim();
   const terms = safe.split(/\s+/).filter(Boolean);
   const ftsQuery = terms.map(t => `${t}*`).join(' ');
-  const rows = getDb().prepare(`
-    SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
-           c.display_name as client_name, c.color as client_color,
-           (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
-    FROM messages_fts f
-    JOIN messages m ON m.id = f.rowid
-    ${ALIAS_GROUP_JOIN_SQL}
-    LEFT JOIN sdr_clients c ON c.id = m.client_id
-    WHERE messages_fts MATCH ?
-    ORDER BY m.id DESC LIMIT ?
-  `).all(orgId, orgId, orgId, ftsQuery, limit);
-  return enrichSourceLabels(rows);
+  const db = getDb();
+  const rows = before
+    ? db.prepare(`
+        SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
+               c.display_name as client_name, c.color as client_color,
+               (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
+        FROM messages_fts f
+        JOIN messages m ON m.id = f.rowid
+        ${ALIAS_GROUP_JOIN_SQL}
+        LEFT JOIN sdr_clients c ON c.id = m.client_id
+        WHERE messages_fts MATCH ? AND m.id < ?
+        ORDER BY m.id DESC LIMIT ?
+      `).all(orgId, orgId, orgId, ftsQuery, before, limit + 1)
+    : db.prepare(`
+        SELECT m.*, ${ALIAS_GROUP_SELECT_SQL},
+               c.display_name as client_name, c.color as client_color,
+               (SELECT COUNT(*) FROM message_notes n WHERE n.message_id = m.id AND n.is_private = 0) as note_count
+        FROM messages_fts f
+        JOIN messages m ON m.id = f.rowid
+        ${ALIAS_GROUP_JOIN_SQL}
+        LEFT JOIN sdr_clients c ON c.id = m.client_id
+        WHERE messages_fts MATCH ?
+        ORDER BY m.id DESC LIMIT ?
+      `).all(orgId, orgId, orgId, ftsQuery, limit + 1);
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  return {
+    results:    enrichSourceLabels(page),
+    hasMore,
+    nextBefore: page.length ? page[page.length - 1].id : null,
+  };
 }
 
 function getMessageStats(orgId) {

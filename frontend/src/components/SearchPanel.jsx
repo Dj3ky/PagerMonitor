@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import MessageRow from './MessageRow.jsx';
 import { usePtrScroll } from '../hooks/usePtrScroll.js';
 
-export default function SearchPanel({ results, searching, onClear, highlightRules = [], groups = [], onFilter, onMapClick, onDelete }) {
+export default function SearchPanel({ results, searching, onClear, highlightRules = [], groups = [], onFilter, onMapClick, onDelete, onLoadMore, hasMore, loadingMore }) {
   const { t } = useTranslation();
   const { ref: scrollRef } = usePtrScroll();
   return (
@@ -36,6 +36,20 @@ export default function SearchPanel({ results, searching, onClear, highlightRule
         {!searching && results?.map((msg, i) => (
           <MessageRow key={msg.id ?? i} msg={msg} isNew={false} highlightRules={highlightRules} groups={groups} onFilter={onFilter} onMapClick={onMapClick} onDelete={onDelete} />
         ))}
+
+        {!searching && hasMore && onLoadMore && (
+          <div style={{ padding:'0.75rem', textAlign:'center', flexShrink:0 }}>
+            <button onClick={onLoadMore} disabled={loadingMore}
+              style={{ padding:'0.4rem 1.25rem', borderRadius:'0.5rem', cursor: loadingMore ? 'wait' : 'pointer',
+                fontSize:'0.8rem', fontFamily:'monospace', fontWeight:600,
+                background:'color-mix(in srgb,var(--accent-green) 10%,transparent)',
+                border:'1px solid color-mix(in srgb,var(--accent-green) 25%,transparent)',
+                color: loadingMore ? 'var(--text-3)' : 'var(--accent-green)',
+                transition:'all 0.15s' }}>
+              {loadingMore ? t('messageFeed.loading') : t('searchPanel.loadMore')}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

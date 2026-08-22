@@ -20,7 +20,7 @@ async function req(method, path, body, isAdmin = false) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 export const fetchHistory  = (limit = 200, before = 0) => req('GET', `/api/history?limit=${limit}${before ? `&before=${before}` : ''}`);
-export const fetchSearch   = (q, limit = 100) => req('GET', `/api/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+export const fetchSearch   = (q, limit = 100, before = 0) => req('GET', `/api/search?q=${encodeURIComponent(q)}&limit=${limit}${before ? `&before=${before}` : ''}`);
 export const fetchStatus   = () => req('GET', '/api/status');
 export const fetchAliases    = () => req('GET', '/api/aliases');
 export const fetchVoiceChannels = () => req('GET', '/api/voice-channels');
