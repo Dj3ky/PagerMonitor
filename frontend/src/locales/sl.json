@@ -85,7 +85,8 @@
     "pause": "Ustavi",
     "show": "Prikaži",
     "perPage": "/ stran",
-    "rangeOfTotal": "{{range}} od {{total}}"
+    "rangeOfTotal": "{{range}} od {{total}}",
+    "firstPage": "Nazaj na prvo stran"
   },
   "searchPanel": {
     "searching": "Iskanje…",

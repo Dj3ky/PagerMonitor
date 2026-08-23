@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Filter, Pause, Play, X, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { Filter, Pause, Play, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 const S = {
@@ -318,6 +318,10 @@ export default function FilterBar({ filters, onChange, groups=[], aliases=[], so
         <span style={{ ...S.label, minWidth:'80px', textAlign:'right' }}>
           {t('filterBar.rangeOfTotal', { range: totalMessages === 0 ? '0' : `${page*pageSize+1}–${Math.min((page+1)*pageSize, totalMessages)}`, total: totalMessages })}
         </span>
+        <button style={{ ...S.pgBtn, opacity: page===0 ? 0.4 : 1 }}
+          onClick={() => onPage(0)} disabled={page===0} title={t('filterBar.firstPage')}>
+          <ChevronsLeft size={13}/>
+        </button>
         <button style={{ ...S.pgBtn, opacity: page===0 ? 0.4 : 1 }}
           onClick={() => onPage(p => Math.max(0, p-1))} disabled={page===0}>
           <ChevronLeft size={13}/>

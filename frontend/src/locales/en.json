@@ -85,7 +85,8 @@
     "pause": "Pause",
     "show": "Show",
     "perPage": "/ page",
-    "rangeOfTotal": "{{range}} of {{total}}"
+    "rangeOfTotal": "{{range}} of {{total}}",
+    "firstPage": "Back to first page"
   },
   "searchPanel": {
     "searching": "Searching…",

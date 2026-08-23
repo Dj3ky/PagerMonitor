@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import MessageRow from './MessageRow.jsx';
 import { useSite } from '../context/SiteContext.jsx';
@@ -33,7 +33,7 @@ function FeedHeader() {
   );
 }
 
-export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete, wsStatus, onRefresh, onAddAlias }) {
+export default function MessageFeed({ messages, highlightRules = [], groups = [], onFilter, onMapClick, onLoadMore, loadingMore, noMoreMessages, totalInDb, totalLoaded, onDelete, wsStatus, onRefresh, onAddAlias, onAtTopChange }) {
   const { t } = useTranslation();
   // settingsLoaded is true once the /api/site-settings fetch has resolved (success or fail).
   // We must NOT start the badge timer until then — otherwise a slow mobile network causes
@@ -45,14 +45,30 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   const [lastSeenId, setLastSeenId] = useState(null); // null = not yet loaded
   const markSeenTimer = useRef(null);
   const pendingMarkId = useRef(null);
-  const { ref: scrollRef, pull, refreshing } = usePtrScroll(onRefresh);
+  const { ref: ptrRef, pull, refreshing } = usePtrScroll(onRefresh);
+  // usePtrScroll's ref is a callback ref (a plain function — see its own comment on why),
+  // not a useRef() object, so it has no .current for the reconnect-scroll effect below to
+  // read. Keep our own real ref to the same node alongside it rather than reworking the
+  // shared hook, which other views also depend on as-is.
+  const scrollNodeRef = useRef(null);
+  const scrollRef = useCallback((el) => { scrollNodeRef.current = el; ptrRef(el); }, [ptrRef]);
+
+  // Tells App.jsx whether the newest message (top of page 0) is actually in view, so the
+  // browser-notification popup only stays quiet when it genuinely would be redundant —
+  // being on page 0 doesn't mean much if you've scrolled down to read older rows. A small
+  // threshold rather than an exact 0 check absorbs the odd sub-pixel/scroll-anchoring jitter.
+  const wasAtTopRef = useRef(true);
+  const handleScroll = (e) => {
+    const atTop = e.currentTarget.scrollTop < 40;
+    if (atTop !== wasAtTopRef.current) { wasAtTopRef.current = atTop; onAtTopChange?.(atTop); }
+  };
 
   // After WS connects or reconnects, scroll to top so newest messages are visible.
   // rAF defers until after React flushes, then history prepend keeps us at the top.
   useEffect(() => {
     if (wsStatus !== 'open') return;
     const id = requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = 0;
+      if (scrollNodeRef.current) scrollNodeRef.current.scrollTop = 0;
     });
     return () => cancelAnimationFrame(id);
   }, [wsStatus]);
@@ -169,7 +185,7 @@ export default function MessageFeed({ messages, highlightRules = [], groups = []
   }
 
   return (
-    <div ref={scrollRef} style={{ height:'100%', overflowY:'auto', display:'flex', flexDirection:'column' }}>
+    <div ref={scrollRef} onScroll={handleScroll} style={{ height:'100%', overflowY:'auto', display:'flex', flexDirection:'column' }}>
       {(pull > 0 || refreshing) && (
         <div style={{ height: refreshing ? 40 : pull, flexShrink:0, overflow:'hidden',
           display:'flex', alignItems:'center', justifyContent:'center',

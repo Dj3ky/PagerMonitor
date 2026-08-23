@@ -129,10 +129,18 @@ export default function App() {
 
   // Lets useBrowserNotifications tell "tab focused, looking at the feed" (skip popup,
   // it's already visible) apart from "tab focused, but the feed is hidden" — behind the
-  // profile/settings overlay, or because a different view (map/traffic/aircraft/etc,
-  // all toggled by CSS display rather than unmounting — see the view switch below) is
-  // showing instead. Either way, new messages are landing unseen.
-  useEffect(() => { window.__pagermonitor_feed_covered = showProfile || view !== 'feed'; }, [showProfile, view]);
+  // profile/settings overlay, on a different view (map/traffic/aircraft/etc, all toggled
+  // by CSS display rather than unmounting — see the view switch below), paged into older
+  // history (new messages land at page 0, which pagination deliberately never yanks the
+  // user back to — see the setPage(0) comment above), or scrolled down within page 0
+  // itself (see atTop, set from MessageFeed's own scroll position below). Deliberately
+  // NOT extended to the `paused` toggle — pausing is the user explicitly saying "hold
+  // everything," unlike just being elsewhere, so staying quiet there is right.
+  const [atTop, setAtTop] = useState(true);
+  useEffect(() => { setAtTop(true); }, [page]); // switching page can't tell us the new scroll position yet — assume top until MessageFeed's own scroll handler corrects it
+  useEffect(() => {
+    window.__pagermonitor_feed_covered = showProfile || view !== 'feed' || page !== 0 || !atTop;
+  }, [showProfile, view, page, atTop]);
 
   // Sync push subscription with the browser notification bell
   useEffect(() => {
@@ -437,7 +445,8 @@ export default function App() {
               onDelete={removeMessage}
               wsStatus={wsStatus}
               onRefresh={refreshFeed}
-              onAddAlias={handleAddAlias} />
+              onAddAlias={handleAddAlias}
+              onAtTopChange={setAtTop} />
           </div>
           {/* MapView always mounted so geocoding/state persists across tab switches */}
           <div style={{ position:'absolute', inset:0, display: view === 'map' ? 'block' : 'none' }}>
