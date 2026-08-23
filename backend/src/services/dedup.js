@@ -54,11 +54,13 @@ const PREFIX_MIN_RATIO = 0.4;
 // always runs well past this length, so anything at or under it is never a
 // legitimate standalone page. Matched against an already-cached longer
 // message for the same capcode, any such fragment (however it's damaged —
-// cut off, misdecoded, both) is presumed to be a piece of it, gated by a
-// small shared-prefix check so an unrelated-but-genuinely-short message
-// (e.g. a short cancellation notice) isn't swallowed by coincidence.
-const FRAGMENT_MAX_LEN      = 15;
-const FRAGMENT_MIN_PREFIX   = 3;
+// cut off, misdecoded at the start, both) is presumed to be a piece of it,
+// gated by a small shared-substring check (searched anywhere in either
+// string, not anchored to the start — the very first characters can
+// themselves be the damaged part) so an unrelated-but-genuinely-short
+// message (e.g. a short cancellation notice) isn't swallowed by coincidence.
+const FRAGMENT_MAX_LEN     = 15;
+const FRAGMENT_MIN_OVERLAP = 3;
 // Safety-net sweep interval for capcodes that stop sending entirely — normal
 // pruning already happens per-capcode against the configured dedup window.
 const STALE_SWEEP_MS = 300_000;
@@ -116,6 +118,28 @@ function lcsRatio(a, b) {
   return minLen === 0 ? 0 : lcsLen(a, b) / minLen;
 }
 
+// Longest run of characters that appears verbatim in both strings, searched
+// anywhere — not anchored to the start of either one. A short fragment can be
+// damaged at its very first characters (a codeword/frame boundary corrupted
+// before the content it carries), leaving nothing usable in a leading-prefix
+// comparison even though a solid run of real content survives a few
+// characters in.
+function longestCommonSubstringLen(a, b) {
+  let best = 0;
+  let prevRow = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    const curRow = new Array(b.length + 1).fill(0);
+    for (let j = 1; j <= b.length; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        curRow[j] = prevRow[j - 1] + 1;
+        if (curRow[j] > best) best = curRow[j];
+      }
+    }
+    prevRow = curRow;
+  }
+  return best;
+}
+
 // True if b looks like a retransmission of a — the whole strings are close,
 // one/both carry known decode-failure markers and still share most of their
 // content in order, they share a long prefix before one degrades into
@@ -135,7 +159,7 @@ function looksLikeRetransmission(a, b) {
 
   const maxLen = Math.max(a.length, b.length);
   if (minLen <= FRAGMENT_MAX_LEN && minLen < maxLen) {
-    return prefixLen >= Math.min(FRAGMENT_MIN_PREFIX, minLen);
+    return longestCommonSubstringLen(a, b) >= Math.min(FRAGMENT_MIN_OVERLAP, minLen);
   }
   return false;
 }
