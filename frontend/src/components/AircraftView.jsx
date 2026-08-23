@@ -137,8 +137,11 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
     const L = window.L;
     if (trackLayerRef.current) { map.removeLayer(trackLayerRef.current); trackLayerRef.current = null; }
     const selected = aircraft.find(a => a.id === selectedId);
-    if (selected?.track?.length > 1) {
-      trackLayerRef.current = L.polyline(selected.track.map(p => [p.lat, p.lon]), {
+    // Defensive filter — a null-coordinate point here crashes Leaflet's polyline the moment
+    // it's drawn (see openskyAircraft.js's own guard against ever recording one).
+    const points = (selected?.track || []).filter(p => p.lat != null && p.lon != null);
+    if (points.length > 1) {
+      trackLayerRef.current = L.polyline(points.map(p => [p.lat, p.lon]), {
         color: '#ffd700', weight: 3, opacity: 0.9,
       }).addTo(map);
     }

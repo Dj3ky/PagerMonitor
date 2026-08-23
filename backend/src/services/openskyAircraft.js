@@ -134,7 +134,11 @@ async function refresh() {
       let track = prev.track || [];
       const lastPoint = track[track.length - 1];
       if (lastPoint && Date.now() - new Date(lastPoint.time).getTime() > TRACK_GAP_RESET_MS) track = [];
-      if (!lastPoint || lastPoint.lat !== lat || lastPoint.lon !== lon) {
+      // OpenSky reports lat/lon as null when an aircraft is "live" (Mode-S contact) but its
+      // last position report is stale/unavailable — e.g. between ADS-B position updates.
+      // Never record that as a track point: a null coordinate crashes the frontend's map
+      // (Leaflet polyline) the moment someone clicks the marker and its track gets drawn.
+      if (lat != null && lon != null && (!lastPoint || lastPoint.lat !== lat || lastPoint.lon !== lon)) {
         track = [...track, { lat, lon, time: now }].slice(-MAX_TRACK_POINTS);
       }
 
