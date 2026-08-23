@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
 const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS  = 60000;
+const CONNECT_TIMEOUT_MS = 10000; // a handshake stuck CONNECTING this long is treated as dead — see connect()
 const MAX_MESSAGES = 500;
 
 // Simple pub/sub for WS messages — avoids global mutation
@@ -65,7 +66,35 @@ export function useWebSocket(backendUrl) {
     currentWs = ws;
     setWsStatus('connecting');
 
+    // A handshake can stall at the network layer indefinitely with no open/close/error ever
+    // firing to tell us — seen in the wild as a WS request sitting in Chrome's "Stalled"
+    // state for *days* after a laptop sleep/resume, silently killing the reconnect loop
+    // (which is otherwise entirely driven by onclose). Treat "still CONNECTING after this
+    // long" as a dead attempt ourselves rather than trusting the browser to ever say so.
+    const connectTimeout = setTimeout(() => {
+      if (ws.readyState !== WebSocket.CONNECTING) return;
+      try { ws.close(); } catch (_) {}
+      // close() on a still-CONNECTING socket doesn't reliably fire onclose in every browser.
+      handleDown();
+    }, CONNECT_TIMEOUT_MS);
+
+    // Shared by the natural close event and the connectTimeout fallback above — guarded so
+    // whichever fires first is the only one that schedules a retry for this attempt.
+    let handledDown = false;
+    const handleDown = () => {
+      if (handledDown) return;
+      handledDown = true;
+      clearTimeout(connectTimeout);
+      if (currentWs === ws) currentWs = null;
+      if (wsRef.current === ws) wsRef.current = null;
+      if (!shuttingDownRef.current) setWsStatus('closed');
+      attemptsRef.current += 1;
+      const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attemptsRef.current - 1), RECONNECT_MAX_MS);
+      timerRef.current = setTimeout(connect, delay);
+    };
+
     ws.onopen = () => {
+      clearTimeout(connectTimeout);
       setWsStatus('open');
       shuttingDownRef.current = false;
       // On reconnect (not first connect) fetch history to catch missed messages
@@ -181,15 +210,9 @@ export function useWebSocket(backendUrl) {
       } catch (_) {}
     };
 
-    ws.onclose = () => {
-      if (currentWs === ws) currentWs = null;
-      if (!shuttingDownRef.current) setWsStatus('closed');
-      attemptsRef.current += 1;
-      const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attemptsRef.current - 1), RECONNECT_MAX_MS);
-      timerRef.current = setTimeout(connect, delay);
-    };
+    ws.onclose = () => handleDown();
 
-    ws.onerror = () => { setWsStatus('error'); ws.close(); };
+    ws.onerror = () => { setWsStatus('error'); try { ws.close(); } catch (_) {} };
   }, [wsUrl, backendUrl]);
 
   // Login/logout can leave a stale socket sitting in a backoff wait (connected with no
@@ -220,6 +243,27 @@ export function useWebSocket(backendUrl) {
   useEffect(() => {
     window.addEventListener('pm_token_changed', forceReconnect);
     return () => window.removeEventListener('pm_token_changed', forceReconnect);
+  }, [forceReconnect]);
+
+  // The connectTimeout in connect() is a safety net for a stall happening while the tab is
+  // active, but it still leaves a genuinely dead connection sitting for up to 10s before
+  // retrying. Coming back to the tab (or the OS reporting the network is back) is a much
+  // stronger, immediate signal to just check right now instead of waiting on that timer or
+  // whatever backoff delay is currently in flight.
+  useEffect(() => {
+    const checkStillAlive = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      forceReconnect();
+    };
+    document.addEventListener('visibilitychange', checkStillAlive);
+    window.addEventListener('focus', checkStillAlive);
+    window.addEventListener('online', checkStillAlive);
+    return () => {
+      document.removeEventListener('visibilitychange', checkStillAlive);
+      window.removeEventListener('focus', checkStillAlive);
+      window.removeEventListener('online', checkStillAlive);
+    };
   }, [forceReconnect]);
 
   const prependHistory = useCallback((history) => {
