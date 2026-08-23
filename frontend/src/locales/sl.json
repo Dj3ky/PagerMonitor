@@ -94,7 +94,8 @@
     "searchResults": "Rezultati iskanja",
     "backToFeed": "Nazaj na sporočila",
     "noResults": "Ni rezultatov",
-    "loadMore": "Naloži več rezultatov"
+    "loadMore": "Naloži več rezultatov",
+    "clearFilter": "Počisti filter"
   },
   "messageRow": {
     "messageSource": "Vir sporočila",
