@@ -671,7 +671,7 @@ async function _nominatim(query, countryCode) {
     const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
       const url = `https://nominatim.openstreetmap.org/search?` +
-        `q=${encodeURIComponent(query)}&countrycode=${countryCode}&format=json&limit=1`;
+        `q=${encodeURIComponent(query)}&countrycodes=${countryCode}&format=json&limit=1`;
       const r = await fetch(url, {
         headers: { 'Accept-Language': 'sl,en', 'User-Agent': 'PagerMonitor/2.2' },
         signal: ctrl.signal,
