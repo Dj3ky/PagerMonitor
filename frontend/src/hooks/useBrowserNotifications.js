@@ -60,14 +60,23 @@ export function useBrowserNotifications() {
   }, [supported, enabled]);
 
   const notify = useCallback((msg) => {
-    if (!supported || !enabled || Notification.permission !== 'granted') return;
+    if (!supported || !enabled || Notification.permission !== 'granted') {
+      console.debug('[pm-notify] skipped: gate', { supported, enabled, permission: Notification?.permission });
+      return;
+    }
     // If hidden/minimised, the service worker's push handler is the one responsible
     // for notifying (see sw.js) — firing here too would duplicate it.
-    if (document.visibilityState !== 'visible') return;
+    if (document.visibilityState !== 'visible') {
+      console.debug('[pm-notify] skipped: not visible');
+      return;
+    }
     // Otherwise: skip only if the user can actually see the feed right now (tab
     // focused AND not covered by the profile/settings overlay — see App.jsx). Focused
     // but on that overlay means new messages are landing behind it, unseen.
-    if (document.hasFocus() && !window.__pagermonitor_feed_covered) return;
+    if (document.hasFocus() && !window.__pagermonitor_feed_covered) {
+      console.debug('[pm-notify] skipped: focused and uncovered');
+      return;
+    }
 
     try {
       const alias   = msg.alias_name || msg.alias || msg.capcode;
@@ -81,13 +90,16 @@ export function useBrowserNotifications() {
         tag:    `pm-${msg.capcode}`,   // replaces previous notif from same capcode
         silent: false,
       });
+      console.debug('[pm-notify] shown', { tag: n.tag, title });
 
       // Click notification → focus the tab
       n.onclick = () => { window.focus(); n.close(); };
 
       // Auto-close after 8 seconds
       setTimeout(() => n.close(), 8000);
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[pm-notify] Notification() threw', err);
+    }
   }, [supported, enabled]);
 
   return { supported, enabled, permission, toggle, notify };

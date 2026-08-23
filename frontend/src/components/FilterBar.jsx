@@ -307,13 +307,18 @@ export default function FilterBar({ filters, onChange, groups=[], aliases=[], so
         </button>
       </div>
 
-      {/* Row 2 — pagination */}
-      <div style={{ ...S.row, paddingTop:0, paddingBottom:'0.4rem', gap:'0.5rem' }}>
-        <span style={S.label}>{t('filterBar.show')}</span>
-        <select style={S.select} value={pageSize} onChange={e => onPageSize(Number(e.target.value))}>
-          {pageOptions.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-        <span style={S.label}>{t('filterBar.perPage')}</span>
+      {/* Row 2 — pagination. Per-page selector hidden under 600px (see .pm-filter-desktop-only
+          below) to leave room for the 4 page buttons without wrapping to a second line —
+          nowrap/overflowX as a belt-and-suspenders fallback, same reasoning as row1 above:
+          flexWrap shoves a button that doesn't fit to its own line instead of shrinking. */}
+      <div style={{ ...S.row1, paddingTop:0, paddingBottom:'0.4rem', gap:'0.5rem' }}>
+        <div className="pm-filter-desktop-only" style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+          <span style={S.label}>{t('filterBar.show')}</span>
+          <select style={S.select} value={pageSize} onChange={e => onPageSize(Number(e.target.value))}>
+            {pageOptions.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <span style={S.label}>{t('filterBar.perPage')}</span>
+        </div>
         <div style={{ flex:1 }} />
         <span style={{ ...S.label, minWidth:'80px', textAlign:'right' }}>
           {t('filterBar.rangeOfTotal', { range: totalMessages === 0 ? '0' : `${page*pageSize+1}–${Math.min((page+1)*pageSize, totalMessages)}`, total: totalMessages })}
