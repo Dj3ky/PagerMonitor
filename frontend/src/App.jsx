@@ -261,6 +261,12 @@ export default function App() {
     handleSetView('map');
   }, []);
 
+  const handleAddAlias = useCallback((capcode) => {
+    handleSetView('admin');
+    setRequestedAdminTab('aliases');
+    setRequestedAliasCapcode(capcode);
+  }, []);
+
   // When MapView geocodes an address, update the message in feed state so 📍 button appears
   const [resolvedLocations, setResolvedLocations] = useState({});
   const handleLocationResolved = useCallback((id, lat, lng) => {
@@ -331,6 +337,12 @@ export default function App() {
     });
     setPage(0);
     setNoMoreMessages(false);
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    searchRequestId.current++; // invalidate any in-flight search/load-more
+    setSearchResults(null); setSearchQuery(''); setSearchHasMore(false); setSearchCursor(null);
+    setLoadingMoreSearch(false); // a discarded load-more's own finally won't clear this
   }, []);
 
   const filteredMessages = useMemo(() => messages
@@ -423,7 +435,7 @@ export default function App() {
               onDelete={removeMessage}
               wsStatus={wsStatus}
               onRefresh={refreshFeed}
-              onAddAlias={(capcode) => { handleSetView('admin'); setRequestedAdminTab('aliases'); setRequestedAliasCapcode(capcode); }} />
+              onAddAlias={handleAddAlias} />
           </div>
           {/* MapView always mounted so geocoding/state persists across tab switches */}
           <div style={{ position:'absolute', inset:0, display: view === 'map' ? 'block' : 'none' }}>
@@ -462,17 +474,13 @@ export default function App() {
             </div>
           )}
           <div style={{ position:'absolute', inset:0, display: view === 'search' ? 'flex' : 'none', flexDirection:'column' }}>
-            <SearchPanel results={searchResults} searching={searching}
+            <SearchPanel key={searchQuery} results={searchResults} searching={searching}
               highlightRules={highlightRules} groups={groups}
-              onFilter={handleRowFilter} onMapClick={handleMapClick}
+              onMapClick={handleMapClick}
               onDelete={id => setSearchResults(r => r?.filter(m => m.id !== id))}
               onLoadMore={handleSearchLoadMore} hasMore={searchHasMore} loadingMore={loadingMoreSearch}
-              onClear={() => {
-                searchRequestId.current++; // invalidate any in-flight search/load-more
-                setSearchResults(null); setSearchQuery(''); setSearchHasMore(false); setSearchCursor(null);
-                setLoadingMoreSearch(false); // a discarded load-more's own finally won't clear this
-                handleSetView('feed');
-              }} />
+              onAddAlias={handleAddAlias}
+              onClear={() => { clearSearch(); handleSetView('feed'); }} />
           </div>
           {view === 'admin' && (
             <Suspense fallback={null}>

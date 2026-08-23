@@ -94,7 +94,8 @@
     "searchResults": "Search results",
     "backToFeed": "Back to feed",
     "noResults": "No results found",
-    "loadMore": "Load more results"
+    "loadMore": "Load more results",
+    "clearFilter": "Clear filter"
   },
   "messageRow": {
     "messageSource": "Message source",
