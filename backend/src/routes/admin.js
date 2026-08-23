@@ -559,9 +559,23 @@ router.get('/geo-data/fetch', platformOnly, (req, res) => {
 
   const send = obj => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(obj)}\n\n`); };
 
-  // Keepalive so the connection survives the ~60 s download window
+  // Keepalive — fetchStreets.js/fetchPlaces.js tile large countries (see
+  // scripts/geoBounds.js), which can run far longer than a typical request; this
+  // just has to keep bytes flowing so a reverse proxy's idle-connection timeout
+  // doesn't cut the stream, regardless of how long the actual download takes.
   const hb = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 20_000);
-  req.on('close', () => clearInterval(hb));
+
+  // fetchStreets.js/fetchPlaces.js checkpoint progress to a .progress.json file after
+  // every tile, so it's safe to kill and resume — but if we DIDN'T kill it here, a
+  // browser disconnect (closed tab, lost connection) would leave the child running
+  // in the background, and the next "Update geo data" click would spawn a second one
+  // racing the first over the same progress file and Overpass quota. Kill on
+  // disconnect; the next run picks up from the last completed tile.
+  let currentChild = null;
+  req.on('close', () => {
+    clearInterval(hb);
+    try { currentChild?.kill(); } catch (_) {}
+  });
 
   const scriptsDir = require('path').join(__dirname, '../../scripts');
 
@@ -570,9 +584,11 @@ router.get('/geo-data/fetch', platformOnly, (req, res) => {
     const child = spawn('node', [require('path').join(scriptsDir, file), cc], {
       cwd: require('path').join(__dirname, '../../'),
     });
+    currentChild = child;
     child.stdout.on('data', d => send({ type: 'log', text: d.toString() }));
     child.stderr.on('data', d => send({ type: 'log', text: d.toString() }));
     child.on('close', code => {
+      currentChild = null;
       if (code !== 0) {
         send({ type: 'error', text: `${file} exited with code ${code}` });
         clearInterval(hb);
@@ -582,6 +598,7 @@ router.get('/geo-data/fetch', platformOnly, (req, res) => {
       }
     });
     child.on('error', err => {
+      currentChild = null;
       send({ type: 'error', text: err.message });
       clearInterval(hb);
       res.end();

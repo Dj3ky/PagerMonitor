@@ -8,6 +8,152 @@ const COUNTRY_NAMES = {
   us:'United States', ca:'Canada', au:'Australia', nz:'New Zealand',
 };
 
+// ── French address helpers ─────────────────────────────────────────────────────
+const FR_POSTAL_RE = /\b(?!00000)(\d{5})\b/;
+const FR_HOUSE_RE  = /^[1-9]\d{0,3}[A-Za-z]?(?:[-/]\d{1,4}[A-Za-z]?)?$/;
+const FR_STREET_TYPES = new Set([
+  'rue', 'avenue', 'av', 'boulevard', 'bd', 'chemin', 'chem', 'route',
+  'rt', 'place', 'impasse', 'imp', 'allee', 'allée', 'quai', 'cours',
+  'passage', 'square', 'faubourg', 'voie', 'promenade', 'lotissement',
+  'hameau', 'lieu-dit', 'lieudit', 'traverse', 'montee', 'montée',
+]);
+
+// multimon-ng's raw line for a French page carries a technical prefix ("Address:
+// 654321 Function: 0 Alpha:") and a callsign/message-type segment before the real
+// content ("... / 18 Avenue des Tilleuls 12345 Exampleville") — strip both down to
+// just the address text. Must run before LABELED_ADDR_RE below, or its own
+// "Address:"/"Location:" match would swallow the technical header as if it were
+// the address (confirmed with a real capture: "Address: 654321 Function: 0 Alpha:
+// TEST ALERT / 18 Avenue des Tilleuls 12345 Exampleville<NUL><NUL>" was geocoded
+// as literally "654321 Function: 0 Alpha: TEST ALERT..." before this existed).
+function cleanFrenchPagerText(text) {
+  let value = String(text || '')
+    .replace(/<NUL>/gi, ' ')
+    .replace(/[\u0000\uFFFD]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const alphaMatch = value.match(/\bAlpha\s*:\s*(.*)$/i);
+  if (alphaMatch) value = alphaMatch[1].trim();
+
+  // Networks that prefix the address with a callsign/message-type segment separate
+  // it with "/" — the address itself is everything after the LAST one. (A compound
+  // house number using "/", e.g. "12/14 Rue Example", would only misfire this if it
+  // sat at the very end of the message with nothing after it — not seen in practice.)
+  const slashIndex = value.lastIndexOf('/');
+  if (slashIndex >= 0 && value.slice(slashIndex + 1).trim()) {
+    value = value.slice(slashIndex + 1).trim();
+  }
+
+  return value;
+}
+
+function pushUnique(array, value) {
+  if (value && !array.includes(value)) array.push(value);
+}
+
+function extractFrenchContext(text) {
+  const clean = cleanFrenchPagerText(text);
+  const postalMatch = clean.match(FR_POSTAL_RE);
+  const postalCode = postalMatch?.[1] || null;
+  const beforePostal = postalMatch
+    ? clean.slice(0, postalMatch.index).trim()
+    : clean;
+  const tokens = clean.split(/\s+/).filter(Boolean);
+  const postalIndex = postalCode ? tokens.indexOf(postalCode) : -1;
+
+  let settlement = null;
+  if (postalIndex >= 0 && tokens[postalIndex + 1]) {
+    const tail = [];
+    for (let i = postalIndex + 1; i < tokens.length && tail.length < 5; i++) {
+      const token = tokens[i].replace(/^[,;:.]+|[,;:.]+$/g, '');
+      if (!token || FR_HOUSE_RE.test(token)) break;
+      tail.push(token);
+    }
+    settlement = tail.join(' ') || null;
+  }
+
+  let houseNumber = null;
+  let street = null;
+
+  const leadingHouse = beforePostal.match(
+    /(?:^|[\s/])([1-9]\d{0,3}[A-Za-z]?(?:[-/]\d{1,4}[A-Za-z]?)?)[\s,]+(.+?)\s*$/i,
+  );
+
+  if (leadingHouse) {
+    houseNumber = leadingHouse[1];
+    street = leadingHouse[2]
+      .replace(/^[,;:/-]+|[,;:/-]+$/g, '')
+      .trim();
+  }
+
+  if (!street) {
+    const trailingHouse = beforePostal.match(
+      /(.+?)\s+([1-9]\d{0,3}[A-Za-z]?(?:[-/]\d{1,4}[A-Za-z]?)?)\s*$/i,
+    );
+    if (trailingHouse) {
+      street = trailingHouse[1].trim();
+      houseNumber = trailingHouse[2];
+    }
+  }
+
+  if (!street) {
+    const words = beforePostal.split(/\s+/).filter(Boolean);
+    const typeIndex = words.findIndex(word =>
+      FR_STREET_TYPES.has(String(word).normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '').toLowerCase()),
+    );
+
+    if (typeIndex >= 0 && words[typeIndex + 1]) {
+      street = words
+        .slice(typeIndex, postalIndex >= 0 ? postalIndex : words.length)
+        .join(' ')
+        .replace(/^[,;:/-]+|[,;:/-]+$/g, '')
+        .trim();
+    }
+  }
+
+  return { clean, postalCode, settlement, street, houseNumber };
+}
+
+function frenchCandidates(text, country = 'France') {
+  const context = extractFrenchContext(text);
+  const candidates = [];
+  const streetPart = [context.houseNumber, context.street]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  const settlement = context.settlement;
+  const postal = context.postalCode;
+
+  if (!streetPart && !settlement) return candidates;
+
+  if (streetPart && settlement && postal) {
+    pushUnique(candidates, `${streetPart}, ${postal} ${settlement}, ${country}`);
+  }
+  if (streetPart && settlement) {
+    pushUnique(candidates, `${streetPart}, ${settlement}, ${country}`);
+  }
+  if (streetPart && postal) {
+    pushUnique(candidates, `${streetPart}, ${postal}, ${country}`);
+  }
+  if (settlement) pushUnique(candidates, `${settlement}, ${country}`);
+  if (streetPart) pushUnique(candidates, `${streetPart}, ${country}`);
+
+  return candidates;
+}
+
+// Rough mainland-France + Corsica bounding box — catches the case where a short/
+// ambiguous fallback candidate (e.g. just a settlement name with no street) geocodes
+// to a real place with the same name outside France entirely.
+function plausibleFrenchResult(result) {
+  return !!result &&
+    Number.isFinite(Number(result.lat)) &&
+    Number.isFinite(Number(result.lng)) &&
+    Number(result.lat) >= 41 && Number(result.lat) <= 51.5 &&
+    Number(result.lng) >= -5.5 && Number(result.lng) <= 10;
+}
+
 // ── Labeled address patterns (e.g. "Flat/Unit: 247 GREENLEA LANE FRANKTON") ───
 // These explicit labels take priority over the generic number-window heuristics.
 const LABELED_ADDR_RE = /(?:Flat\/Unit|Unit\/Flat|Flat|Unit|Address|Location)\s*:\s*(.+)/i;
@@ -476,6 +622,9 @@ function parseLocation(text, countryCode = 'si', homeHint = null) {
 
   const country = COUNTRY_NAMES[countryCode] || countryCode.toUpperCase();
 
+  // Must run before LABELED_ADDR_RE below — see cleanFrenchPagerText's own comment.
+  text = countryCode === 'fr' ? cleanFrenchPagerText(text) : text;
+
   // Labeled address prefix — extract directly, skipping heuristic parsing
   const labeledMatch = LABELED_ADDR_RE.exec(text);
   if (labeledMatch) {
@@ -485,7 +634,9 @@ function parseLocation(text, countryCode = 'si', homeHint = null) {
 
   const candidates = countryCode === 'si'
     ? siCandidates(text, country, countryCode, homeHint)
-    : legacyCandidates(text, country);
+    : countryCode === 'fr'
+      ? frenchCandidates(text, country)
+      : legacyCandidates(text, country);
 
   if (candidates.length > 0) return { lat: null, lng: null, candidates };
   return { lat: null, lng: null };
@@ -633,7 +784,11 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
           }
           const query = [parts, settlement, settlementMuni, country].filter(Boolean).join(', ');
           const aiResult = await _geocode(query, countryCode, homeHint);
-          if (aiResult) return { ...aiResult, aiAssisted: true };
+          // Same France-bounds sanity check as the regex pipeline below — an AI-guessed
+          // settlement can still geocode to a real, same-named place outside France.
+          if (aiResult && (countryCode !== 'fr' || plausibleFrenchResult(aiResult))) {
+            return { ...aiResult, aiAssisted: true };
+          }
         }
       }
     } catch (_) { /* AI unavailable — fall through to regex pipeline */ }
@@ -642,11 +797,20 @@ async function geocodeAddress(candidates, countryCode = 'si', originalText = nul
   // ── 2. Regex-pipeline candidates (fallback) ──────────────────────────────────
   // Used when AI is disabled, not reachable, or returned no usable address.
   const queries = Array.isArray(candidates) ? candidates : [candidates].filter(Boolean);
-  const toTry   = queries.slice(0, 1).filter(q => q?.trim());
+  // French candidates aren't confidence-ranked (frenchCandidates returns a fixed
+  // most-precise-first order, not a score, unlike siCandidates), and the top one
+  // occasionally geocodes to an implausible or wrong-country result. Try a few and
+  // skip implausible ones before giving up. Every other country's candidates ARE
+  // confidence-ranked — one well-formed query is enough, same as before.
+  const toTry = countryCode === 'fr'
+    ? queries.filter(q => typeof q === 'string' && q.trim()).slice(0, 10)
+    : queries.slice(0, 1).filter(q => q?.trim());
 
   for (const query of toTry) {
     const result = await _geocode(query, countryCode, homeHint);
-    if (result) return result;
+    if (!result) continue;
+    if (countryCode === 'fr' && !plausibleFrenchResult(result)) continue;
+    return result;
   }
 
   return null;

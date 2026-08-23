@@ -532,7 +532,10 @@ export default function SiteSettings({ onResetMap }) {
           <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginBottom: '0.6rem' }}>
             Download OSM streets and settlements for <code style={{ color: 'var(--accent-blue)' }}>{geocodeCountry}</code> to
             improve address geocoding accuracy. Runs <code>fetchStreets</code> then <code>fetchPlaces</code>
-            {geocodeCountry === 'si' && <> (and, for SI, the gasilska regija boundaries used by the SPIN map's region overlay)</>} — takes 1–3 min.
+            {geocodeCountry === 'si' && <> (and, for SI, the gasilska regija boundaries used by the SPIN map's region overlay)</>}.{' '}
+            {['fr'].includes(geocodeCountry)
+              ? 'Large countries are downloaded in tiles and can take a long time (minutes to hours depending on Overpass load) — safe to leave running, but closing this tab stops it; progress is saved after each tile, so re-clicking resumes instead of starting over.'
+              : 'Takes about 1–3 min.'}
           </div>
           <button className="pm-btn" onClick={startFetch} disabled={fetching}
             style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
