@@ -291,6 +291,7 @@ function StationMap({ stations, visible, updatedAt, regions, alerts }) {
   const markersRef = useRef([]);
   const regionLayersRef = useRef([]);
   const tileLayerRef = useRef(null);
+  const labelLayerRef = useRef(null);
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY);
   const [metric, setMetric] = useState(
     () => (localStorage.getItem(METRIC_STORAGE_KEY) in METRICS ? localStorage.getItem(METRIC_STORAGE_KEY) : 'temp')
@@ -306,7 +307,7 @@ function StationMap({ stations, visible, updatedAt, regions, alerts }) {
     const L = window.L;
     const map = L.map(divRef.current, { center: [46.12, 14.80], zoom: 9 });
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; labelLayerRef.current = null; };
   }, []);
 
   // Swap the tile layer whenever the chosen basemap style changes.
@@ -317,6 +318,10 @@ function StationMap({ stations, visible, updatedAt, regions, alerts }) {
     const style = BASEMAPS[basemap] || BASEMAPS.dark;
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
     tileLayerRef.current = L.tileLayer(style.url, { attribution: style.attr, maxZoom: 19, maxNativeZoom: style.maxNativeZoom || 19, detectRetina: true }).addTo(map);
+    if (labelLayerRef.current) { map.removeLayer(labelLayerRef.current); labelLayerRef.current = null; }
+    if (style.refUrl) {
+      labelLayerRef.current = L.tileLayer(style.refUrl, { maxZoom: 19, maxNativeZoom: style.maxNativeZoom || 19, detectRetina: true }).addTo(map);
+    }
     localStorage.setItem(BASEMAP_STORAGE_KEY, basemap);
   }, [basemap]);
 

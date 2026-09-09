@@ -88,6 +88,7 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const tileLayerRef = useRef(null);
+  const labelLayerRef = useRef(null);
   const trackLayerRef = useRef(null);
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
   const [selectedId, setSelectedId] = useState(null);
@@ -98,7 +99,7 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
     const map = L.map(divRef.current, { center: [45.85, 14.2], zoom: 8 }); // Slovenian coast — usual scooping grounds
     map.on('click', () => setSelectedId(null));
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; trackLayerRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; labelLayerRef.current = null; trackLayerRef.current = null; };
   }, []);
 
   useEffect(() => {
@@ -108,6 +109,10 @@ function AircraftMap({ aircraft, visible, updatedAt }) {
     const style = BASEMAPS[basemap] || BASEMAPS.streets;
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
     tileLayerRef.current = L.tileLayer(style.url, { attribution: style.attr, maxZoom: 19, maxNativeZoom: style.maxNativeZoom || 19, detectRetina: true }).addTo(map);
+    if (labelLayerRef.current) { map.removeLayer(labelLayerRef.current); labelLayerRef.current = null; }
+    if (style.refUrl) {
+      labelLayerRef.current = L.tileLayer(style.refUrl, { maxZoom: 19, maxNativeZoom: style.maxNativeZoom || 19, detectRetina: true }).addTo(map);
+    }
     localStorage.setItem(BASEMAP_STORAGE_KEY, basemap);
   }, [basemap]);
 

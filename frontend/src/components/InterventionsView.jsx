@@ -163,6 +163,7 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
   const markersRef = useRef(new Map());
   const activeLayerRef = useRef(null); // whichever layer (cluster group or plain map) markers currently live on
   const tileLayerRef = useRef(null);
+  const labelLayerRef = useRef(null);
   const obsegLayerRef = useRef(null); // L.layerGroup for the "Večji obseg" municipality overlay
   const regijeLayerRef = useRef(null); // L.geoJSON for gasilska regija outlines — fetched lazily, kept once loaded
   const [basemap, setBasemap] = useBasemap(BASEMAP_STORAGE_KEY, 'streets');
@@ -192,7 +193,7 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     // map/cluster group they belonged to gets destroyed means the next markers-effect
     // run tries to removeLayer() them from a *new* cluster group that never had them,
     // which throws inside Leaflet.markercluster's internal bookkeeping.
-    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; obsegLayerRef.current = null; regijeLayerRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; labelLayerRef.current = null; clusterRef.current = null; markersRef.current = new Map(); activeLayerRef.current = null; obsegLayerRef.current = null; regijeLayerRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -201,6 +202,10 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     const style = BASEMAPS[basemap] || BASEMAPS.dark;
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
     tileLayerRef.current = window.L.tileLayer(style.url, { attribution: style.attr, maxZoom: 19, maxNativeZoom: style.maxNativeZoom || 19, detectRetina: true }).addTo(map);
+    if (labelLayerRef.current) { map.removeLayer(labelLayerRef.current); labelLayerRef.current = null; }
+    if (style.refUrl) {
+      labelLayerRef.current = window.L.tileLayer(style.refUrl, { maxZoom: 19, maxNativeZoom: style.maxNativeZoom || 19, detectRetina: true }).addTo(map);
+    }
     localStorage.setItem(BASEMAP_STORAGE_KEY, basemap);
   }, [basemap]);
 

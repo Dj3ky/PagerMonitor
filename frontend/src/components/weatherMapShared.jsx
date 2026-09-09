@@ -19,8 +19,10 @@ const ESRI_ATTR = '© <a href="https://www.esri.com/">Esri</a>';
 
 export const BASEMAPS = {
   streets: { label: 'Ceste', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR },
-  dark:    { label: 'Temna',    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',  attr: ESRI_ATTR, maxNativeZoom: 16 },
-  light:   { label: 'Svetla',   url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', attr: ESRI_ATTR, maxNativeZoom: 16 },
+  dark:    { label: 'Temna',    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',  attr: ESRI_ATTR, maxNativeZoom: 16,
+             refUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}' },
+  light:   { label: 'Svetla',   url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', attr: ESRI_ATTR, maxNativeZoom: 16,
+             refUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}' },
 };
 
 export function useBasemap(storageKey, defaultBasemap = 'dark') {
