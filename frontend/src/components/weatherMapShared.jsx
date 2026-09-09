@@ -14,13 +14,13 @@ export async function getJson(path) {
   return res.json();
 }
 
-const OSM_ATTR   = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-const CARTO_ATTR = `${OSM_ATTR} © <a href="https://carto.com/attributions">CARTO</a>`;
+const OSM_ATTR  = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+const ESRI_ATTR = '© <a href="https://www.esri.com/">Esri</a>';
 
 export const BASEMAPS = {
   streets: { label: 'Ceste', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR },
-  dark:    { label: 'Temna',    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  attr: CARTO_ATTR },
-  light:   { label: 'Svetla',   url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: CARTO_ATTR },
+  dark:    { label: 'Temna',    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',  attr: ESRI_ATTR, maxNativeZoom: 16 },
+  light:   { label: 'Svetla',   url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', attr: ESRI_ATTR, maxNativeZoom: 16 },
 };
 
 export function useBasemap(storageKey, defaultBasemap = 'dark') {

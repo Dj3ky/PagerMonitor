@@ -200,7 +200,7 @@ function InterventionsMap({ rows, visible, updatedAt, flyTo, onSelect }) {
     if (!map || !window.L) return;
     const style = BASEMAPS[basemap] || BASEMAPS.dark;
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
-    tileLayerRef.current = window.L.tileLayer(style.url, { attribution: style.attr, maxZoom: 19, detectRetina: true }).addTo(map);
+    tileLayerRef.current = window.L.tileLayer(style.url, { attribution: style.attr, maxZoom: 19, maxNativeZoom: style.maxNativeZoom || 19, detectRetina: true }).addTo(map);
     localStorage.setItem(BASEMAP_STORAGE_KEY, basemap);
   }, [basemap]);
 
