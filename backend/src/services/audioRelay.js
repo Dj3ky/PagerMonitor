@@ -331,7 +331,13 @@ function getAllClientLogs() {
 }
 
 // ── Browser-side listen/unlisten (called from websocket.js's /ws handler) ─────────────
-function handleBrowserListen(ws, channelId) {
+// `resume` is true when this listen_start is a resubscribe on a brand-new socket after a
+// WS reconnect (see LiveChannels.jsx's ws_reconnected handler), not a genuine first tune-in.
+// The pre-roll buffer exists to cover the first word or two while activity detection + the
+// listen_start round-trip catch up on a *new* listen — on a resume, the client's own
+// WebAudio queue is still mid-playback, so replaying the last second of already-heard audio
+// on top of it sounds like a duplicate/echo instead of filling a real gap.
+function handleBrowserListen(ws, channelId, resume) {
   const id = Number(channelId);
   if (!Number.isFinite(id)) return;
   const wasActive = totalSubscriberCount(id) > 0;
@@ -343,7 +349,7 @@ function handleBrowserListen(ws, channelId) {
   // that was already forwarding for another listener. A remote channel that was cold
   // (wasActive false) has nothing buffered here yet — client/src/index.js flushes its own
   // pre-roll once our 'start' below reaches it instead.
-  flushPreRoll(id, ws);
+  if (!resume) flushPreRoll(id, ws);
   if (!wasActive) setRemoteForwarding(id, true);
 }
 

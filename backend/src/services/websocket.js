@@ -68,7 +68,7 @@ function initWebSocket(server) {
       let msg;
       try { msg = JSON.parse(data); } catch (_) { return; }
       const audioRelay = require('./audioRelay');
-      if (msg.type === 'listen_start') audioRelay.handleBrowserListen(ws, msg.channelId);
+      if (msg.type === 'listen_start') audioRelay.handleBrowserListen(ws, msg.channelId, !!msg.resume);
       else if (msg.type === 'listen_stop') audioRelay.handleBrowserUnlisten(ws, msg.channelId);
       // Remote client log viewing is instance infrastructure — same access level as the
       // SDR Clients admin page itself (platform admin only), not a regular per-org action.

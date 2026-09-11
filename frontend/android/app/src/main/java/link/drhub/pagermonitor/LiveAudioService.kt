@@ -129,6 +129,7 @@ class LiveAudioService : Service() {
     private var channelOrder: List<Pair<Int, String>> = emptyList() // id -> description, in priority order (first active wins, matches JS's channels.find())
     private val activeSet = mutableSetOf<Int>()
     private var autoGraceRunnable: Runnable? = null
+    private var pendingResumeId: Int = -1 // channel to resume-without-pre-roll on the next evaluateAutoDecision pick, or -1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -208,6 +209,7 @@ class LiveAudioService : Service() {
         cancelReconnect()
         cancelAutoGrace()
         autoWatch = false
+        pendingResumeId = -1
         releaseAudio()
         socket?.close(1000, null)
         channelId = id
@@ -217,7 +219,13 @@ class LiveAudioService : Service() {
         openSocket(wsUrl, id)
     }
 
-    private fun openSocket(wsUrl: String, id: Int) {
+    // `resume` marks a reconnect (WiFi<->cellular handover, brief drop, a stall-triggered
+    // retry) resubscribing to the same channel, as opposed to a genuine first tune-in — see
+    // audioRelay.js's handleBrowserListen. AudioTrack plays writes strictly in order, so a
+    // resent pre-roll on a resume doesn't overlap the live audio, it plays sequentially
+    // right before it: the last ~1s heard again, then a hard cut into the live feed —
+    // audibly a duplicate. Skipping the pre-roll flush on resume avoids that.
+    private fun openSocket(wsUrl: String, id: Int, resume: Boolean = false) {
         val mySession = sessionId
         updateStatus("connecting")
         client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
@@ -226,7 +234,7 @@ class LiveAudioService : Service() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (mySession != sessionId) return
                 reconnectAttempt = 0
-                webSocket.send("{\"type\":\"listen_start\",\"channelId\":$id}")
+                webSocket.send("{\"type\":\"listen_start\",\"channelId\":$id,\"resume\":$resume}")
                 armWatchdog()
             }
 
@@ -259,7 +267,7 @@ class LiveAudioService : Service() {
         val mySession = sessionId
         reconnectAttempt++
         val delayMs = minOf(3000L * (1L shl minOf(reconnectAttempt - 1, 4)), 30000L)
-        val r = Runnable { if (id == channelId && mySession == sessionId) openSocket(wsUrl, id) }
+        val r = Runnable { if (id == channelId && mySession == sessionId) openSocket(wsUrl, id, resume = true) }
         reconnectRunnable = r
         handler.postDelayed(r, delayMs)
     }
@@ -277,6 +285,7 @@ class LiveAudioService : Service() {
     private fun connectAutoWatch(wsUrl: String, base: String, token: String, channelsJson: String) {
         cancelReconnect()
         cancelAutoGrace()
+        pendingResumeId = -1
         releaseAudio()
         socket?.close(1000, null)
         autoWatch = true
@@ -369,6 +378,10 @@ class LiveAudioService : Service() {
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     if (mySession != sessionId) return
                     updateStatus("error", t.message)
+                    // Remembered so evaluateAutoDecision() can tell "resuming what we were
+                    // already on" (skip pre-roll — see openSocket's resume doc) apart from
+                    // "picking a channel fresh" once the reconnected socket re-evaluates.
+                    if (channelId >= 0) pendingResumeId = channelId
                     channelId = -1
                     releaseAudio()
                     scheduleAutoReconnect(wsUrl)
@@ -416,16 +429,22 @@ class LiveAudioService : Service() {
             return
         }
         val next = channelOrder.firstOrNull { activeSet.contains(it.first) }
-        if (next != null) startChannelOnWatchSocket(next.first)
+        // pendingResumeId (set in openWatchSocket's onFailure) marks "resuming the channel
+        // we were already on before this reconnect" — skip its pre-roll the same as the
+        // single-channel path does. Cleared on every evaluation, matched or not, so a stale
+        // value never lingers past the reconnect it was meant for.
+        val resume = next != null && next.first == pendingResumeId
+        pendingResumeId = -1
+        if (next != null) startChannelOnWatchSocket(next.first, resume)
     }
 
-    private fun startChannelOnWatchSocket(id: Int) {
+    private fun startChannelOnWatchSocket(id: Int, resume: Boolean = false) {
         cancelAutoGrace()
         channelId = id
         val desc = channelOrder.firstOrNull { it.first == id }?.second ?: "Live channel"
         startForegroundNotification(desc)
         updateStatus("connecting")
-        try { socket?.send("{\"type\":\"listen_start\",\"channelId\":$id}") } catch (_: Exception) {}
+        try { socket?.send("{\"type\":\"listen_start\",\"channelId\":$id,\"resume\":$resume}") } catch (_: Exception) {}
         armWatchdog()
     }
 

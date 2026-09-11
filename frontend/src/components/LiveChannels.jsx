@@ -101,7 +101,7 @@ export default function LiveChannels() {
     if (isNative) return; // LiveAudioService owns its own socket/reconnect on native
     return subscribeWsMessages(data => {
       if (data.type !== 'ws_reconnected' || playingIdRef.current == null) return;
-      sendWsMessage({ type: 'listen_start', channelId: playingIdRef.current });
+      sendWsMessage({ type: 'listen_start', channelId: playingIdRef.current, resume: true });
       armWatchdogRef.current?.();
     });
   }, []);
