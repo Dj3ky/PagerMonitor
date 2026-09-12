@@ -4,6 +4,8 @@ const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS  = 60000;
 const CONNECT_TIMEOUT_MS = 10000; // a handshake stuck CONNECTING this long is treated as dead — see connect()
 const MAX_MESSAGES = 500;
+const PING_INTERVAL_MS = 20000; // app-level liveness check — see the pong handler in connect()
+const PONG_TIMEOUT_MS  = 45000; // no pong (or any other message) in this long -> treat as a zombie socket
 
 // Simple pub/sub for WS messages — avoids global mutation
 const wsListeners = new Set();
@@ -35,6 +37,8 @@ export function useWebSocket(backendUrl) {
   const wsRef          = useRef(null);
   const timerRef       = useRef(null);
   const shuttingDownRef = useRef(false);
+  const lastActivityRef = useRef(Date.now()); // last time *anything* arrived — see the heartbeat effect below
+  const pingTimerRef    = useRef(null);
   // Set once the user has fetched older history via "Load More" — past that point we must
   // stop capping `messages` at MAX_MESSAGES, or the very next live message (or reconnect
   // catch-up fetch) would slice the array back down to MAX_MESSAGES and silently drop the
@@ -97,6 +101,7 @@ export function useWebSocket(backendUrl) {
       clearTimeout(connectTimeout);
       setWsStatus('open');
       shuttingDownRef.current = false;
+      lastActivityRef.current = Date.now();
       // On reconnect (not first connect) fetch history to catch missed messages
       if (attemptsRef.current > 0) {
         const tok = localStorage.getItem('pm_token') || '';
@@ -127,6 +132,7 @@ export function useWebSocket(backendUrl) {
     };
 
     ws.onmessage = (evt) => {
+      lastActivityRef.current = Date.now();
       if (evt.data instanceof ArrayBuffer) {
         if (evt.data.byteLength < 4) return;
         const view = new DataView(evt.data);
@@ -137,6 +143,7 @@ export function useWebSocket(backendUrl) {
       }
       try {
         const data = JSON.parse(evt.data);
+        if (data.type === 'pong') return; // liveness reply only — see the heartbeat effect below
 
         // Notify all subscribers (LogViewer etc.)
         wsListeners.forEach(fn => { try { fn(data); } catch (_) {} });
@@ -253,8 +260,13 @@ export function useWebSocket(backendUrl) {
   useEffect(() => {
     const checkStillAlive = () => {
       if (document.visibilityState === 'hidden') return;
-      if (wsRef.current?.readyState === WebSocket.OPEN) return;
-      forceReconnect();
+      if (wsRef.current?.readyState !== WebSocket.OPEN) { forceReconnect(); return; }
+      // readyState alone isn't trustworthy coming back from background: Chrome/WebView
+      // freezes a backgrounded tab's JS while the OS keeps responding to the WebSocket's
+      // protocol-level ping/pong transparently underneath it, so a socket that's actually
+      // dead (or just never delivered anything the whole time we were away) still reports
+      // OPEN. Fall back to "have we heard *anything* recently" instead of trusting that flag.
+      if (Date.now() - lastActivityRef.current > PONG_TIMEOUT_MS) forceReconnect();
     };
     document.addEventListener('visibilitychange', checkStillAlive);
     window.addEventListener('focus', checkStillAlive);
@@ -264,6 +276,22 @@ export function useWebSocket(backendUrl) {
       window.removeEventListener('focus', checkStillAlive);
       window.removeEventListener('online', checkStillAlive);
     };
+  }, [forceReconnect]);
+
+  // Same zombie-socket problem, but for the case where the tab never goes hidden at all
+  // (e.g. a laptop sleep/resume, or a network path that silently drops packets without the
+  // OS ever surfacing a close). Round-trip an app-level ping through the JS message handler
+  // — not just relying on the transport's own ping/pong — since that's what actually proves
+  // messages are getting through, which is the thing consumers (e.g. LiveChannels' "who's
+  // transmitting" indicator) depend on.
+  useEffect(() => {
+    pingTimerRef.current = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - lastActivityRef.current > PONG_TIMEOUT_MS) { forceReconnect(); return; }
+      sendWsMessage({ type: 'ping', ts: Date.now() });
+    }, PING_INTERVAL_MS);
+    return () => clearInterval(pingTimerRef.current);
   }, [forceReconnect]);
 
   const prependHistory = useCallback((history) => {

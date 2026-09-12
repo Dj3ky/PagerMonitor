@@ -70,6 +70,13 @@ function initWebSocket(server) {
       const audioRelay = require('./audioRelay');
       if (msg.type === 'listen_start') audioRelay.handleBrowserListen(ws, msg.channelId, !!msg.resume);
       else if (msg.type === 'listen_stop') audioRelay.handleBrowserUnlisten(ws, msg.channelId);
+      // App-level liveness check, distinct from the protocol-level ping/pong below — a
+      // backgrounded browser tab/WebView can freeze JS while the OS keeps the socket's
+      // protocol-level pong going transparently, leaving the client's `readyState` reporting
+      // OPEN on a connection that's actually delivering nothing to its JS. Round-tripping
+      // through the message handler (not just the transport) is what the client needs to
+      // detect that and force a reconnect. See useWebSocket.js's heartbeat.
+      else if (msg.type === 'ping') safeSend(ws, { type: 'pong', ts: msg.ts });
       // Remote client log viewing is instance infrastructure — same access level as the
       // SDR Clients admin page itself (platform admin only), not a regular per-org action.
       else if (msg.type === 'watch_client_logs' && ws.isPlatformAdmin) audioRelay.handleBrowserWatchClientLogs(ws, msg.clientId);
