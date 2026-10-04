@@ -116,7 +116,9 @@ All settings are in `.env`. Key variables:
 | `RTL_FM_PPM` | `0` | Frequency correction |
 | `MULTIMON_PROTOCOLS` | `POCSAG1200` | Protocols to decode |
 | `LOG_LEVEL` | `info` | `error`/`warn`/`info`/`debug` |
-| `DEFAULT_ADMIN_PASS` | _(random)_ | First-run admin password. If unset, a random password is generated and printed to the log. |
+| `DEFAULT_ADMIN_PASS` | _(random)_ | First-run admin password (min. 10 characters). If unset or shorter, a random password is generated and printed to the log. |
+| `TRUST_PROXY` | `loopback, linklocal, uniquelocal` | Which reverse proxies may set `X-Forwarded-For`, so the login rate limits see the real client IP. The default trusts proxies on the same host or a private network (nginx, Docker bridge). `true`/`false`, a hop count, or an address/subnet list |
+| `CORS_ORIGINS` | `https://localhost,capacitor://localhost` | Comma-separated origins allowed to call the API cross-origin. The web UI is same-origin and needs no entry; the default covers the Android/iOS app. Add an origin only if another site must call this server |
 
 See `.env.example` for all options with descriptions.
 

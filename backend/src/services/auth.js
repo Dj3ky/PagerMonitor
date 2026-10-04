@@ -2,50 +2,50 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const db     = require('./database');
 const logger = require('../utils/logger');
+const { hashToken } = require('../utils/tokens');
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const sessions = new Map(); // token → { userId, username, role, orgId, isPlatformAdmin, expires }
+const MIN_PASSWORD_LENGTH = 10; // applies whenever a password is set; existing ones stay valid
+const PASSWORD_TOO_SHORT = `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+// Compared against when the username doesn't exist, so an unknown user takes as long to
+// reject as a wrong password (otherwise response time reveals which usernames exist).
+const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 10);
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
-function initSessions() {
-  try {
-    const rows = db.loadActiveSessions();
-    for (const r of rows) sessions.set(r.token, {
-      userId: r.user_id, username: r.username, role: r.role,
-      orgId: r.org_id ?? null, isPlatformAdmin: !!r.is_platform_admin, expires: r.expires,
-    });
-    logger.info(`Loaded ${rows.length} active session(s) from DB`);
-  } catch (e) {
-    logger.warn(`Could not load sessions from DB: ${e.message}`);
-  }
-}
-
+// Stored in auth_sessions as SHA-256(token) → user id. There is deliberately no in-memory
+// snapshot of role/org/platform-admin: validateSession reads the user's current row on
+// every call, so demotions, org moves and deletions take effect on the very next request.
 function createSession(user) {
-  const token   = crypto.randomBytes(32).toString('hex');
-  const expires = Date.now() + SESSION_TTL_MS;
-  const orgId = user.org_id ?? null;
-  const isPlatformAdmin = !!user.is_platform_admin;
-  sessions.set(token, { userId: user.id, username: user.username, role: user.role, orgId, isPlatformAdmin, expires });
-  try { db.saveDbSession(token, user.id, user.username, user.role, expires, orgId, isPlatformAdmin); } catch (_) {}
+  const token = crypto.randomBytes(32).toString('hex');
+  db.saveDbSession(hashToken(token), user.id, Date.now() + SESSION_TTL_MS);
   return token;
 }
 
 function validateSession(token) {
-  if (!token) return null;
-  const s = sessions.get(token);
-  if (!s) return null;
-  if (Date.now() > s.expires) { sessions.delete(token); try { db.deleteDbSession(token); } catch (_) {} return null; }
-  return s;
+  if (!token || typeof token !== 'string') return null;
+  const tokenHash = hashToken(token);
+  const row = db.getSessionUser(tokenHash);
+  if (!row) return null;
+  if (Date.now() > row.expires) { db.deleteDbSession(tokenHash); return null; }
+  return {
+    userId: row.id, username: row.username, role: row.role,
+    orgId: row.org_id ?? null, isPlatformAdmin: !!row.is_platform_admin, expires: row.expires,
+  };
 }
 
 function destroySession(token) {
-  sessions.delete(token);
-  try { db.deleteDbSession(token); } catch (_) {}
+  if (token) db.deleteDbSession(hashToken(token));
+}
+
+// Logs a user out everywhere — after a password change/reset, so a stolen token stops
+// working. keepToken (the caller's own session) survives when a user changes their own
+// password. Open WebSocket connections are re-validated by the heartbeat in websocket.js.
+function revokeUserSessions(userId, keepToken = null) {
+  const n = db.deleteUserSessions(userId, keepToken ? hashToken(keepToken) : null);
+  if (n) logger.info(`Revoked ${n} session(s) of user id=${userId}`);
 }
 
 setInterval(() => {
-  const now = Date.now();
-  for (const [tok, s] of sessions) if (now > s.expires) sessions.delete(tok);
   try { db.pruneExpiredSessions(); } catch (_) {}
 }, 60 * 60 * 1000);
 
@@ -62,12 +62,18 @@ function getPublicOrgId() {
 }
 
 // ── User ops ──────────────────────────────────────────────────────────────────
-async function register(username, password, role = 'viewer', orgId = null, isPlatformAdmin = false) {
-  if (!username || username.length < 2) throw new Error('Username must be at least 2 characters');
-  if (!password || password.length < 6) throw new Error('Password must be at least 6 characters');
+// Validates a new account and returns its password hash, without creating it — callers
+// that need the insert inside a larger transaction (invite sign-up) do that themselves.
+async function prepareNewUser(username, password, role) {
+  if (typeof username !== 'string' || username.length < 2) throw new Error('Username must be at least 2 characters');
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) throw new Error(PASSWORD_TOO_SHORT);
   if (!['admin', 'editor', 'viewer'].includes(role)) throw new Error('Role must be admin, editor or viewer');
   if (db.getUserByUsername(username)) throw new Error('Username already taken');
-  const hash = await bcrypt.hash(password, 10);
+  return bcrypt.hash(password, 10);
+}
+
+async function register(username, password, role = 'viewer', orgId = null, isPlatformAdmin = false) {
+  const hash = await prepareNewUser(username, password, role);
   const id   = db.createUser(username, hash, role, orgId, isPlatformAdmin);
   logger.info(`User registered: ${username} (${role}${isPlatformAdmin ? ', platform-admin' : ''}, org=${orgId})`);
   return id;
@@ -75,9 +81,8 @@ async function register(username, password, role = 'viewer', orgId = null, isPla
 
 async function login(username, password) {
   const user = db.getUserByUsername(username);
-  if (!user) throw new Error('Invalid username or password');
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok)  throw new Error('Invalid username or password');
+  const ok = await bcrypt.compare(password, user ? user.password : DUMMY_HASH);
+  if (!user || !ok) throw new Error('Invalid username or password');
   db.touchUserLogin(user.id);
   const token = createSession(user);
   logger.info(`Login: ${username}`);
@@ -89,18 +94,22 @@ async function login(username, password) {
   };
 }
 
-async function changePassword(userId, oldPassword, newPassword) {
+// keepToken: the session making the change stays logged in; every other one is revoked.
+async function changePassword(userId, oldPassword, newPassword, keepToken) {
   const user = db.getDb().prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!user) throw new Error('User not found');
   const ok = await bcrypt.compare(oldPassword, user.password);
   if (!ok)  throw new Error('Current password is incorrect');
-  if (newPassword.length < 6) throw new Error('New password must be at least 6 characters');
+  if (newPassword.length < MIN_PASSWORD_LENGTH) throw new Error(`New password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   db.updateUserPassword(userId, await bcrypt.hash(newPassword, 10));
+  revokeUserSessions(userId, keepToken);
 }
 
+// Admin reset or emailed reset link — the user is logged out on every device.
 async function adminSetPassword(userId, newPassword) {
-  if (newPassword.length < 6) throw new Error('Password must be at least 6 characters');
+  if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) throw new Error(PASSWORD_TOO_SHORT);
   db.updateUserPassword(userId, await bcrypt.hash(newPassword, 10));
+  revokeUserSessions(userId);
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────
@@ -111,11 +120,21 @@ function extractToken(req) {
 }
 
 function requireAuth(req, res, next) {
+  // A valid login always wins — in public mode too, so a logged-in user keeps seeing their
+  // own org and their own per-user data rather than the anonymous guest view.
+  const s = validateSession(extractToken(req));
+  if (s) { req.session = s; return next(); }
   // Allow unauthenticated GET requests when public mode is active
   if (req.publicAccess && req.method === 'GET') {
     req.session = { userId: null, username: 'guest', role: 'viewer', orgId: getPublicOrgId(), isPlatformAdmin: false };
     return next();
   }
+  return res.status(401).json({ error: 'Not authenticated' });
+}
+
+// Like requireAuth, but never admits public-mode guests — for per-user data, internal
+// notes and bulk exports, which stay behind a login even when the feed itself is public.
+function requireUser(req, res, next) {
   const s = validateSession(extractToken(req));
   if (!s) return res.status(401).json({ error: 'Not authenticated' });
   req.session = s;
@@ -154,11 +173,28 @@ function requirePlatformAdmin(req, res, next) {
   next();
 }
 
+// Whether `session` may manage (role, email, password, notification prefs, delete) the
+// user row `target`. Returns null if allowed, else { status, error }. Platform admins may
+// manage anyone; org admins only users of their own org — and never a platform admin,
+// even one in their own org: resetting that account's password or email would otherwise
+// hand an org admin the instance-wide platform tier.
+function manageUserError(session, target) {
+  if (session.isPlatformAdmin) return target ? null : { status: 404, error: 'User not found' };
+  if (!target || target.org_id !== session.orgId) return { status: 403, error: 'Cannot manage a user outside your organization' };
+  if (target.is_platform_admin) return { status: 403, error: 'Only a platform admin can manage a platform admin account' };
+  return null;
+}
+
 // ── First-run: create default admin + org if no users exist ──────────────────
 async function ensureDefaultAdmin() {
   if (db.countUsers() === 0) {
     const orgId = db.createOrganization('My Organization', null);
-    const pass = process.env.DEFAULT_ADMIN_PASS || crypto.randomBytes(12).toString('hex');
+    let pass = process.env.DEFAULT_ADMIN_PASS;
+    if (pass && pass.length < MIN_PASSWORD_LENGTH) {
+      logger.warn(`DEFAULT_ADMIN_PASS is shorter than ${MIN_PASSWORD_LENGTH} characters — ignoring it and generating a random password instead`);
+      pass = null;
+    }
+    pass = pass || crypto.randomBytes(12).toString('hex');
     await register('admin', pass, 'admin', orgId, true);
     logger.warn(`⚠  Default admin created  username=admin  password=${pass}`);
     logger.warn('   Change this password in Admin → Users immediately!');
@@ -166,7 +202,8 @@ async function ensureDefaultAdmin() {
 }
 
 module.exports = {
-  register, login, changePassword, adminSetPassword,
-  createSession, validateSession, destroySession, initSessions, getPublicOrgId,
-  requireAuth, requireAdmin, requireEditor, requirePlatformAdmin, ensureDefaultAdmin,
+  register, prepareNewUser, login, changePassword, adminSetPassword,
+  createSession, validateSession, destroySession, revokeUserSessions, getPublicOrgId,
+  requireAuth, requireUser, requireAdmin, requireEditor, requirePlatformAdmin, ensureDefaultAdmin,
+  manageUserError, extractToken, MIN_PASSWORD_LENGTH,
 };

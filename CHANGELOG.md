@@ -11,6 +11,30 @@ Versioning follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATC
 
 ---
 
+## [Unreleased]
+
+### Security
+- **Password reset links can no longer be redirected** — links were built from the request's `Origin`/`Host` header, so anyone could trigger a genuine reset email pointing at their own domain. They now use the new **Public URL** setting (Admin → Site settings); password reset stays disabled until it is set
+- **Reset tokens now actually expire** after 1 hour, are single-use (using one invalidates all other outstanding links for that user), and are stored only as a SHA-256 hash in a new `password_resets` table. Outstanding legacy tokens are dropped on upgrade
+- Reset token is removed from the address bar as soon as the reset page loads; `Referrer-Policy: strict-origin-when-cross-origin` is now sent explicitly
+- **Org admins can no longer take over a platform admin** — an org admin could reset the password, change the email, change the role of, or delete a platform admin in the same organization (the default setup), gaining instance-wide access. Platform admin accounts can now only be managed by platform admins; the role endpoint also only accepts `admin`/`editor`/`viewer`
+- **Sessions are now revocable and always current** — role, organization and platform-admin status were copied into the session at login and kept for 7 days. They are now read from the user's current record on every request, so demotions, org moves and deletions apply immediately. Changing your password logs out all your other sessions; an admin reset or emailed reset logs the user out everywhere. Open WebSocket connections are re-checked every 30 s and closed when the session is gone or the user's org/platform access changed
+- **Session tokens are stored hashed** — the `sessions` table is replaced by `auth_sessions`, keyed by SHA-256 of the token. Active sessions are migrated on upgrade, so nobody is logged out
+
+- **Brute-force protection on login** — `/auth/login` allows 10 failed attempts per 15 minutes per IP and per username; forgot-password 5 requests per 15 minutes per IP and 3 per hour per username; reset-password and invite sign-up are capped per IP too (`express-rate-limit`). New `TRUST_PROXY` setting so the limits see the real client IP behind a reverse proxy
+- **Minimum password length raised from 6 to 10 characters** for every newly set password (existing passwords keep working). A `DEFAULT_ADMIN_PASS` shorter than that is ignored in favour of a random one
+- Login with an unknown username now takes as long as with a wrong password, so response time no longer reveals which usernames exist
+- **Request bodies capped at 1 MB** — every JSON body was parsed with a 500 MB limit before any authentication, so anyone could exhaust the server's memory with a few requests. Only backup restore still accepts large uploads, and only after the platform-admin check. The unused global raw-body parser is gone; oversized or malformed bodies get a JSON error
+- **CORS restricted** — the API reflected any origin (with credentials). Cross-origin access is now limited to `CORS_ORIGINS` (default: the native app's `https://localhost` / `capacitor://localhost`); the web UI is same-origin and unaffected
+- **Invite sign-up is atomic** — the account was created before the invite's use was counted, so two people racing the last use of a limited invite could both end up with an account. User creation and invite use now happen in one transaction; a failed sign-up (e.g. username taken) no longer uses up the invite
+- Client key (remote SDR clients, audio-source WebSocket) is compared in constant time
+- `docker/nginx-standalone.conf` logs requests without query strings, so session tokens (`/ws?token=`), reset tokens and invite codes no longer end up in the access log; HSTS is included as a commented-out option for setups with a trusted certificate
+- **Public mode no longer exposes internal data** — message notes, the archive CSV export, per-user last-seen and the push device list now require a login even when public read-only mode is on; the export button is hidden for guests
+
+### Fixed
+- In public mode, logged-in users were served the anonymous guest view on every read request (public org, no per-user data); a valid login now always takes precedence
+- Changing your password from the profile panel always failed (the request sent the wrong field names)
+
 ## [2.5.0] — 2026-08-12
 
 ### Added

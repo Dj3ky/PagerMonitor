@@ -6,7 +6,7 @@ const path    = require('path');
 const { execSync, spawn } = require('child_process');
 const { version } = require('../../package.json');
 
-const { requireAdmin, requireEditor, requirePlatformAdmin } = require('../services/auth');
+const { requireAdmin, requireEditor, requirePlatformAdmin, manageUserError } = require('../services/auth');
 const { startSdrPipeline, stopSdrPipeline, restartSdrPipeline, getStatus, getLogs } = require('../services/sdr');
 const { listAttachedDongles } = require('../services/rtlDevices');
 const { getDb, getStats, getMessageStats,
@@ -504,7 +504,19 @@ router.get('/user-locations', adminOnly, (req, res) => {
 // Slovenia-only integrations (ARSO, NAP traffic, OpenSky aircraft bounding box).
 // Same reasoning applies to the optional-feature toggles themselves — all default
 // off now, opt-in rather than opt-out, on top of the geocodeCountry gate.
-const SITE_SETTINGS_DEFAULTS = { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, geocodeCountry:'', locale:'', timezone:'', windyApiKey:'', enableTraffic:false, enableAircraft:false, enableArsoWeather:false, enableInterventions:false };
+const SITE_SETTINGS_DEFAULTS = { siteName:'PagerMonitor', siteDescription:'Real-time pager decoder', newBadgeSeconds:10, mapDotColor:'#00ff9d', showMapButton:true, mapMaxAgeDays:30, publicMode:false, publicUrl:'', geocodeCountry:'', locale:'', timezone:'', windyApiKey:'', enableTraffic:false, enableAircraft:false, enableArsoWeather:false, enableInterventions:false };
+
+// The externally reachable base URL, used to build links in outgoing emails (password
+// reset). '' clears it. Returns the normalized URL (no trailing slash), or null if invalid —
+// https only, since a reset link over plain http would expose the token in transit.
+function normalizePublicUrl(v) {
+  if (v == null || v === '') return '';
+  if (typeof v !== 'string') return null;
+  let u;
+  try { u = new URL(v.trim()); } catch (_) { return null; }
+  if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return null;
+  return `${u.origin}${u.pathname}`.replace(/\/+$/, '');
+}
 
 router.get('/site-settings', platformOnly, (_req, res) => {
   try { res.json(_gs('site_settings', SITE_SETTINGS_DEFAULTS)); }
@@ -515,6 +527,10 @@ router.put('/site-settings', platformOnly, (req, res) => {
     const cur = _gs('site_settings', SITE_SETTINGS_DEFAULTS);
     const b = req.body;
     const validTz = tz => { try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; } catch (_) { return false; } };
+    // Unlike the other fields, an invalid public URL is rejected outright rather than
+    // silently kept at its old value — the admin needs to know reset links won't work.
+    const publicUrl = b.publicUrl !== undefined ? normalizePublicUrl(b.publicUrl) : (cur.publicUrl || '');
+    if (publicUrl === null) return res.status(400).json({ error: 'Public URL must be a full https:// address, e.g. https://pager.example.com' });
     // Merge onto the existing stored blob — only fields present in the request body
     // are validated/overwritten, so a page that only edits e.g. the feature toggles
     // doesn't clobber unrelated settings saved from another admin tab.
@@ -526,6 +542,7 @@ router.put('/site-settings', platformOnly, (req, res) => {
       showMapButton: b.showMapButton !== undefined ? (b.showMapButton !== false) : cur.showMapButton,
       mapMaxAgeDays: b.mapMaxAgeDays !== undefined ? Math.max(1/24, Math.min(365, parseFloat(b.mapMaxAgeDays)||30)) : cur.mapMaxAgeDays,
       publicMode: b.publicMode !== undefined ? !!b.publicMode : cur.publicMode,
+      publicUrl,
       // Empty string is a valid explicit "clear it back to unconfigured" — only
       // reject genuinely invalid non-empty input by falling back to the current value.
       geocodeCountry: b.geocodeCountry !== undefined ? (b.geocodeCountry === '' || /^[a-z]{2}$/.test(b.geocodeCountry) ? b.geocodeCountry : cur.geocodeCountry) : cur.geocodeCountry,
@@ -541,7 +558,7 @@ router.put('/site-settings', platformOnly, (req, res) => {
       enableInterventions: b.enableInterventions !== undefined ? (b.enableInterventions === true) : (cur.enableInterventions === true),
     };
     _ss('site_settings', next);
-    addAuditLog(req.session?.username||'admin', 'site.settings', `publicMode=${!!next.publicMode}`);
+    addAuditLog(req.session?.username||'admin', 'site.settings', `publicMode=${!!next.publicMode} publicUrl=${next.publicUrl || '-'}`);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1032,10 +1049,8 @@ router.get('/user-notif-prefs', adminOnly, (req, res) => {
 router.put('/user-notif-prefs/:userId', adminOnly, (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
-    if (!req.session.isPlatformAdmin) {
-      const target = getUserById(userId);
-      if (!target || target.org_id !== req.session.orgId) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
-    }
+    const denied = manageUserError(req.session, getUserById(userId));
+    if (denied) return res.status(denied.status).json({ error: denied.error });
     setUserNotifPrefs(userId, req.body);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1044,10 +1059,8 @@ router.put('/user-notif-prefs/:userId', adminOnly, (req, res) => {
 router.put('/users/:id/email', adminOnly, (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (!req.session.isPlatformAdmin) {
-      const target = getUserById(id);
-      if (!target || target.org_id !== req.session.orgId) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
-    }
+    const denied = manageUserError(req.session, getUserById(id));
+    if (denied) return res.status(denied.status).json({ error: denied.error });
     updateUserEmail(id, req.body.email);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
+import { MIN_PASSWORD_LENGTH } from '../utils/password.js';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 
@@ -12,7 +13,7 @@ export default function PasswordResetPage({ token }) {
   const [done, setDone]   = useState(false);
 
   const submit = async () => {
-    if (pw.next.length < 6) return setMsg({ type:'err', text: t('passwordResetPage.tooShort') });
+    if (pw.next.length < MIN_PASSWORD_LENGTH) return setMsg({ type:'err', text: t('passwordResetPage.tooShort', { min: MIN_PASSWORD_LENGTH }) });
     if (pw.next !== pw.confirm) return setMsg({ type:'err', text: t('passwordResetPage.mismatch') });
     setSaving(true);
     try {

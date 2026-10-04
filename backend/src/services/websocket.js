@@ -44,6 +44,7 @@ function initWebSocket(server) {
       try { ws.close(4001, 'Not authenticated'); } catch (_) {}
       return;
     }
+    ws.authToken = query.token || null; // kept for re-validation in the heartbeat below
     ws.orgId = conn.orgId;
     ws.isPlatformAdmin = conn.isPlatformAdmin;
     ws.username = conn.username;
@@ -91,10 +92,21 @@ function initWebSocket(server) {
     if (status) safeSend(ws, { type: 'sdr_status', status });
   });
 
-  // Heartbeat to detect dead connections
+  // Heartbeat to detect dead connections — and to re-check each connection's access, so a
+  // logged-out/revoked/deleted user (or a guest after public mode is switched off) is cut
+  // off within one interval. An org move or platform-admin change also closes the socket:
+  // the client reconnects right away and starts clean, instead of keeping audio/log
+  // subscriptions that were granted under the old access.
   const heartbeat = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (!ws.isAlive) { ws.terminate(); return; }
+      let conn = null;
+      try { conn = resolveConnectionOrg(ws.authToken); } catch (_) { conn = ws; } // DB hiccup — keep as is
+      if (!conn) { try { ws.close(4001, 'Not authenticated'); } catch (_) {} return; }
+      if (conn.orgId !== ws.orgId || conn.isPlatformAdmin !== ws.isPlatformAdmin) {
+        try { ws.close(4002, 'Access changed'); } catch (_) {}
+        return;
+      }
       ws.isAlive = false;
       ws.ping();
     });

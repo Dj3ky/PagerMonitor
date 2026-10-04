@@ -153,7 +153,10 @@ router.get('/download', requirePlatformAdmin, async (req, res) => {
 // ── POST /admin/backup/restore ─────────────────────────────────────────────────
 // Accepts a .pmbackup JSON file (from the download above), restores both DBs.
 // Server must be restarted after restore for changes to take effect.
-router.post('/restore', requirePlatformAdmin, async (req, res) => {
+// Mounted at /admin/backup — index.js exempts this path from the global 1 MB JSON limit;
+// the body is parsed here instead, only once the caller is known to be a platform admin.
+const RESTORE_PATH = '/admin/backup/restore';
+router.post('/restore', requirePlatformAdmin, express.json({ limit: '500mb' }), async (req, res) => {
   try {
     const bundle = req.body;
     if (!bundle || !bundle.version || !bundle.main) return res.status(400).json({ error: 'Invalid backup file — missing required fields' });
@@ -262,3 +265,4 @@ router.post('/restart', requirePlatformAdmin, (req, res) => {
 });
 
 module.exports = router;
+module.exports.RESTORE_PATH = RESTORE_PATH;

@@ -5,6 +5,7 @@ import { authUsers, authRegister, authSetRole, authResetPw, authDeleteUser, auth
 import { useAdminFetch } from '../../hooks/useAdminFetch.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { normTs } from '../../utils/time.js';
+import { MIN_PASSWORD_LENGTH } from '../../utils/password.js';
 
 function fmtLastLogin(ts) {
   if (!ts) return 'Never logged in';
@@ -30,6 +31,10 @@ function Flash({ msg }) {
 }
 
 function UserRow({ u, me, onRole, onDelete, onEdit }) {
+  const isMe = u.username === me?.username;
+  // Org admins can't manage a platform admin's account (enforced server-side too).
+  const locked = !!u.is_platform_admin && !me?.isPlatformAdmin;
+  const lockedTitle = locked ? 'Only a platform admin can manage this account' : undefined;
   return (
     <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.6rem 0',
       borderBottom:'1px solid var(--border-soft)', flexWrap:'wrap' }}>
@@ -37,7 +42,8 @@ function UserRow({ u, me, onRole, onDelete, onEdit }) {
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontFamily:'monospace', fontSize:'0.85rem', color:'var(--text-1)', display:'flex', alignItems:'center', gap:'0.4rem' }}>
           {u.username}
-          {u.username === me?.username && <span style={{ fontSize:'0.65rem', color:'var(--accent-green)' }}>(you)</span>}
+          {isMe && <span style={{ fontSize:'0.65rem', color:'var(--accent-green)' }}>(you)</span>}
+          {!!u.is_platform_admin && <span style={{ fontSize:'0.65rem', color:'var(--accent-amber)' }}>platform admin</span>}
         </div>
         {u.email && (
           <div style={{ fontSize:'0.7rem', color:'var(--text-3)', fontFamily:'monospace', display:'flex', alignItems:'center', gap:'0.25rem' }}>
@@ -52,20 +58,20 @@ function UserRow({ u, me, onRole, onDelete, onEdit }) {
         </div>
       </div>
       <select value={u.role || 'viewer'} onChange={e => onRole(u.id, e.target.value)}
-        disabled={u.username === me?.username}
+        disabled={isMe || locked} title={lockedTitle}
         style={{ background:'var(--bg-3)', border:'1px solid var(--border)', color:'var(--text-2)',
           borderRadius:'0.35rem', padding:'0.2rem 0.4rem', fontSize:'0.75rem', cursor:'pointer', flexShrink:0 }}>
         <option value="admin">admin</option>
         <option value="editor">editor</option>
         <option value="viewer">viewer</option>
       </select>
-      <button onClick={() => onEdit(u)} title="Edit email / reset password"
-        style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.2rem' }}>
+      <button onClick={() => onEdit(u)} disabled={locked} title={lockedTitle || 'Edit email / reset password'}
+        style={{ background:'none', border:'none', cursor: locked ? 'default' : 'pointer', color:'var(--text-3)', padding:'0.2rem', opacity: locked ? 0.4 : 1 }}>
         <Pencil size={13}/>
       </button>
-      <button onClick={() => onDelete(u.id, u.username)} disabled={u.username === me?.username}
+      <button onClick={() => onDelete(u.id, u.username)} disabled={isMe || locked} title={lockedTitle}
         style={{ background:'none', border:'none', cursor:'pointer', padding:'0.2rem',
-          color: u.username === me?.username ? 'var(--text-3)' : 'var(--accent-red)' }}>
+          color: isMe || locked ? 'var(--text-3)' : 'var(--accent-red)' }}>
         <Trash2 size={13}/>
       </button>
     </div>
@@ -133,7 +139,7 @@ export default function UsersPanel() {
   };
 
   const handleAdd = async () => {
-    if (!newUser.username || newUser.password.length < 6) { flash('err', 'Username required, password min 6 chars'); return; }
+    if (!newUser.username || newUser.password.length < MIN_PASSWORD_LENGTH) { flash('err', `Username required, password min ${MIN_PASSWORD_LENGTH} chars`); return; }
     try {
       await authRegister(newUser.username, newUser.password, newUser.role, newUser.email || undefined);
       flash('ok', `User "${newUser.username}" created`);
@@ -162,7 +168,7 @@ export default function UsersPanel() {
       await adminSetUserEmail(editTarget.id, editEmail);
       // Reset password if provided
       if (editPw) {
-        if (editPw.length < 6) { flash('err', 'Password min 6 characters'); return; }
+        if (editPw.length < MIN_PASSWORD_LENGTH) { flash('err', `Password min ${MIN_PASSWORD_LENGTH} characters`); return; }
         await authResetPw(editTarget.id, editPw);
       }
       flash('ok', `${editTarget.username} updated`);
@@ -172,7 +178,7 @@ export default function UsersPanel() {
   };
 
   const handleChangePw = async () => {
-    if (!pwForm.oldPassword || pwForm.newPassword.length < 6) { flash('err', 'New password min 6 chars'); return; }
+    if (!pwForm.oldPassword || pwForm.newPassword.length < MIN_PASSWORD_LENGTH) { flash('err', `New password min ${MIN_PASSWORD_LENGTH} chars`); return; }
     try { await authChangePw(pwForm.oldPassword, pwForm.newPassword); flash('ok', 'Password changed'); setPwForm({ oldPassword:'', newPassword:'' }); }
     catch (e) { flash('err', e.message); }
   };
@@ -312,9 +318,9 @@ export default function UsersPanel() {
               <label className="pm-label"><Key size={11}/> New password (leave empty to keep current)</label>
               <input className="pm-input" type="password" value={editPw}
                 onChange={e => setEditPw(e.target.value)} placeholder="Leave empty to keep current" />
-              {editPw.length > 0 && editPw.length < 6 && (
+              {editPw.length > 0 && editPw.length < MIN_PASSWORD_LENGTH && (
                 <div style={{ fontSize:'0.68rem', color:'var(--accent-red)', marginTop:'0.2rem', fontFamily:'monospace' }}>
-                  {editPw.length}/6 — too short
+                  {editPw.length}/{MIN_PASSWORD_LENGTH} — too short
                 </div>
               )}
             </div>
@@ -348,12 +354,12 @@ export default function UsersPanel() {
             </select>
           </div>
           <div>
-            <label className="pm-label">Password (min 6)</label>
+            <label className="pm-label">Password (min {MIN_PASSWORD_LENGTH})</label>
             <input className="pm-input" type="password" placeholder="Password" value={newUser.password}
               onChange={e => setNewUser(u => ({ ...u, password: e.target.value }))} />
-            {newUser.password.length > 0 && newUser.password.length < 6 && (
+            {newUser.password.length > 0 && newUser.password.length < MIN_PASSWORD_LENGTH && (
               <div style={{ fontSize:'0.68rem', color:'var(--accent-red)', marginTop:'0.2rem', fontFamily:'monospace' }}>
-                {newUser.password.length}/6 — too short
+                {newUser.password.length}/{MIN_PASSWORD_LENGTH} — too short
               </div>
             )}
           </div>
@@ -364,7 +370,7 @@ export default function UsersPanel() {
           </div>
         </div>
         <button className="pm-btn pm-btn-primary" onClick={handleAdd}
-          disabled={!newUser.username || newUser.password.length < 6}>
+          disabled={!newUser.username || newUser.password.length < MIN_PASSWORD_LENGTH}>
           <UserPlus size={13}/> Create user
         </button>
       </div>
@@ -376,11 +382,11 @@ export default function UsersPanel() {
           <input className="pm-input" type="password" placeholder="Current password"
             value={pwForm.oldPassword} onChange={e => setPwForm(f => ({ ...f, oldPassword: e.target.value }))} />
           <div>
-            <input className="pm-input" type="password" placeholder="New password (min 6)"
+            <input className="pm-input" type="password" placeholder={`New password (min ${MIN_PASSWORD_LENGTH})`}
               value={pwForm.newPassword} onChange={e => setPwForm(f => ({ ...f, newPassword: e.target.value }))} />
-            {pwForm.newPassword.length > 0 && pwForm.newPassword.length < 6 && (
+            {pwForm.newPassword.length > 0 && pwForm.newPassword.length < MIN_PASSWORD_LENGTH && (
               <div style={{ fontSize:'0.68rem', color:'var(--accent-red)', marginTop:'0.2rem', fontFamily:'monospace' }}>
-                {pwForm.newPassword.length}/6 — too short
+                {pwForm.newPassword.length}/{MIN_PASSWORD_LENGTH} — too short
               </div>
             )}
           </div>

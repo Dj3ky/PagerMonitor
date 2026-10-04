@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { UserPlus } from 'lucide-react';
 import { authJoin } from '../utils/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { MIN_PASSWORD_LENGTH } from '../utils/password.js';
 
 // Reached via an invite link (?invite=CODE) generated from an org's Users panel —
 // joining puts the new account straight into that org, seeing its existing groups/
@@ -15,8 +16,8 @@ export default function JoinPage({ code }) {
   const [msg, setMsg]       = useState(null);
 
   const submit = async () => {
-    if (!form.username || form.password.length < 6) {
-      setMsg({ type:'err', text: t('joinPage.validationError') });
+    if (!form.username || form.password.length < MIN_PASSWORD_LENGTH) {
+      setMsg({ type:'err', text: t('joinPage.validationError', { min: MIN_PASSWORD_LENGTH }) });
       return;
     }
     setSaving(true);
@@ -50,7 +51,7 @@ export default function JoinPage({ code }) {
             className="pm-input" style={{ width:'100%', boxSizing:'border-box' }} />
         </div>
         <div style={{ marginBottom:'0.75rem' }}>
-          <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>{t('joinPage.passwordMin6')}</label>
+          <label style={{ fontSize:'0.8rem', color:'var(--text-2)', display:'block', marginBottom:'0.2rem' }}>{t('joinPage.passwordMin', { min: MIN_PASSWORD_LENGTH })}</label>
           <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
             className="pm-input" style={{ width:'100%', boxSizing:'border-box' }}
             onKeyDown={e => e.key === 'Enter' && submit()} />

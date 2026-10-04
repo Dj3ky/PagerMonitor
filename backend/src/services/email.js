@@ -1,8 +1,10 @@
 'use strict';
 
-const { getSetting, setSetting } = require('./database');
+const crypto = require('crypto');
+const { getSetting, setSetting, savePasswordReset, consumePasswordReset } = require('./database');
 const logger = require('../utils/logger');
 const { formatTs } = require('../utils/time');
+const { hashToken } = require('../utils/tokens');
 
 const EMAIL_DEFAULTS = {
   enabled:  false,
@@ -97,41 +99,19 @@ async function testEmail(to) {
   });
 }
 
-// ── Password reset tokens (stored in DB settings as a map) ───────────────────
+// ── Password reset tokens (password_resets table, stored hashed) ─────────────
 const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function generateResetToken(userId) {
-  const crypto = require('crypto');
-  const token  = crypto.randomBytes(32).toString('hex');
-  const tokens = getSetting('pw_reset_tokens', {});
-  // Clean expired tokens
-  const now = Date.now();
-  for (const [t, v] of Object.entries(tokens)) {
-    if (now > v.expires) delete tokens[t];
-  }
-  tokens[token] = { userId, expires: now + RESET_TTL_MS };
-  setSetting('pw_reset_tokens', tokens);
+  const token = crypto.randomBytes(32).toString('hex');
+  savePasswordReset(hashToken(token), userId, Date.now() + RESET_TTL_MS);
   return token;
 }
 
-function validateResetToken(token) {
-  const tokens = getSetting('pw_reset_tokens', {});
-  const entry  = tokens[token];
-  if (!entry) return null;
-  if (Date.now() > entry.expires) {
-    delete tokens[token];
-    setSetting('pw_reset_tokens', tokens);
-    return null;
-  }
-  return entry.userId;
-}
-
+// Returns the user id the token was issued for, or null if unknown/expired/already used.
 function consumeResetToken(token) {
-  const tokens = getSetting('pw_reset_tokens', {});
-  const userId = tokens[token]?.userId || null;
-  delete tokens[token];
-  setSetting('pw_reset_tokens', tokens);
-  return userId;
+  if (typeof token !== 'string' || !token) return null;
+  return consumePasswordReset(hashToken(token));
 }
 
 async function sendPasswordReset(user, resetUrl) {
@@ -157,6 +137,6 @@ async function sendPasswordReset(user, resetUrl) {
 module.exports = {
   getEmailConfig, saveEmailConfig,
   sendEmail, testEmail,
-  generateResetToken, validateResetToken, consumeResetToken,
+  generateResetToken, consumeResetToken,
   sendPasswordReset,
 };

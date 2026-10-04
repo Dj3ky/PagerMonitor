@@ -17,7 +17,7 @@ const { getDb, getHistory, searchMessages, getStats, getAliases, upsertAlias, de
 const ICAO24_RE = /^[0-9a-f]{6}$/;
 const { getStatus }      = require('../services/sdr');
 const { getClientCount } = require('../services/websocket');
-const { requireAuth, requireEditor } = require('../services/auth');
+const { requireAuth, requireUser, requireEditor } = require('../services/auth');
 const { getPublicKey, saveSubscription, removeSubscription, listSubscriptions, removeSubscriptionById } = require('../services/webpush');
 const { saveToken: saveFcmToken, removeToken: removeFcmToken, listTokens: listFcmTokens, removeTokenById: removeFcmTokenById, sendTest: sendFcmTest } = require('../services/fcmPush');
 const { getFeedFilter, passesFeedFilter, passesFeedFilterWithConfig, getDongleConfigs } = require('../services/config');
@@ -270,7 +270,7 @@ router.delete('/user-location', requireAuth, (req, res) => {
 });
 
 // Per-user last-seen tracking (requires auth token)
-router.get('/last-seen', requireAuth, (req, res) => {
+router.get('/last-seen', requireUser, (req, res) => {
   try { res.json({ lastSeenId: getLastSeenId(req.session.userId) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -338,7 +338,7 @@ router.get('/archive/stats', requireAuth, (_req, res) => {
 // ── Message notes ─────────────────────────────────────────────────────────────
 const { getMessageNotes, addMessageNote, deleteMessageNote } = require('../services/database');
 
-router.get('/messages/:id/notes', requireAuth, (req, res) => {
+router.get('/messages/:id/notes', requireUser, (req, res) => {
   try {
     const notes = getMessageNotes(parseInt(req.params.id), req.session.userId);
     res.json(notes);
@@ -367,8 +367,8 @@ router.delete('/notes/:id', requireAuth, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Archive CSV export
-router.get('/archive/export', requireAuth, (req, res) => {
+// Archive CSV export — login required even in public mode (bulk download of the archive)
+router.get('/archive/export', requireUser, (req, res) => {
   try {
     const { getArchiveHistory, searchArchive } = require('../services/archive');
     const q    = (req.query.q || '').trim();
@@ -462,7 +462,7 @@ router.delete('/push/fcm-subscribe', requireAuth, (req, res) => {
 
 // Combined "your devices" list for the profile panel — web push + native FCM together,
 // each tagged with its type so the UI can show a platform icon and revoke the right one.
-router.get('/push/devices', requireAuth, (req, res) => {
+router.get('/push/devices', requireUser, (req, res) => {
   try {
     const web = listSubscriptions(req.session.userId).map(d => ({ ...d, type: 'web' }));
     const android = listFcmTokens(req.session.userId).map(d => ({ ...d, type: 'android' }));
