@@ -466,6 +466,14 @@ export default function LiveChannels() {
               {t('liveChannels.auto')} {autoListen ? t('liveChannels.on') : t('liveChannels.off')}
             </button>
           </div>
+          {/* Scrolls on its own once the list outgrows the screen — the panel hangs off the
+              header with no height cap otherwise, so extra channels just ran off the bottom
+              (behind BottomNav on native) with no way to reach them. Budget leaves room for
+              the header, this panel's title row and the 58px BottomNav, plus safe-area insets. */}
+          <div style={{
+            maxHeight:'calc(100dvh - 190px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))',
+            overflowY:'auto', overscrollBehavior:'contain', WebkitOverflowScrolling:'touch',
+          }}>
           {channels.map(ch => {
             const isActive = playingId === ch.id;
             const chStatus = isActive ? status : null;
@@ -515,6 +523,7 @@ export default function LiveChannels() {
               </div>
             );
           })}
+          </div>
         </div>
       )}
     </div>
