@@ -53,6 +53,11 @@ export default function App() {
   const [showProfile, setShowProfile]   = useState(false);
   const [resetToken]                    = useState(() => new URLSearchParams(window.location.search).get('reset'));
   const [inviteCode]                    = useState(() => new URLSearchParams(window.location.search).get('invite'));
+  // Drop the reset token from the address bar as soon as it's been read into state, so it
+  // doesn't linger in browser history (it's single-use, but still valid until submitted).
+  useEffect(() => {
+    if (resetToken) window.history.replaceState({}, '', window.location.pathname);
+  }, [resetToken]);
 
   const { messages, wsStatus, sdrStatus, prependHistory, appendHistory, removeMessage } = useWebSocket(BACKEND_URL);
 

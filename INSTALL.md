@@ -213,7 +213,9 @@ Edit `backend/.env` (native) or `.env` (Docker):
 | `MULTIMON_PROTOCOLS` | `POCSAG1200` | Space-separated: `POCSAG512 POCSAG1200 FLEX` |
 | `MULTIMON_POCSAG_CHARSET` | _(empty)_ | Charset: `US` (default), `FR`, `DE`, `SE`, `DK`, `SI` |
 | `LOG_LEVEL` | `info` | `error` / `warn` / `info` / `debug` |
-| `DEFAULT_ADMIN_PASS` | _(random)_ | First-run admin password. If unset, a random password is generated and printed to the startup log. |
+| `DEFAULT_ADMIN_PASS` | _(random)_ | First-run admin password (min. 10 characters). If unset or shorter, a random password is generated and printed to the startup log. |
+| `TRUST_PROXY` | `loopback, linklocal, uniquelocal` | Which reverse proxies may set `X-Forwarded-For`, so the login rate limits see the real client IP. The default trusts proxies on the same host or a private network (nginx, Docker bridge). `true`/`false`, a hop count, or an address/subnet list |
+| `CORS_ORIGINS` | `https://localhost,capacitor://localhost` | Comma-separated origins allowed to call the API cross-origin. The web UI is same-origin and needs no entry; the default covers the Android/iOS app. Add an origin only if another site must call this server |
 | `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` | _(unset)_ | Optional OpenSky Network OAuth2 credentials for the Aircraft Tracking map — raises the poll rate from 5 min (anonymous, 400 credits/day) to 1 min (4000 credits/day). Can also be set in Admin → Site → Aircraft Tracking |
 | `NAP_B2B_USER` / `NAP_B2B_PASS` | _(unset)_ | NAP (b2b.nap.si) B2B account credentials for the Traffic map (DARS/DRSI cameras, roadworks, VMS signs). Layer stays empty without them. Can also be set in Admin → Site → Traffic Data (NAP) |
 
@@ -455,8 +457,10 @@ in single mode but fails to bring SDR up at all in multi mode is the telltale sy
 - Global filter (Admin → Notifications → Services) applies only to Discord, Telegram, Gotify, Pushover, and MQTT
 
 **Password reset**
-- "Forgot password" on login page → email with reset link (1 hour expiry)
-- Requires email configured in Admin → Email and email set on user account
+- "Forgot password" on login page → email with reset link (1 hour expiry, single use)
+- Requires email configured in Admin → Email, email set on user account, and the
+  **Public URL** set in Admin → Site settings (the `https://` address users reach the
+  server at — reset links are built from it, never from the request's headers)
 
 **Archive**
 - Messages older than N hours auto-moved to `archive.db`

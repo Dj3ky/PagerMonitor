@@ -1,28 +1,23 @@
 const express = require('express');
 const router  = express.Router();
-const { register, login, destroySession, requireAuth, requireAdmin, requirePlatformAdmin,
-        changePassword, adminSetPassword } = require('../services/auth');
+const { register, prepareNewUser, login, destroySession, requireAuth, requireAdmin, requirePlatformAdmin,
+        changePassword, adminSetPassword, manageUserError, extractToken, MIN_PASSWORD_LENGTH } = require('../services/auth');
+const { loginLimiters, forgotPasswordLimiters, resetPasswordLimiter, joinLimiter } = require('../utils/rateLimits');
 const {
   getUsers, getUserById, countUsers, deleteUser, updateUserRole, updateUserEmail, setUserOrg,
-  setUserPlatformAdmin, getInviteByCode, consumeInvite, addAuditLog, getDb, getOrganization,
-  updateUserUiLanguage,
+  setUserPlatformAdmin, getInviteByCode, inviteError, createUserFromInvite, addAuditLog, getDb, getOrganization,
+  updateUserUiLanguage, getSetting,
 } = require('../services/database');
 const logger = require('../utils/logger');
 
-// A caller may manage a target user if they're platform admin (any user, any org) or
-// the target belongs to their own org. Org-admins can never reach another org's users
-// even by guessing an id.
-function ownsUser(req, targetId) {
-  if (req.session.isPlatformAdmin) return true;
-  const target = getUserById(targetId);
-  return !!target && target.org_id === req.session.orgId;
-}
 
 // POST /auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiters, async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'username and password required' });
+    }
     const result = await login(username, password);
     res.json(result);
   } catch (e) {
@@ -35,23 +30,19 @@ router.post('/login', async (req, res) => {
 // Public (no auth) — mirrors /auth/login's response shape so the frontend reuses its existing
 // post-login flow. A future self-service /auth/signup (creates a fresh org instead of joining
 // an existing one) would share this same "create user + create session" tail.
-router.post('/join', async (req, res) => {
+router.post('/join', joinLimiter, async (req, res) => {
   try {
     const { code, username, password, email } = req.body;
-    if (!code) return res.status(400).json({ error: 'Invite code required' });
-    const invite = getInviteByCode(code);
-    if (!invite) return res.status(400).json({ error: 'Invalid invite code' });
-    if (invite.revoked) return res.status(400).json({ error: 'This invite has been revoked' });
-    if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
-      return res.status(400).json({ error: 'This invite has expired' });
-    }
-    if (invite.max_uses > 0 && invite.use_count >= invite.max_uses) {
-      return res.status(400).json({ error: 'This invite has reached its usage limit' });
-    }
+    if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Invite code required' });
+    // Early check for a friendly error before spending time on the password hash; the
+    // authoritative re-check happens inside createUserFromInvite's transaction.
+    const pending = getInviteByCode(code);
+    const invalid = inviteError(pending);
+    if (invalid) return res.status(400).json({ error: invalid });
 
-    const id = await register(username, password, invite.role, invite.org_id);
-    if (email) updateUserEmail(id, email);
-    consumeInvite(code, id); // atomic re-check + increment, guards the max_uses race
+    const hash = await prepareNewUser(username, password, pending.role);
+    const { userId, invite } = createUserFromInvite(code, username, hash, email);
+    logger.info(`User registered via invite: ${username} (${invite.role}, org=${invite.org_id}, id=${userId})`);
     addAuditLog(username, 'user.join_via_invite', `invite_id=${invite.id}`, invite.org_id);
 
     const result = await login(username, password);
@@ -61,8 +52,7 @@ router.post('/join', async (req, res) => {
 
 // POST /auth/logout
 router.post('/logout', requireAuth, (req, res) => {
-  const token = (req.headers['authorization'] || '').replace('Bearer ', '');
-  destroySession(token);
+  destroySession(extractToken(req));
   res.json({ ok: true });
 });
 
@@ -82,7 +72,11 @@ router.get('/me', requireAuth, (req, res) => {
 router.post('/change-password', requireAuth, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
-    await changePassword(req.session.userId, oldPassword, newPassword);
+    if (typeof oldPassword !== 'string' || typeof newPassword !== 'string') {
+      return res.status(400).json({ error: 'Current and new password required' });
+    }
+    // Every other session of this user is logged out; the one making the change stays.
+    await changePassword(req.session.userId, oldPassword, newPassword, extractToken(req));
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -115,7 +109,9 @@ router.get('/users', requireAdmin, (req, res) => {
 router.put('/users/:id/role', requireAdmin, (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (!ownsUser(req, id)) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
+    const denied = manageUserError(req.session, getUserById(id));
+    if (denied) return res.status(denied.status).json({ error: denied.error });
+    if (!['admin', 'editor', 'viewer'].includes(req.body.role)) return res.status(400).json({ error: 'Role must be admin, editor or viewer' });
     updateUserRole(id, req.body.role);
     addAuditLog(req.session.username, 'user.role_change', `id=${id} role=${req.body.role}`, req.session.orgId);
     res.json({ ok: true });
@@ -156,7 +152,8 @@ router.put('/users/:id/platform-admin', requirePlatformAdmin, (req, res) => {
 router.post('/users/:id/reset-password', requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (!ownsUser(req, id)) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
+    const denied = manageUserError(req.session, getUserById(id));
+    if (denied) return res.status(denied.status).json({ error: denied.error });
     await adminSetPassword(id, req.body.password);
     addAuditLog(req.session.username, 'user.password_reset', `id=${id}`, req.session.orgId);
     res.json({ ok: true });
@@ -168,8 +165,13 @@ router.delete('/users/:id', requireAdmin, (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (id === req.session.userId) return res.status(400).json({ error: 'Cannot delete yourself' });
-    if (!ownsUser(req, id)) return res.status(403).json({ error: 'Cannot manage a user outside your organization' });
     const target = getUserById(id);
+    const denied = manageUserError(req.session, target);
+    if (denied) return res.status(denied.status).json({ error: denied.error });
+    if (target.is_platform_admin) {
+      const remaining = getDb().prepare('SELECT COUNT(*) as n FROM users WHERE is_platform_admin = 1 AND id != ?').get(id).n;
+      if (remaining === 0) return res.status(400).json({ error: 'Cannot delete the last platform admin' });
+    }
     deleteUser(id);
     addAuditLog(req.session.username, 'user.delete', `id=${id} username=${target?.username || '?'}`, req.session.orgId);
     res.json({ ok: true });
@@ -222,20 +224,27 @@ router.put('/me/notif-prefs', requireAuth, (req, res) => {
 });
 
 // POST /auth/forgot-password — request reset email
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordLimiters, async (req, res) => {
   try {
     const { username } = req.body;
-    if (!username) return res.status(400).json({ error: 'username required' });
+    if (!username || typeof username !== 'string') return res.status(400).json({ error: 'username required' });
     const { getUserByUsername } = require('../services/database');
     const { generateResetToken, sendPasswordReset, getEmailConfig } = require('../services/email');
     const cfg = getEmailConfig();
     if (!cfg.enabled) return res.status(503).json({ error: 'Email not configured on this server' });
+    // Reset links are built from the admin-configured public URL only — never from the
+    // request's Origin/Host headers, which the requester controls (an attacker could
+    // otherwise make a victim's genuine reset email point at a domain they own).
+    const publicUrl = getSetting('site_settings', {}).publicUrl || '';
+    if (!publicUrl) {
+      logger.warn('Password reset requested, but no public URL is configured (Admin → Site settings)');
+      return res.status(503).json({ error: 'Password reset is not available — the server has no public URL configured' });
+    }
     const user = getUserByUsername(username);
     // Always return ok to avoid user enumeration
     if (user?.email) {
       const token = generateResetToken(user.id);
-      const baseUrl = req.headers.origin || `http://${req.headers.host}`;
-      const resetUrl = `${baseUrl}/?reset=${token}`;
+      const resetUrl = `${publicUrl}/?reset=${token}`;
       await sendPasswordReset(user, resetUrl).catch(e => logger.warn(`Reset email failed: ${e.message}`));
     }
     res.json({ ok: true, message: 'If this account exists and has an email, a reset link has been sent.' });
@@ -243,11 +252,12 @@ router.post('/forgot-password', async (req, res) => {
 });
 
 // POST /auth/reset-password — consume token, set new password
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
   try {
     const { token, password } = req.body;
-    if (!token || !password) return res.status(400).json({ error: 'token and password required' });
-    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (!token || !password || typeof password !== 'string') return res.status(400).json({ error: 'token and password required' });
+    // Checked before the token is consumed, so a too-short password doesn't burn the link
+    if (password.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
     const { consumeResetToken } = require('../services/email');
     const userId = consumeResetToken(token);
     if (!userId) return res.status(400).json({ error: 'Invalid or expired reset link' });

@@ -21,6 +21,7 @@ const { recordClientMessage, recordClientPing, recordClientOffline, getClientCon
 const { getVoiceChannelById } = require('../services/database');
 const logger                    = require('../utils/logger');
 const dedup                     = require('../services/dedup');
+const { safeEqual }             = require('../utils/tokens');
 
 // Auth middleware — verify X-Client-Key
 function requireClientKey(req, res, next) {
@@ -30,7 +31,7 @@ function requireClientKey(req, res, next) {
     return res.status(403).json({ error: 'Client ingestion not enabled — set CLIENT_KEY in server settings' });
   }
   const provided = req.headers['x-client-key'] || '';
-  if (provided !== clientKey) {
+  if (!safeEqual(provided, clientKey)) {
     logger.warn(`Client auth failed from ${req.ip} — bad key`);
     return res.status(401).json({ error: 'Invalid client key' });
   }

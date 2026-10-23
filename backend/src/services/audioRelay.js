@@ -19,6 +19,7 @@
 
 const { WebSocketServer, WebSocket } = require('ws');
 const { parse } = require('url');
+const { safeEqual } = require('../utils/tokens');
 const logger = require('../utils/logger');
 
 const FRAME_HEADER_BYTES = 4;
@@ -403,7 +404,7 @@ function initAudioSourceWs(server) {
     const clientKey = getSetting('client_key', null);
     const providedKey = req.headers['x-client-key'] || '';
     const clientId     = req.headers['x-client-id'] || '';
-    if (!clientKey || providedKey !== clientKey || !clientId) {
+    if (!clientKey || !safeEqual(providedKey, clientKey) || !clientId) {
       try { ws.close(4001, 'Unauthorized'); } catch (_) {}
       return;
     }

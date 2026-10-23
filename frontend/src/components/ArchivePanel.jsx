@@ -4,6 +4,7 @@ import { usePtrScroll } from '../hooks/usePtrScroll.js';
 import { Archive, Search, X, RefreshCw, Download } from 'lucide-react';
 import MessageRow from './MessageRow.jsx';
 import { useSite } from '../context/SiteContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const tok  = () => localStorage.getItem('pm_token') || '';
@@ -18,6 +19,7 @@ function fmtDate(ts, locale) {
 export default function ArchivePanel({ highlightRules = [], groups = [] }) {
   const { t } = useTranslation();
   const { locale } = useSite();
+  const { user } = useAuth();
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState([]);
   const [stats, setStats]     = useState(null);
@@ -81,6 +83,7 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
       : `${BASE}/api/archive/export`;
     try {
       const r    = await fetch(url, { headers: authHeaders() });
+      if (!r.ok) return;
       const blob = await r.blob();
       const a    = document.createElement('a');
       a.href     = URL.createObjectURL(blob);
@@ -131,11 +134,14 @@ export default function ArchivePanel({ highlightRules = [], groups = [] }) {
               <X size={12}/>
             </button>
           )}
-          <button className="pm-btn" onClick={downloadCsv}
-            title={query ? t('archivePanel.exportSearchCsv') : t('archivePanel.exportAllCsv')}
-            style={{ flexShrink:0, height:'30px' }}>
-            <Download size={12}/>
-          </button>
+          {/* CSV export needs a login, even in public mode */}
+          {!user?.isGuest && (
+            <button className="pm-btn" onClick={downloadCsv}
+              title={query ? t('archivePanel.exportSearchCsv') : t('archivePanel.exportAllCsv')}
+              style={{ flexShrink:0, height:'30px' }}>
+              <Download size={12}/>
+            </button>
+          )}
         </div>
       </div>
 

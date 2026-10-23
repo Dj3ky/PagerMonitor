@@ -4,6 +4,7 @@ const fs   = require('fs');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 const { buildDongleSourceId } = require('../utils/dongleSource');
+const { hashToken } = require('../utils/tokens');
 
 const DB_PATH = process.env.DB_PATH || './data/pagermonitor.db';
 let db;
@@ -149,15 +150,6 @@ function initDb() {
       enabled INTEGER NOT NULL DEFAULT 1,
       secret  TEXT
     );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      token    TEXT    PRIMARY KEY,
-      user_id  INTEGER NOT NULL,
-      username TEXT    NOT NULL,
-      role     TEXT    NOT NULL,
-      expires  INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires);
   `);
 
   _migrate();
@@ -300,12 +292,44 @@ function _migrate() {
     db.exec('ALTER TABLE webhooks ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE');
     logger.info('Migration: added org_id to webhooks');
   }
-  const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all().map(c => c.name);
-  if (!sessionColumns.includes('org_id')) {
-    db.exec('ALTER TABLE sessions ADD COLUMN org_id INTEGER');
-    db.exec('ALTER TABLE sessions ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0');
-    logger.info('Migration: added org_id/is_platform_admin to sessions');
+  // Sessions — keyed by the SHA-256 of the bearer token instead of the raw token, and
+  // holding only the user id: role/org/platform-admin are read live from users on every
+  // request (see getSessionUser), so changes take effect immediately. Replaces the legacy
+  // `sessions` table; its active sessions are carried over hashed, so nobody is logged out.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token_hash TEXT    PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires    INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires);
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user    ON auth_sessions(user_id);
+  `);
+  if (tables.includes('sessions')) {
+    const rows = db.prepare('SELECT token, user_id, expires FROM sessions WHERE expires > ? AND user_id IN (SELECT id FROM users)').all(Date.now());
+    const insert = db.prepare('INSERT OR IGNORE INTO auth_sessions (token_hash, user_id, expires) VALUES (?, ?, ?)');
+    db.transaction(() => {
+      for (const r of rows) insert.run(hashToken(r.token), r.user_id, r.expires);
+      db.exec('DROP TABLE sessions');
+    })();
+    logger.info(`Migration: moved ${rows.length} active session(s) to auth_sessions (tokens now stored hashed)`);
   }
+
+  // Password reset tokens — previously a JSON map in settings.pw_reset_tokens holding the
+  // raw tokens. Only the SHA-256 digest is stored now; any outstanding legacy tokens are
+  // dropped rather than migrated (they were valid for an hour at most anyway).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      token_hash TEXT    PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires    INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+  `);
+  if (db.prepare("DELETE FROM settings WHERE key = 'pw_reset_tokens'").run().changes) {
+    logger.info('Migration: dropped legacy plaintext password reset tokens');
+  }
+
   const auditColumns = db.prepare("PRAGMA table_info(audit_log)").all().map(c => c.name);
   if (!auditColumns.includes('org_id')) {
     db.exec('ALTER TABLE audit_log ADD COLUMN org_id INTEGER');
@@ -1031,19 +1055,31 @@ function getInviteByCode(code) { return getDb().prepare('SELECT * FROM invites W
 function listInvites(orgId) { return getDb().prepare('SELECT * FROM invites WHERE org_id=? ORDER BY id DESC').all(orgId); }
 function revokeInvite(id, orgId) { return getDb().prepare('UPDATE invites SET revoked=1 WHERE id=? AND org_id=?').run(id, orgId).changes; }
 
-// Atomic check-and-consume so two people racing the last use of a max_uses-limited
-// invite can't both succeed.
-function consumeInvite(code, userId) {
+// Why an invite row can't be used (null if it can).
+function inviteError(invite) {
+  if (!invite) return 'Invalid invite code';
+  if (invite.revoked) return 'This invite has been revoked';
+  if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) return 'This invite has expired';
+  if (invite.max_uses > 0 && invite.use_count >= invite.max_uses) return 'This invite has reached its usage limit';
+  return null;
+}
+
+// All-or-nothing: re-checks the invite, creates the user in its org/role and records the
+// use in one transaction — two people racing the last use of a max_uses-limited invite
+// can't both get an account, and a failed signup (e.g. username taken) doesn't use it up.
+function createUserFromInvite(code, username, passwordHash, email) {
   const d = getDb();
   return d.transaction(() => {
     const invite = d.prepare('SELECT * FROM invites WHERE code=?').get(code);
-    if (!invite) throw new Error('Invalid invite code');
-    if (invite.revoked) throw new Error('This invite has been revoked');
-    if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) throw new Error('This invite has expired');
-    if (invite.max_uses > 0 && invite.use_count >= invite.max_uses) throw new Error('This invite has reached its usage limit');
+    const invalid = inviteError(invite);
+    if (invalid) throw new Error(invalid);
+    let userId;
+    try { userId = createUser(username, passwordHash, invite.role, invite.org_id); }
+    catch (e) { if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') throw new Error('Username already taken'); throw e; }
+    if (email) updateUserEmail(userId, email);
     d.prepare('UPDATE invites SET use_count = use_count + 1 WHERE id=?').run(invite.id);
     d.prepare('INSERT INTO invite_uses (invite_id, user_id) VALUES (?, ?)').run(invite.id, userId);
-    return invite;
+    return { userId, invite };
   })();
 }
 
@@ -1400,15 +1436,48 @@ function getStats() {
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
-function saveDbSession(token, userId, username, role, expires, orgId, isPlatformAdmin) {
-  getDb().prepare('INSERT OR REPLACE INTO sessions (token,user_id,username,role,expires,org_id,is_platform_admin) VALUES (?,?,?,?,?,?,?)')
-    .run(token, userId, username, role, expires, orgId ?? null, isPlatformAdmin ? 1 : 0);
+function saveDbSession(tokenHash, userId, expires) {
+  getDb().prepare('INSERT INTO auth_sessions (token_hash, user_id, expires) VALUES (?, ?, ?)').run(tokenHash, userId, expires);
 }
-function deleteDbSession(token) {
-  getDb().prepare('DELETE FROM sessions WHERE token=?').run(token);
+function deleteDbSession(tokenHash) {
+  getDb().prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(tokenHash);
 }
-function loadActiveSessions() {
-  return getDb().prepare('SELECT * FROM sessions WHERE expires > ?').all(Date.now());
+// Every session of a user, optionally keeping one (the caller's own, e.g. after changing
+// their own password). Returns how many were revoked.
+function deleteUserSessions(userId, exceptTokenHash = null) {
+  return getDb().prepare('DELETE FROM auth_sessions WHERE user_id = ? AND token_hash IS NOT ?').run(userId, exceptTokenHash).changes;
+}
+// The session's expiry joined with the user's *current* row — authorization always uses
+// live role/org/platform-admin values, never a snapshot taken at login.
+function getSessionUser(tokenHash) {
+  return getDb().prepare(`
+    SELECT s.expires, u.id, u.username, u.role, u.org_id, u.is_platform_admin
+    FROM auth_sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token_hash = ?
+  `).get(tokenHash);
+}
+
+// ── Password resets ───────────────────────────────────────────────────────────
+function savePasswordReset(tokenHash, userId, expires) {
+  const d = getDb();
+  d.prepare('DELETE FROM password_resets WHERE expires <= ?').run(Date.now());
+  d.prepare('INSERT INTO password_resets (token_hash, user_id, expires) VALUES (?, ?, ?)').run(tokenHash, userId, expires);
+}
+// Single-use: a successful lookup also burns every other outstanding reset link for the
+// same user, so an older email can't be used after the password has already been reset.
+// Returns the user id, or null if the token is unknown or expired.
+function consumePasswordReset(tokenHash) {
+  const d = getDb();
+  return d.transaction(() => {
+    const row = d.prepare('SELECT user_id, expires FROM password_resets WHERE token_hash = ?').get(tokenHash);
+    if (!row) return null;
+    if (Date.now() > row.expires) {
+      d.prepare('DELETE FROM password_resets WHERE token_hash = ?').run(tokenHash);
+      return null;
+    }
+    d.prepare('DELETE FROM password_resets WHERE user_id = ?').run(row.user_id);
+    return row.user_id;
+  })();
 }
 function upsertUserLocation(userId, username, lat, lng) {
   getDb().prepare(`
@@ -1444,7 +1513,7 @@ function deleteUserLocation(userId) {
 }
 
 function pruneExpiredSessions() {
-  getDb().prepare('DELETE FROM sessions WHERE expires <= ?').run(Date.now());
+  getDb().prepare('DELETE FROM auth_sessions WHERE expires <= ?').run(Date.now());
 }
 
 module.exports = {
@@ -1455,7 +1524,7 @@ module.exports = {
   getAliases, upsertAlias, deleteAlias, bulkUpsertAliases, getAliasNameForCapcode,
   getSetting, setSetting,
   createOrganization, getOrganizations, getOrganization, renameOrganization, deleteOrganization,
-  createInvite, getInviteByCode, listInvites, revokeInvite, consumeInvite,
+  createInvite, getInviteByCode, listInvites, revokeInvite, inviteError, createUserFromInvite,
   getUsers, getUserById, getUserByUsername, createUser, updateUserPassword, updateUserRole, updateUserEmail,
   updateUserUiLanguage,
   deleteUser, touchUserLogin, countUsers, setUserOrg, setUserPlatformAdmin,
@@ -1472,7 +1541,8 @@ module.exports = {
   addAuditLog, getAuditLog,
   getStats,
   getMessageNotes, addMessageNote, deleteMessageNote, getNoteCounts,
-  saveDbSession, deleteDbSession, loadActiveSessions, pruneExpiredSessions,
+  saveDbSession, deleteDbSession, deleteUserSessions, getSessionUser, pruneExpiredSessions,
+  savePasswordReset, consumePasswordReset,
   upsertUserLocation, getUserLocations, deleteUserLocation, enrichSourceLabels, getLocalDongleLabel,
   getSourceOptions,
 };

@@ -5,7 +5,7 @@ import { useSite } from '../../context/SiteContext.jsx';
 const BASE = import.meta.env.VITE_BACKEND_URL || '';
 const getToken = () => localStorage.getItem('pm_token') || '';
 
-const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, geocodeCountry: '', locale: '', hour12: false, timezone: '', windyApiKey: '' };
+const DEFAULTS = { siteName: 'PagerMonitor', siteDescription: 'Real-time pager decoder', newBadgeSeconds: 10, mapDotColor: '#00ff9d', showMapButton: true, mapMaxAgeDays: 30, publicMode: false, publicUrl: '', geocodeCountry: '', locale: '', hour12: false, timezone: '', windyApiKey: '' };
 
 const TIMEZONES = [
   { value: '', label: '— Not set (use server default) —' },
@@ -66,7 +66,10 @@ async function saveSettings(data) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
     body: JSON.stringify(data),
   });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.error || `HTTP ${r.status}`);
+  }
   return r.json();
 }
 
@@ -90,7 +93,7 @@ export default function SiteSettings({ onResetMap }) {
   const [mapResetDone,  setMapResetDone]  = useState(false);
 
   // Separate state for each block
-  const [siteForm, setSiteForm]         = useState({ siteName: DEFAULTS.siteName, siteDescription: DEFAULTS.siteDescription });
+  const [siteForm, setSiteForm]         = useState({ siteName: DEFAULTS.siteName, siteDescription: DEFAULTS.siteDescription, publicUrl: DEFAULTS.publicUrl });
   const [badgeSeconds, setBadgeSeconds] = useState(DEFAULTS.newBadgeSeconds);
   const [mapDotColor, setMapDotColor]       = useState(DEFAULTS.mapDotColor);
   const [showMapButton, setShowMapButton]   = useState(DEFAULTS.showMapButton);
@@ -123,6 +126,7 @@ export default function SiteSettings({ onResetMap }) {
         setSiteForm({
           siteName:        d.siteName        || DEFAULTS.siteName,
           siteDescription: d.siteDescription || DEFAULTS.siteDescription,
+          publicUrl:       d.publicUrl       || DEFAULTS.publicUrl,
         });
         setBadgeSeconds(d.newBadgeSeconds ?? DEFAULTS.newBadgeSeconds);
         setMapDotColor(d.mapDotColor || DEFAULTS.mapDotColor);
@@ -151,7 +155,7 @@ export default function SiteSettings({ onResetMap }) {
     try {
       await saveSettings(allSettings());
       updateSite(allSettings());
-      flashSite('ok', 'Site name and description saved');
+      flashSite('ok', 'Site name, description and public URL saved');
     } catch (e) { flashSite('err', e.message); }
     finally { setSavingSite(false); }
   };
@@ -242,7 +246,7 @@ export default function SiteSettings({ onResetMap }) {
       {/* ── Block 1: Site name & description ────────────────── */}
       <div className="pm-card" style={{ marginBottom: '1rem' }}>
         <div className="pm-section-title">
-          <Settings2 size={13} /> Page name &amp; description
+          <Settings2 size={13} /> Page name, description &amp; URL
         </div>
 
         <div style={{ marginBottom: '1rem' }}>
@@ -276,11 +280,22 @@ export default function SiteSettings({ onResetMap }) {
           </div>
         </div>
 
+        <div style={{ marginBottom: '1rem' }}>
+          <label className="pm-label">Public URL</label>
+          <input className="pm-input" value={siteForm.publicUrl}
+            onChange={e => setSiteForm(f => ({ ...f, publicUrl: e.target.value }))}
+            placeholder="https://pager.example.com" />
+          <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.3rem' }}>
+            The address users reach this server at — must start with https://. Used for the
+            link in password-reset emails; password reset stays disabled until this is set.
+          </div>
+        </div>
+
         <Flash msg={siteMsg} />
 
         <button className="pm-btn pm-btn-primary" onClick={saveSite}
           disabled={savingSite || !siteForm.siteName.trim()}>
-          <Save size={13} /> {savingSite ? 'Saving…' : 'Save name & description'}
+          <Save size={13} /> {savingSite ? 'Saving…' : 'Save name, description & URL'}
         </button>
       </div>
 
@@ -630,8 +645,9 @@ export default function SiteSettings({ onResetMap }) {
             </div>
           </label>
           <div style={{ fontSize:'0.72rem', color:'var(--text-3)', marginTop:'0.5rem', marginLeft:'1.4rem', lineHeight:1.6 }}>
-            When enabled: the live feed, map, and search are visible without login.
-            Settings panel, user management, and notification settings remain protected.
+            When enabled: the live feed, map, archive, and search are visible without login.
+            Settings panel, user management, notification settings, message notes, and the
+            archive CSV export remain protected.
             Visitors see a <span style={{ color:'var(--accent-blue)' }}>Log in</span> button to access full features.
           </div>
         </div>

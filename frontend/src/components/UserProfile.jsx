@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { User, Save, X, Bell, Lock, Mail, Smartphone, Laptop, Send, Trash2, Tag, Siren, ShieldCheck, ShieldAlert, ChevronRight, ChevronDown, Languages } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { useAuth } from '../context/AuthContext.jsx';
+import { MIN_PASSWORD_LENGTH } from '../utils/password.js';
 
 const isNative = Capacitor.isNativePlatform();
 const AlertChannel = isNative ? registerPlugin('AlertChannel') : null;
@@ -242,11 +243,11 @@ export default function UserProfile({ onClose }) {
 
   const changePassword = async () => {
     if (!pw.current) return flashPw('err', t('userProfile.enterCurrentPassword'));
-    if (pw.next.length < 6) return flashPw('err', t('userProfile.newPasswordTooShort'));
+    if (pw.next.length < MIN_PASSWORD_LENGTH) return flashPw('err', t('userProfile.newPasswordTooShort', { min: MIN_PASSWORD_LENGTH }));
     if (pw.next !== pw.confirm) return flashPw('err', t('userProfile.passwordsMismatch'));
     setPwSaving(true);
     try {
-      const r = await api('POST', '/auth/change-password', { current: pw.current, next: pw.next });
+      const r = await api('POST', '/auth/change-password', { oldPassword: pw.current, newPassword: pw.next });
       if (r.ok) { flashPw('ok', t('userProfile.passwordChanged')); setPw({ current:'', next:'', confirm:'' }); }
       else flashPw('err', r.error || t('userProfile.failed'));
     } catch (e) { flashPw('err', e.message); }
