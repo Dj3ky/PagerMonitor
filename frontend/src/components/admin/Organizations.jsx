@@ -133,10 +133,10 @@ export default function Organizations() {
             ? <div style={{ color:'var(--text-3)', fontSize:'0.82rem' }}>No organizations yet.</div>
             : orgs.map(o => (
               <div key={o.id} style={{ display:'flex', alignItems:'center', gap:'0.6rem', padding:'0.45rem 0',
-                borderBottom:'1px solid var(--border-soft)' }}>
+                borderBottom:'1px solid var(--border-soft)', flexWrap:'wrap' }}>
                 {renaming === o.id ? (
                   <>
-                    <input className="pm-input" style={{ flex:1, fontSize:'0.82rem' }} value={renameValue}
+                    <input className="pm-input" style={{ flex:1, minWidth:'120px', fontSize:'0.82rem' }} value={renameValue}
                       onChange={e => setRenameValue(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleRename(o.id)} autoFocus />
                     <button className="pm-btn" onClick={() => handleRename(o.id)} title="Save"><Save size={13}/></button>
@@ -144,17 +144,19 @@ export default function Organizations() {
                   </>
                 ) : (
                   <>
-                    <span style={{ fontFamily:'monospace', fontSize:'0.85rem', color:'var(--text-1)', flex:1 }}>{o.name}</span>
-                    <span style={{ fontSize:'0.7rem', color:'var(--text-3)', display:'flex', alignItems:'center', gap:'0.25rem' }}>
+                    <span style={{ fontFamily:'monospace', fontSize:'0.85rem', color:'var(--text-1)', flex:1,
+                      minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{o.name}</span>
+                    <span style={{ fontSize:'0.7rem', color:'var(--text-3)', display:'flex', alignItems:'center',
+                      gap:'0.25rem', flexShrink:0 }}>
                       <Users2 size={11}/> {o.user_count} user{o.user_count !== 1 ? 's' : ''}
                     </span>
                     <button onClick={() => startRename(o)} title="Rename"
-                      style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.2rem' }}>
+                      style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:'0.2rem', flexShrink:0 }}>
                       <Pencil size={13}/>
                     </button>
                     <button onClick={() => handleDeleteOrg(o)} disabled={o.user_count > 0}
                       title={o.user_count > 0 ? 'Move or remove all users first' : 'Delete organization'}
-                      style={{ background:'none', border:'none', padding:'0.2rem',
+                      style={{ background:'none', border:'none', padding:'0.2rem', flexShrink:0,
                         cursor: o.user_count > 0 ? 'not-allowed' : 'pointer',
                         color: o.user_count > 0 ? 'var(--border)' : 'var(--accent-red)' }}>
                       <Trash2 size={13}/>
@@ -173,7 +175,7 @@ export default function Organizations() {
           : users.map(u => (
             <div key={u.id} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.45rem 0',
               borderBottom:'1px solid var(--border-soft)', flexWrap:'wrap' }}>
-              <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ flex:1, minWidth:'140px' }}>
                 <div style={{ fontFamily:'monospace', fontSize:'0.85rem', color:'var(--text-1)' }}>
                   {u.username}{u.username === me?.username && <span style={{ fontSize:'0.65rem', color:'var(--accent-green)', marginLeft:'0.4rem' }}>(you)</span>}
                 </div>
@@ -187,12 +189,12 @@ export default function Organizations() {
               </div>
               <select value={u.org_id || ''} onChange={e => handleMove(u.id, e.target.value)}
                 style={{ background:'var(--bg-3)', border:'1px solid var(--border)', color:'var(--text-2)',
-                  borderRadius:'0.35rem', padding:'0.25rem 0.4rem', fontSize:'0.75rem', cursor:'pointer' }}>
+                  borderRadius:'0.35rem', padding:'0.25rem 0.4rem', fontSize:'0.75rem', cursor:'pointer', flexShrink:0 }}>
                 {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
               <button className="pm-btn" onClick={() => handleTogglePlatformAdmin(u)}
                 title={u.is_platform_admin ? 'Revoke platform admin access' : 'Grant platform admin access'}
-                style={{ fontSize:'0.72rem', color: u.is_platform_admin ? 'var(--accent-amber)' : 'var(--text-2)' }}>
+                style={{ fontSize:'0.72rem', color: u.is_platform_admin ? 'var(--accent-amber)' : 'var(--text-2)', flexShrink:0 }}>
                 {u.is_platform_admin ? <><ShieldOff size={12}/> Revoke platform admin</> : <><ShieldCheck size={12}/> Make platform admin</>}
               </button>
             </div>

@@ -284,6 +284,7 @@ export default function AdminPanel({ sdrStatus, serverStatus, onRulesChange, onG
                 boxShadow:'0 8px 20px rgba(0,0,0,0.4)',
                 display:'grid', gridTemplateColumns:'1fr 1fr',
                 gap:'0.2rem', padding:'0.5rem',
+                maxHeight:'calc(100vh - 120px)', overflowY:'auto',
               }}>
                 {visibleTabs.map((t, i) => t.group ? (
                   <div key={`g-${i}`} style={{
